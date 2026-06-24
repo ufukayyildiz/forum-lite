@@ -1,8 +1,8 @@
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useRef } from "react";
 import { Heart, Reply, Pin, Lock, Star, Edit, Trash2, ChevronLeft, ChevronRight, Paperclip } from "lucide-react";
-import { api, type Post } from "../lib/api";
+import { api, type Post, type Thread } from "../lib/api";
 import { DAvatar } from "../components/DAvatar";
 import { useMe } from "../lib/useAuth";
 import { relativeTime, formatDate } from "../lib/utils";
@@ -184,6 +184,7 @@ function PostItem({ post, threadId, page, onQuote }: {
 export default function ThreadPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { data: me } = useMe();
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
@@ -197,11 +198,17 @@ export default function ThreadPage() {
   const replyFileUp = useAttachmentUploader(replyRef, () => reply, setReply);
   const threadFileUp = useAttachmentUploader(threadEditRef, () => editContent, setEditContent);
   const { ask: askThreadConfirm, dialog: threadConfirmDialog } = useConfirm();
+  const threadPreview = (location.state as { threadPreview?: Thread } | null)?.threadPreview;
+  const matchingPreview =
+    threadPreview && id && (String(threadPreview.publicId) === id || String(threadPreview.id) === id)
+      ? threadPreview
+      : undefined;
 
-  const { data: thread, isLoading } = useQuery({
+  const { data: thread, isLoading, isPlaceholderData } = useQuery({
     queryKey: ["thread", id],
     queryFn: () => api.thread(id!),
     enabled: !!id,
+    placeholderData: () => matchingPreview,
   });
   const { data: postsData, isLoading: pLoading } = useQuery({
     queryKey: ["posts", thread?.id, page],
@@ -356,7 +363,7 @@ export default function ThreadPage() {
       <GbToolbar
         crumbs={[
           { label: thread.category.name.toLowerCase(), href: currentCategoryPath },
-          { label: thread.title.slice(0, 36) + (thread.title.length > 36 ? "…" : "") },
+          { label: thread.title },
         ]}
         actions={
           canMod ? (
@@ -444,6 +451,8 @@ export default function ThreadPage() {
                     <button className="gb-btn" style={{ padding: "3px 12px" }} onClick={() => setThreadEditing(false)}>cancel</button>
                   </div>
                 </div>
+              ) : isPlaceholderData && !thread.content ? (
+                <div style={{ color: "var(--gb-gray)", fontSize: 12 }}>$ loading thread...</div>
               ) : (
                 <MarkdownContent content={thread.content || ""} />
               )}

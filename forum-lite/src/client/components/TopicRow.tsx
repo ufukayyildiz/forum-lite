@@ -1,5 +1,7 @@
 import { Link } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { Pin, Lock } from "lucide-react";
+import { api } from "../lib/api";
 import { relativeTime, formatCount } from "../lib/utils";
 import { categoryPath, threadPath } from "../lib/routes";
 import type { Thread } from "../lib/api";
@@ -11,7 +13,17 @@ interface Props {
 }
 
 export function TopicRow({ thread, showCategory = true, lineNum }: Props) {
+  const qc = useQueryClient();
   const catColor = thread.category.color ?? "var(--gb-fg4)";
+  const path = threadPath(thread);
+  const routeId = String(thread.publicId ?? thread.id);
+  const prefetchThread = () => {
+    qc.prefetchQuery({
+      queryKey: ["thread", routeId],
+      queryFn: () => api.thread(routeId),
+    }).catch(() => undefined);
+  };
+
   return (
     <tr>
       <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, width: 48, userSelect: "none", fontSize: 12 }}>{lineNum}</td>
@@ -23,8 +35,11 @@ export function TopicRow({ thread, showCategory = true, lineNum }: Props) {
       <td style={{ minWidth: 0, paddingRight: 12 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <Link
-            to={threadPath(thread)}
+            to={path}
+            state={{ threadPreview: thread }}
             className="gb-col-name"
+            onFocus={prefetchThread}
+            onPointerEnter={prefetchThread}
             style={{ color: thread.pinned ? "var(--gb-yellow)" : "var(--gb-fg)", fontWeight: thread.pinned ? 600 : 400 }}
           >
             {thread.title}

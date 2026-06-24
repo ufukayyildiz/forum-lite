@@ -46,7 +46,7 @@ export function GbToolbar({ crumbs = [], actions }: Props) {
           <span style={{ color: "var(--gb-purple)", flexShrink: 0 }}>~</span>
           <span className="gb-breadcrumb-sep">/</span>
           {crumbs.map((c, i) => (
-            <span key={i} style={{ display: "flex", alignItems: "center", gap: 3, minWidth: 0, flexShrink: i === crumbs.length - 1 ? 1 : 0 }}>
+            <span key={i} className={`gb-breadcrumb-item${i === crumbs.length - 1 ? " is-current" : ""}`}>
               {c.href
                 ? <Link to={c.href} className="gb-breadcrumb-label" style={{ color: i === crumbs.length - 1 ? "var(--gb-green)" : "var(--gb-blue)" }}>{c.label}</Link>
                 : <span className="gb-breadcrumb-label" style={{ color: i === crumbs.length - 1 ? "var(--gb-green)" : "var(--gb-blue)" }}>{c.label}</span>

@@ -227,11 +227,26 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
   white-space: nowrap;
 }
 .gb-breadcrumb-sep { color: var(--gb-gray); flex-shrink: 0; }
+.gb-breadcrumb-item {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+.gb-breadcrumb-item.is-current {
+  flex: 1 1 auto;
+}
 .gb-breadcrumb-label {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 220px;
+}
+.gb-breadcrumb-item.is-current .gb-breadcrumb-label {
+  min-width: 0;
+  max-width: none;
 }
 .gb-toolbar-actions {
   display: flex;
