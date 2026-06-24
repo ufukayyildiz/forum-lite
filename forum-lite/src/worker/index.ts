@@ -20,6 +20,10 @@ const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 app.use("*", logger());
 app.use("/api/*", cors({ origin: "*" }));
+app.use("/api/*", async (c, next) => {
+  await next();
+  c.header("X-Robots-Tag", "noindex, nofollow");
+});
 app.use("/api/*", withDb);
 app.use("/api/*", loadUser);
 
@@ -130,7 +134,15 @@ app.get("/robots.txt", (c) => {
     [
       "User-agent: *",
       "Allow: /",
-      "Disallow: /api/",
+      "Allow: /api/ads",
+      "Allow: /api/categories",
+      "Allow: /api/members",
+      "Allow: /api/stats",
+      "Allow: /api/tags",
+      "Allow: /api/threads",
+      "Disallow: /api/admin",
+      "Disallow: /api/attachments",
+      "Disallow: /api/auth",
       "Disallow: /admin",
       "Disallow: /admin/",
       "",
