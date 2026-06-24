@@ -674,10 +674,11 @@ function shouldRenderHtml(c: AppContext): boolean {
 function stripFallbackHead(html: string): string {
   return html
     .replace(/<html\s+lang="[^"]*"/i, `<html lang="${HTML_LANG}"`)
-    .replace(/\s*<title>[\s\S]*?<\/title>\s*/i, "\n")
-    .replace(/\s*<meta\s+(?:name|property)="(?:description|robots|application-name|twitter:card|twitter:title|twitter:description|twitter:image|twitter:image:alt|og:site_name|og:type|og:title|og:description|og:url|og:image|og:image:secure_url|og:image:type|og:image:width|og:image:height|og:image:alt|og:locale)"[^>]*>\s*/gi, "\n")
-    .replace(/\s*<meta\s+http-equiv="content-language"[^>]*>\s*/gi, "\n")
-    .replace(/\s*<link\s+rel="canonical"[^>]*>\s*/gi, "\n");
+    .replace(/^[ \t]*<title>[\s\S]*?<\/title>[ \t]*\r?\n?/im, "")
+    .replace(/^[ \t]*<meta\s+(?:name|property)="(?:description|robots|application-name|twitter:card|twitter:title|twitter:description|twitter:image|twitter:image:alt|og:site_name|og:type|og:title|og:description|og:url|og:image|og:image:secure_url|og:image:type|og:image:width|og:image:height|og:image:alt|og:locale)"[^>]*>[ \t]*\r?\n?/gim, "")
+    .replace(/^[ \t]*<meta\s+http-equiv="content-language"[^>]*>[ \t]*\r?\n?/gim, "")
+    .replace(/^[ \t]*<link\s+rel="canonical"[^>]*>[ \t]*\r?\n?/gim, "")
+    .replace(/\n{3,}/g, "\n\n");
 }
 
 function metaHtml(payload: SeoPayload, base: string): string {
@@ -718,7 +719,10 @@ function metaHtml(payload: SeoPayload, base: string): string {
 
 function injectHtml(indexHtml: string, payload: SeoPayload, base: string): string {
   const withCleanHead = stripFallbackHead(indexHtml);
-  const withMeta = withCleanHead.replace("</head>", `    ${metaHtml(payload, base)}\n  </head>`);
+  const seoMeta = metaHtml(payload, base);
+  const withMeta = /<meta\s+name="theme-color"[^>]*>\s*/i.test(withCleanHead)
+    ? withCleanHead.replace(/(<meta\s+name="theme-color"[^>]*>\s*)/i, `$1\n    ${seoMeta}\n`)
+    : withCleanHead.replace("<head>", `<head>\n    ${seoMeta}`);
   const content = payload.contentHtml ?? seoBlock(SITE_NAME, payload.description);
   return withMeta.replace(/<div id="root"><\/div>/, `<div id="root">${content}</div>`);
 }
