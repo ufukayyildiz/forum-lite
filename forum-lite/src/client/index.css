@@ -266,17 +266,18 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
 }
 
 .gb-ad-slot {
-  --gb-ad-inner-max: 116px;
+  --gb-ad-height: 160px;
   display: block;
   width: 100%;
   max-width: 100%;
   margin: 10px 0;
-  padding: 10px 20px;
+  padding: 0 20px;
   border-top: 1px solid var(--gb-bg2);
   border-bottom: 1px solid var(--gb-bg2);
   background: color-mix(in srgb, var(--gb-bg1) 70%, var(--gb-bg) 30%);
-  min-height: 0;
-  max-height: 158px !important;
+  height: var(--gb-ad-height);
+  min-height: var(--gb-ad-height);
+  max-height: var(--gb-ad-height) !important;
   overflow: hidden !important;
   contain: layout paint;
 }
@@ -288,15 +289,17 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
 .gb-ad-slot .adsbygoogle,
 .gb-ad-slot iframe {
   max-width: 100% !important;
-  max-height: var(--gb-ad-inner-max) !important;
-  min-height: 0 !important;
+  height: var(--gb-ad-height) !important;
+  min-height: var(--gb-ad-height) !important;
+  max-height: var(--gb-ad-height) !important;
   overflow: hidden !important;
 }
 
 .gb-ad-slot ins.adsbygoogle,
 .gb-ad-slot .adsbygoogle,
 .gb-ad-slot iframe {
-  height: var(--gb-ad-inner-max) !important;
+  width: 100% !important;
+  height: var(--gb-ad-height) !important;
 }
 
 .gb-post-content blockquote {

@@ -10,7 +10,7 @@ declare global {
 export function AdSlot({ config, index }: { config?: AdsConfig; index: number }) {
   const htmlRef = useRef<HTMLDivElement>(null);
   const html = config?.html?.trim() ?? "";
-  const maxAdInnerHeight = "116px";
+  const adHeight = "160px";
 
   useEffect(() => {
     const mount = htmlRef.current;
@@ -24,19 +24,19 @@ export function AdSlot({ config, index }: { config?: AdsConfig; index: number })
 
     const clampAdSize = () => {
       setCss(mount, "max-width", "100%");
-      setCss(mount, "max-height", maxAdInnerHeight);
-      setCss(mount, "min-height", "0");
+      setCss(mount, "height", adHeight);
+      setCss(mount, "max-height", adHeight);
+      setCss(mount, "min-height", adHeight);
       setCss(mount, "overflow", "hidden");
 
       for (const el of Array.from(mount.querySelectorAll<HTMLElement>("ins.adsbygoogle, .adsbygoogle, iframe"))) {
         setCss(el, "max-width", "100%");
-        setCss(el, "max-height", maxAdInnerHeight);
-        setCss(el, "min-height", "0");
+        setCss(el, "width", "100%");
+        setCss(el, "height", adHeight);
+        setCss(el, "max-height", adHeight);
+        setCss(el, "min-height", adHeight);
         setCss(el, "overflow", "hidden");
         setCss(el, "display", "block");
-        if (el.matches("ins.adsbygoogle, .adsbygoogle, iframe")) {
-          setCss(el, "height", maxAdInnerHeight);
-        }
         if (el instanceof HTMLIFrameElement) {
           el.scrolling = "no";
         }
