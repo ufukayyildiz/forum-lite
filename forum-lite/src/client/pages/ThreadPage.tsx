@@ -82,7 +82,7 @@ function PostItem({ post, threadId, page, onQuote }: {
   const like = useMutation({
     mutationFn: () => api.likePost(post.id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["posts", threadId, page] }),
-    onError: (e: any) => toast.error(e.message ?? "Beğeni başarısız"),
+    onError: (e: any) => toast.error(e.message ?? "Like failed"),
   });
   const update = useMutation({
     mutationFn: () => api.updatePost(post.id, content),

@@ -36,7 +36,7 @@ export default function LoginPage() {
     setResetting(true);
     try {
       const res = await api.resetPassword({ email: resetEmail });
-      toast.success(res.message || "Yeni şifre e-postaya gönderildi");
+      toast.success(res.message || "A new password has been emailed");
       setResetEmail("");
     } catch (e: any) {
       setErr(e.message || "reset failed");

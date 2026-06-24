@@ -84,14 +84,14 @@ export function welcomeEmail(username: string, siteUrl: string) {
 }
 
 export function newPasswordEmail(username: string, password: string, siteUrl: string) {
-  const subject = "Yeni forum sifreniz";
-  const text = `Merhaba ${username},\n\nForum hesabiniz icin yeni sifreniz:\n\n${password}\n\nGiris: ${siteUrl}/login\n\nBu islemi siz baslatmadiysaniz lutfen giris yaptiktan sonra sifrenizi tekrar degistirin.`;
+  const subject = "Your new forum password";
+  const text = `Hi ${username},\n\nYour new forum password is:\n\n${password}\n\nSign in: ${siteUrl}/login\n\nIf you did not request this, sign in and change your password again.`;
   const html = `<!DOCTYPE html><html><body style="font-family:monospace;background:#282828;color:#ebdbb2;padding:24px">
-<h2 style="color:#fabd2f">Yeni sifreniz</h2>
-<p>Merhaba <strong>${username}</strong>, forum hesabiniz icin yeni sifreniz:</p>
+<h2 style="color:#fabd2f">Your new password</h2>
+<p>Hi <strong>${username}</strong>, your new forum password is:</p>
 <p style="font-size:22px;letter-spacing:2px;color:#8ec07c;background:#3c3836;border:1px solid #504945;padding:10px 14px;display:inline-block">${password}</p>
-<p><a href="${siteUrl}/login" style="color:#83a598">Giris yap &rarr;</a></p>
-<p style="color:#928374;font-size:12px">Bu islemi siz baslatmadiysaniz giris yaptiktan sonra sifrenizi tekrar degistirin.</p>
+<p><a href="${siteUrl}/login" style="color:#83a598">Sign in &rarr;</a></p>
+<p style="color:#928374;font-size:12px">If you did not request this, sign in and change your password again.</p>
 </body></html>`;
   return { subject, text, html };
 }

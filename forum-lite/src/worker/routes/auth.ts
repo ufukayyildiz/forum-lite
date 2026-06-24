@@ -23,21 +23,21 @@ const app = new Hono<AppEnv>();
 const registerSchema = z.object({
   username: z
     .string()
-    .min(3, "Kullanıcı adı en az 3 karakter olmalı")
-    .max(12, "Kullanıcı adı en fazla 12 karakter olabilir")
-    .regex(/^[a-z0-9]+$/, "Sadece küçük harf ve rakam (a-z, 0-9)"),
-  email: z.string().email("Geçerli bir e-posta girin"),
-  password: z.string().min(8, "Şifre en az 8 karakter olmalı"),
+    .min(3, "Username must be at least 3 characters")
+    .max(12, "Username can be at most 12 characters")
+    .regex(/^[a-z0-9]+$/, "Use lowercase letters and numbers only (a-z, 0-9)"),
+  email: z.string().email("Enter a valid email address"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
   displayName: z.string().min(2).max(60).optional(),
 });
 
 const loginSchema = z.object({
-  identifier: z.string().min(1, "Kullanıcı adı veya e-posta girin"),
-  password: z.string().min(1, "Şifre girin"),
+  identifier: z.string().min(1, "Enter your username or email"),
+  password: z.string().min(1, "Enter your password"),
 });
 
 const resetPasswordSchema = z.object({
-  email: z.string().email("Geçerli bir e-posta girin"),
+  email: z.string().email("Enter a valid email address"),
 });
 
 const LOGIN_MAX = 10;
@@ -122,7 +122,7 @@ app.post("/register", zValidator("json", registerSchema), async (c) => {
 
   const allowed = await checkRateLimit(db, ip, "register", REGISTER_MAX, REGISTER_WINDOW_SECS);
   if (!allowed) {
-    return c.json({ error: "Çok fazla kayıt denemesi. Lütfen daha sonra tekrar deneyin." }, 429);
+    return c.json({ error: "Too many registration attempts. Please try again later." }, 429);
   }
 
   const body = c.req.valid("json");
@@ -132,7 +132,7 @@ app.post("/register", zValidator("json", registerSchema), async (c) => {
   const existing = await db.query.users.findFirst({
     where: or(eq(schema.users.username, username), eq(schema.users.email, email)),
   });
-  if (existing) return c.json({ error: "Bu kullanıcı adı veya e-posta zaten kullanımda" }, 409);
+  if (existing) return c.json({ error: "That username or email is already in use" }, 409);
 
   const passwordHash = await hashPassword(body.password);
   const publicId = await createUserPublicId(db);
@@ -176,7 +176,7 @@ app.post("/login", zValidator("json", loginSchema), async (c) => {
 
   const allowed = await checkRateLimit(db, ip, "login", LOGIN_MAX, LOGIN_WINDOW_SECS);
   if (!allowed) {
-    return c.json({ error: "Çok fazla giriş denemesi. Lütfen 30 saniye sonra tekrar deneyin." }, 429);
+    return c.json({ error: "Too many login attempts. Please try again in 30 seconds." }, 429);
   }
 
   const body = c.req.valid("json");
@@ -187,9 +187,9 @@ app.post("/login", zValidator("json", loginSchema), async (c) => {
     where: or(eq(schema.users.username, identifierLower), eq(schema.users.email, identifier), eq(schema.users.email, identifierLower)),
   });
   if (!user || !(await verifyPassword(body.password, user.passwordHash))) {
-    return c.json({ error: "Kullanıcı adı veya şifre hatalı" }, 401);
+    return c.json({ error: "Invalid username or password" }, 401);
   }
-  if (user.banned) return c.json({ error: "Hesabınız askıya alınmış" }, 403);
+  if (user.banned) return c.json({ error: "Your account has been suspended" }, 403);
 
   const token = generateToken();
   await db.insert(schema.sessions).values({
@@ -207,7 +207,7 @@ app.post("/reset-password", zValidator("json", resetPasswordSchema), async (c) =
 
   const allowed = await checkRateLimit(db, ip, "reset_password", RESET_MAX, RESET_WINDOW_SECS);
   if (!allowed) {
-    return c.json({ error: "Çok fazla sıfırlama denemesi. Lütfen daha sonra tekrar deneyin." }, 429);
+    return c.json({ error: "Too many password reset attempts. Please try again later." }, 429);
   }
 
   const { email } = c.req.valid("json");
@@ -236,7 +236,7 @@ app.post("/reset-password", zValidator("json", resetPasswordSchema), async (c) =
     }
   }
 
-  return c.json({ ok: true, message: "E-posta sistemde kayıtlıysa yeni şifre gönderildi." });
+  return c.json({ ok: true, message: "If that email exists, a new password has been sent." });
 });
 
 app.post("/logout", async (c) => {

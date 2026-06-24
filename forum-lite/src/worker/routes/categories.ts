@@ -58,7 +58,7 @@ app.get("/:id", async (c) => {
   const cat = await db.query.categories.findFirst({
     where: categoryIdentifierWhere(c.req.param("id")),
   });
-  if (!cat) return c.json({ error: "Kategori bulunamadı" }, 404);
+  if (!cat) return c.json({ error: "Category not found" }, 404);
   return c.json({ ...cat, createdAt: safeISO(cat.createdAt) });
 });
 
@@ -85,7 +85,7 @@ app.patch("/:id", requireRole("admin"), zValidator("json", categoryBody.partial(
   const db = c.get("db");
   const id = Number(c.req.param("id"));
   const [cat] = await db.update(schema.categories).set(body).where(eq(schema.categories.id, id)).returning();
-  if (!cat) return c.json({ error: "Kategori bulunamadı" }, 404);
+  if (!cat) return c.json({ error: "Category not found" }, 404);
   return c.json({ ...cat, createdAt: safeISO(cat.createdAt) });
 });
 

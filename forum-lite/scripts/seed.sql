@@ -9,30 +9,30 @@ INSERT OR IGNORE INTO users
   (public_id, username, email, password_hash, display_name, bio, role, post_count, thread_count, created_at)
 VALUES
   ('194358', 'admin',      'admin@forum.local',   'pbkdf2$100000$dummy$dummy',
-   'Admin',      'Forum yoneticisi. Vim ve terminal tabanli araclar hakkinda her seyi bilirim.',
+   'Admin',      'Forum administrator. I keep the demo instance tidy and test moderation flows.',
    'admin',      42, 15, strftime('%s','now','-30 days')),
-  ('264035', 'vimmer',     'vimmer@forum.local',  'pbkdf2$100000$dummy$dummy',
-   'Vimmer',     'Vim''i her sey icin kullaniyorum. Yazi yazmak, kod gelistirmek, e-posta okumak...',
+  ('264035', 'terminalist','terminal@forum.local','pbkdf2$100000$dummy$dummy',
+   'Terminalist', 'I write, code and read email in terminal-first tools.',
    'moderator',  38, 12, strftime('%s','now','-25 days')),
   ('333712', 'rustacean',  'rust@forum.local',    'pbkdf2$100000$dummy$dummy',
-   'Rustacean',  'Rust ile sistem programlama yapiyorum. Bellek guvenligi hayat kurtarir.',
+   'Rustacean',  'Systems programming, memory safety and practical backend work.',
    'member',     27,  9, strftime('%s','now','-20 days')),
   ('403389', 'linuxuser',  'linux@forum.local',   'pbkdf2$100000$dummy$dummy',
-   'Linux User', 'Arch Linux kullanicisi. BTW.',
+   'Linux User', 'Linux, shells and small reliable tools.',
    'member',     19,  6, strftime('%s','now','-15 days')),
-  ('473066', 'devopsguru', 'devops@forum.local',  'pbkdf2$100000$dummy$dummy',
-   'DevOps Guru','Kubernetes, Docker, CI/CD. Altyapiyi kod olarak yonetiyorum.',
+  ('473066', 'edgebuilder','edge@forum.local',    'pbkdf2$100000$dummy$dummy',
+   'Edge Builder','Cloudflare Workers, D1, R2, CI/CD and infrastructure as code.',
    'member',     11,  4, strftime('%s','now','-10 days'));
 
 -- Categories
 INSERT OR IGNORE INTO categories
   (public_id, name, slug, description, color, icon, position, created_at)
 VALUES
-  ('9932', 'Genel Tartisma', 'genel',      'Her konudan serbest tartisma.',                       '#fabd2f', 'MessageSquare', 0, strftime('%s','now','-30 days')),
-  ('8851', 'Linux & Sistem', 'linux',       'Linux, kabuk betikleri, sistem yonetimi.',            '#83a598', 'Terminal',      1, strftime('%s','now','-30 days')),
-  ('7770', 'Programlama',    'programlama', 'Diller, cerceveler, algoritma tartismalari.',         '#b8bb26', 'Code',          2, strftime('%s','now','-30 days')),
-  ('6689', 'DevOps & Bulut', 'devops',      'CI/CD, konteyner, altyapi yonetimi.',                 '#fe8019', 'Cloud',         3, strftime('%s','now','-30 days')),
-  ('5608', 'Proje Tanitimi', 'projeler',    'Kendi projelerinizi tanitin ve geri bildirim alin.', '#d3869b', 'Rocket',        4, strftime('%s','now','-30 days'));
+  ('9932', 'General',          'general',     'Open discussion for forum members.',                         '#fabd2f', 'MessageSquare', 0, strftime('%s','now','-30 days')),
+  ('8851', 'Linux & Systems',  'linux',       'Linux, shell scripts and system administration.',             '#83a598', 'Terminal',      1, strftime('%s','now','-30 days')),
+  ('7770', 'Programming',      'programming', 'Languages, frameworks, architecture and algorithms.',         '#b8bb26', 'Code',          2, strftime('%s','now','-30 days')),
+  ('6689', 'DevOps & Cloud',   'devops',      'CI/CD, containers, deployments and cloud infrastructure.',    '#fe8019', 'Cloud',         3, strftime('%s','now','-30 days')),
+  ('5608', 'Showcase',         'showcase',    'Share projects and collect feedback from the community.',     '#d3869b', 'Rocket',        4, strftime('%s','now','-30 days'));
 
 -- Tags
 INSERT OR IGNORE INTO tags (name, slug, created_at) VALUES
@@ -52,37 +52,37 @@ INSERT OR IGNORE INTO threads
   (public_id, category_id, user_id, title, slug, content, pinned, featured, views, reply_count, created_at, updated_at, last_post_at)
 VALUES
   ('160616',
-   (SELECT id FROM categories WHERE slug='genel'), (SELECT id FROM users WHERE username='vimmer'),
-   'Vim yapilandirmanizi paylasin', 'vim-yapilandirma',
-   'Herkese merhaba! Bu konuda Vim yapilandirmalarimizi paylasabiliriz. Ben yillardir ayni .vimrc ile calisiyorum ama hala iyilestirme arayisindayim.
+   (SELECT id FROM categories WHERE slug='general'), (SELECT id FROM users WHERE username='terminalist'),
+   'Share your Vim setup', 'share-your-vim-setup',
+   'Hello everyone! This thread is for sharing Vim and terminal editor setups. I have used the same .vimrc for years, but I am still looking for small improvements.
 
-**Benim kurulumum:**
-- Plugin yoneticisi: vim-plug
-- Renk temasi: gruvbox
-- Eklentiler: NERDTree, vim-airline, fzf.vim, coc.nvim
+**My setup:**
+- Plugin manager: vim-plug
+- Color scheme: gruvbox
+- Plugins: NERDTree, vim-airline, fzf.vim, coc.nvim
 
-Sizinki nasil?',
+What does your setup look like?',
    1, 0, 247, 4,
    strftime('%s','now','-20 days'), strftime('%s','now','-2 days'), strftime('%s','now','-2 days')),
 
   ('208887',
-   (SELECT id FROM categories WHERE slug='programlama'), (SELECT id FROM users WHERE username='rustacean'),
-   'Rust ogrenmek icin en iyi kaynaklar', 'rust-ogrenme-kaynaklari',
-   'Rust ogrenmek isteyenler icin bir kaynak listesi hazirladim.
+   (SELECT id FROM categories WHERE slug='programming'), (SELECT id FROM users WHERE username='rustacean'),
+   'Best resources for learning Rust', 'best-resources-for-learning-rust',
+   'I put together a short resource list for people learning Rust.
 
-1. **The Rust Programming Language** (resmi kitap) - ucretsiz online
-2. **Rustlings** - kucuk egzersizler
-3. **Rust by Example** - pratik ornekler
-4. **Zero to Production in Rust** - web uygulamasi gelistirme
+1. **The Rust Programming Language** - the official free book
+2. **Rustlings** - small exercises
+3. **Rust by Example** - practical snippets
+4. **Zero to Production in Rust** - web application development
 
-Siz nereden basladinis?',
+Where did you start?',
    0, 0, 189, 3,
    strftime('%s','now','-18 days'), strftime('%s','now','-3 days'), strftime('%s','now','-3 days')),
 
   ('257158',
-   (SELECT id FROM categories WHERE slug='devops'), (SELECT id FROM users WHERE username='devopsguru'),
-   'Docker imaj boyutunu kucultme teknikleri', 'docker-imaj-boyutu',
-   'Production ortamlarinda Docker imaj boyutu buyuk onem tasir. Kullandigim teknikler:
+   (SELECT id FROM categories WHERE slug='devops'), (SELECT id FROM users WHERE username='edgebuilder'),
+   'Techniques for smaller Docker images', 'techniques-for-smaller-docker-images',
+   'Docker image size matters in production. These are the techniques I use most often:
 
 **Multi-stage build:**
 ```dockerfile
@@ -96,35 +96,35 @@ COPY --from=builder /app/target/release/myapp /usr/local/bin/
 CMD ["myapp"]
 ```
 
-Bu yontemle 1.2 GB imaji 45 MB''ye indirdim.',
+This approach reduced one image from 1.2 GB to 45 MB.',
    0, 1, 312, 5,
    strftime('%s','now','-15 days'), strftime('%s','now','-1 days'), strftime('%s','now','-1 days')),
 
   ('305429',
    (SELECT id FROM categories WHERE slug='linux'), (SELECT id FROM users WHERE username='linuxuser'),
-   'Arch Linux kurulum rehberi 2025', 'arch-linux-kurulum-2025',
-   'Her yil guncelledigim Arch Linux kurulum notlarimi paylasiyorum.
+   'Arch Linux install notes for 2025', 'arch-linux-install-notes-2025',
+   'I update my Arch Linux install notes every year. The archinstall script is much better now, but a manual install is still useful for learning.
 
-**Temel adimlar:**
-1. ISO indir, boot USB hazirla
-2. Disk bolümlendirme (GPT + EFI)
-3. Base sistem kurulumu
-4. Bootloader (systemd-boot oneriyorum)
-5. Kullanici olusturma ve sudo ayarlari',
+**Basic steps:**
+1. Download the ISO and prepare a boot USB
+2. Partition the disk (GPT + EFI)
+3. Install the base system
+4. Configure the bootloader
+5. Create a user and sudo rules',
    0, 0, 156, 2,
    strftime('%s','now','-12 days'), strftime('%s','now','-4 days'), strftime('%s','now','-4 days')),
 
   ('353700',
-   (SELECT id FROM categories WHERE slug='programlama'), (SELECT id FROM users WHERE username='admin'),
-   'TypeScript''te az bilinen ozellikler', 'typescript-az-bilinen-ozellikler',
-   'Gunluk TypeScript kullanimimda cok ise yarayan ama cogu kisinin bilmedigi bazi ozellikler:
+   (SELECT id FROM categories WHERE slug='programming'), (SELECT id FROM users WHERE username='admin'),
+   'Underused TypeScript features', 'underused-typescript-features',
+   'A few TypeScript features have been especially useful in everyday work:
 
 **Template literal types:**
 ```typescript
 type EventName = `on${Capitalize<string>}`;
 ```
 
-**Satisfies operatoru (TS 4.9+):**
+**The satisfies operator (TS 4.9+):**
 ```typescript
 const config = { port: 3000, host: "localhost" } satisfies Record<string, string | number>;
 ```',
@@ -132,88 +132,88 @@ const config = { port: 3000, host: "localhost" } satisfies Record<string, string
    strftime('%s','now','-8 days'), strftime('%s','now','-5 days'), strftime('%s','now','-5 days')),
 
   ('401971',
-   (SELECT id FROM categories WHERE slug='projeler'), (SELECT id FROM users WHERE username='admin'),
-   'Cloudflare Workers ile serverless forum', 'cloudflare-workers-forum',
-   'Bu forumun kendisi Cloudflare Workers uzerinde calisiyor. Gelistirme surecinde ogrendiklerimi paylasmak istedim.
+   (SELECT id FROM categories WHERE slug='showcase'), (SELECT id FROM users WHERE username='admin'),
+   'A serverless forum on Cloudflare Workers', 'serverless-forum-cloudflare-workers',
+   'This forum runs on Cloudflare Workers. A few reasons the architecture works well:
 
-**Neden Workers?**
-- Global edge agi, dusuk gecikme
-- Ucretsiz tier oldukca comert (100k istek/gun)
-- D1 ile SQLite veritabani
-- R2 ile object storage
-- Wrangler ile kolay deploy',
+**Why Workers?**
+- Global edge network and low latency
+- Generous free tier
+- D1 for SQLite-style relational data
+- R2 for object storage
+- Wrangler for straightforward deployments',
    0, 0, 278, 4,
    strftime('%s','now','-5 days'), strftime('%s','now','-1 days'), strftime('%s','now','-1 days'));
 
 -- Posts (replies)
 INSERT OR IGNORE INTO posts (thread_id, user_id, content, like_count, created_at) VALUES
-  (1, (SELECT id FROM users WHERE username='admin'),
-   'Ben de gruvbox kullaniyorum! Buna ek olarak vim-surround ve vim-commentary eklentileri olmadan calisanim artik.',
+  ((SELECT id FROM threads WHERE public_id='160616'), (SELECT id FROM users WHERE username='admin'),
+   'I use gruvbox too. vim-surround and vim-commentary are the two plugins I miss immediately on a clean machine.',
    5, strftime('%s','now','-19 days')),
-  (1, (SELECT id FROM users WHERE username='rustacean'),
-   'Neovim''e gecmeyi dusunuyor musunuz? Lua konfigurasyonu basta karmisik geliyor ama lazy.nvim ile plugin yonetimi cok kolaylasiyor.',
+  ((SELECT id FROM threads WHERE public_id='160616'), (SELECT id FROM users WHERE username='rustacean'),
+   'Are you considering Neovim? Lua config feels strange at first, but lazy.nvim makes plugin management pleasant.',
    8, strftime('%s','now','-18 days')),
-  (1, (SELECT id FROM users WHERE username='linuxuser'),
-   'Benim .vimrc''im 500 satiri gecti, bir turlu Neovim''e tasiyadim. fzf.vim onerisi icin tesekkurler.',
+  ((SELECT id FROM threads WHERE public_id='160616'), (SELECT id FROM users WHERE username='linuxuser'),
+   'My .vimrc passed 500 lines and I still have not moved it to Neovim. This thread may finally motivate me.',
    3, strftime('%s','now','-15 days')),
-  (1, (SELECT id FROM users WHERE username='devopsguru'),
-   'Helix editorunu denemek istiyorum. Built-in LSP destegi varmis, plugin gerekmiyor. Birisi kullaniyor mu?',
+  ((SELECT id FROM threads WHERE public_id='160616'), (SELECT id FROM users WHERE username='edgebuilder'),
+   'I have been testing Helix. Built-in LSP support is refreshing when you want fewer plugins.',
    2, strftime('%s','now','-2 days')),
 
-  (2, (SELECT id FROM users WHERE username='vimmer'),
-   '"Programming Rust" kitabini da oneririm, O''Reilly yayinindan. Ozellikle lifetime ve ownership konularini cok iyi anlatiyor.',
+  ((SELECT id FROM threads WHERE public_id='208887'), (SELECT id FROM users WHERE username='terminalist'),
+   '"Programming Rust" from O''Reilly is also excellent, especially for ownership and lifetime explanations.',
    6, strftime('%s','now','-17 days')),
-  (2, (SELECT id FROM users WHERE username='linuxuser'),
-   'Rust ogrenirken en cok borrow checker ile savastim. Pratik yapinca oturuyor.',
+  ((SELECT id FROM threads WHERE public_id='208887'), (SELECT id FROM users WHERE username='linuxuser'),
+   'The borrow checker was the hardest part for me. It makes more sense once you build a few small tools.',
    4, strftime('%s','now','-16 days')),
-  (2, (SELECT id FROM users WHERE username='admin'),
-   'async/await kismi icin Tokio dokumantasyonu da cok guzel. Mini projeler yaparak ogrenmek en etkili yontem.',
+  ((SELECT id FROM threads WHERE public_id='208887'), (SELECT id FROM users WHERE username='admin'),
+   'Tokio documentation is helpful for async Rust. A tiny CLI tool or web service is the best learning path.',
    7, strftime('%s','now','-3 days')),
 
-  (3, (SELECT id FROM users WHERE username='admin'),
-   'Distroless base imajlari da denemeye deger. Shell bile icermiyorlar, saldiri yuzeyi minimuma iniyor.',
+  ((SELECT id FROM threads WHERE public_id='257158'), (SELECT id FROM users WHERE username='admin'),
+   'Distroless base images are worth testing. Removing shells and package managers shrinks the attack surface.',
    9, strftime('%s','now','-14 days')),
-  (3, (SELECT id FROM users WHERE username='vimmer'),
-   '.dockerignore dosyasini da atlamayin. node_modules, .git, test dosyalari build context''e girmesin.',
+  ((SELECT id FROM threads WHERE public_id='257158'), (SELECT id FROM users WHERE username='terminalist'),
+   'Do not skip .dockerignore. Keeping node_modules, .git and test fixtures out of the build context matters.',
    11, strftime('%s','now','-13 days')),
-  (3, (SELECT id FROM users WHERE username='rustacean'),
-   'cargo-chef ile Rust projelerinde layer cache''leme yapabilirsiniz. Bagimliliklar ayri katmanda, CI sureleri dusuyor.',
+  ((SELECT id FROM threads WHERE public_id='257158'), (SELECT id FROM users WHERE username='rustacean'),
+   'cargo-chef is very good for Rust image caching. Dependencies can live in a separate layer.',
    13, strftime('%s','now','-12 days')),
-  (3, (SELECT id FROM users WHERE username='linuxuser'),
-   'Alpine yerine Debian slim tercih ediyorum artik. musl libc bazen glibc bagimliliklaariyla cakisiyor.',
+  ((SELECT id FROM threads WHERE public_id='257158'), (SELECT id FROM users WHERE username='linuxuser'),
+   'I prefer Debian slim over Alpine now. musl/glibc differences can make debugging harder than expected.',
    8, strftime('%s','now','-11 days')),
-  (3, (SELECT id FROM users WHERE username='devopsguru'),
-   'Buildkit''i etkinlestirmeyi unutmayin: DOCKER_BUILDKIT=1. Paralel build ve gelismis cache ozellikleri.',
+  ((SELECT id FROM threads WHERE public_id='257158'), (SELECT id FROM users WHERE username='edgebuilder'),
+   'Enable BuildKit when you can: DOCKER_BUILDKIT=1. Parallel build and improved cache behavior help a lot.',
    10, strftime('%s','now','-1 days')),
 
-  (4, (SELECT id FROM users WHERE username='vimmer'),
-   'systemd-boot gercekten GRUB''a gore cok daha hizli. EFI stub ile neredeyse aninda gecis.',
+  ((SELECT id FROM threads WHERE public_id='305429'), (SELECT id FROM users WHERE username='terminalist'),
+   'systemd-boot is much simpler than GRUB for many EFI setups. The configuration is easy to read.',
    5, strftime('%s','now','-11 days')),
-  (4, (SELECT id FROM users WHERE username='admin'),
-   'reflector ile mirror listesini guncel tutmayi da ekleyin rehbere. Kurulum hizini ciddi artiriyor.',
+  ((SELECT id FROM threads WHERE public_id='305429'), (SELECT id FROM users WHERE username='admin'),
+   'Add reflector to the guide. A fresh mirror list can make install and update speed dramatically better.',
    4, strftime('%s','now','-4 days')),
 
-  (5, (SELECT id FROM users WHERE username='vimmer'),
-   'Infer utility type''i da cok kullanisli. Zod semasından tip turetmek icin: type User = z.infer<typeof userSchema>',
+  ((SELECT id FROM threads WHERE public_id='353700'), (SELECT id FROM users WHERE username='terminalist'),
+   'The Infer utility type is another good one. It is perfect for deriving types from Zod schemas.',
    7, strftime('%s','now','-7 days')),
-  (5, (SELECT id FROM users WHERE username='linuxuser'),
-   'Discriminated union''lar hakkinda bir sey ekleyebilir misiniz? API response''larini modellemek icin guclu.',
+  ((SELECT id FROM threads WHERE public_id='353700'), (SELECT id FROM users WHERE username='linuxuser'),
+   'Could you add discriminated unions? They are powerful for modeling API responses.',
    3, strftime('%s','now','-6 days')),
-  (5, (SELECT id FROM users WHERE username='rustacean'),
-   'const assertion (as const) da az kullaniliyor. readonly tuple ve literal type''lar icin guzel.',
+  ((SELECT id FROM threads WHERE public_id='353700'), (SELECT id FROM users WHERE username='rustacean'),
+   'Const assertions are underrated too. readonly tuples and literal types become much easier.',
    9, strftime('%s','now','-5 days')),
 
-  (6, (SELECT id FROM users WHERE username='vimmer'),
-   'Workers KV icin de bir konu acabilirsiniz. Session yonetimi icin KV mi D1 mi tercih edersiniz?',
+  ((SELECT id FROM threads WHERE public_id='401971'), (SELECT id FROM users WHERE username='terminalist'),
+   'A Workers KV thread would be useful too. For sessions, would you choose KV or D1?',
    4, strftime('%s','now','-4 days')),
-  (6, (SELECT id FROM users WHERE username='rustacean'),
-   'D1 SQL destegi beklenenden iyi. Drizzle ile birlikte kullaninca guzel bir gelistirme deneyimi sunuyor.',
+  ((SELECT id FROM threads WHERE public_id='401971'), (SELECT id FROM users WHERE username='rustacean'),
+   'D1 SQL support is better than I expected. Drizzle makes the developer experience clean.',
    11, strftime('%s','now','-3 days')),
-  (6, (SELECT id FROM users WHERE username='linuxuser'),
-   'Wrangler 4.x ile local gelistirme cok kolaylasti. D1, R2, KV hepsini local simulate ediyor.',
+  ((SELECT id FROM threads WHERE public_id='401971'), (SELECT id FROM users WHERE username='linuxuser'),
+   'Wrangler 4 local development is smooth. D1, R2 and KV simulation covers most cases before deploy.',
    8, strftime('%s','now','-2 days')),
-  (6, (SELECT id FROM users WHERE username='devopsguru'),
-   'Free tier sinirlari icin Workers Analytics Engine da bakilmaya deger. Basic metrikler toplayabilirsiniz.',
+  ((SELECT id FROM threads WHERE public_id='401971'), (SELECT id FROM users WHERE username='edgebuilder'),
+   'Workers Analytics Engine is worth exploring for lightweight metrics without adding a separate service.',
    6, strftime('%s','now','-1 days'));
 
 -- Thread-Tag associations
@@ -244,7 +244,7 @@ WHERE t.public_id='401971' AND tg.slug='cloudflare';
 -- Settings
 INSERT OR IGNORE INTO settings (key, value) VALUES
   ('forum_title',           'forum-lite'),
-  ('forum_description',     'Cloudflare Workers uzerinde calisan acik kaynak forum yazilimi.'),
+  ('forum_description',     'Open-source forum software running on Cloudflare Workers.'),
   ('registration_open',     'true'),
   ('maintenance_mode',      'false'),
   ('threads_per_page',      '20'),

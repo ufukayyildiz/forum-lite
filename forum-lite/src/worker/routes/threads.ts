@@ -158,16 +158,16 @@ app.get("/featured", async (c) => {
 
 const createBody = z.object({
   categoryId: z.number().int(),
-  title: z.string().min(5, "Başlık en az 5 karakter olmalı").max(200),
-  content: z.string().min(10, "İçerik en az 10 karakter olmalı"),
-  tagIds: z.array(z.number().int()).max(5, "En fazla 5 etiket seçilebilir").optional(),
+  title: z.string().min(5, "Title must be at least 5 characters").max(200),
+  content: z.string().min(10, "Content must be at least 10 characters"),
+  tagIds: z.array(z.number().int()).max(5, "You can select at most 5 tags").optional(),
 });
 
 const updateBody = z.object({
-  title: z.string().min(5, "Başlık en az 5 karakter olmalı").max(200).optional(),
-  content: z.string().min(2, "İçerik en az 2 karakter olmalı").optional(),
+  title: z.string().min(5, "Title must be at least 5 characters").max(200).optional(),
+  content: z.string().min(2, "Content must be at least 2 characters").optional(),
 }).refine((body) => body.title !== undefined || body.content !== undefined, {
-  message: "Güncellenecek alan yok",
+  message: "No fields to update",
 });
 
 app.post("/", requireAuth, zValidator("json", createBody), async (c) => {
@@ -217,7 +217,7 @@ app.get("/:id", async (c) => {
     .where(threadIdentifierWhere(identifier))
     .limit(1);
 
-  if (!rows.length) return c.json({ error: "Konu bulunamadı" }, 404);
+  if (!rows.length) return c.json({ error: "Thread not found" }, 404);
 
   const t = rows[0];
 
@@ -253,7 +253,7 @@ app.patch("/:id", requireRole("admin", "moderator"), zValidator("json", updateBo
   const db = c.get("db");
   const body = c.req.valid("json");
   const thread = await db.query.threads.findFirst({ where: threadIdentifierWhere(c.req.param("id")) });
-  if (!thread) return c.json({ error: "Konu bulunamadı" }, 404);
+  if (!thread) return c.json({ error: "Thread not found" }, 404);
 
   const update: Record<string, unknown> = { updatedAt: new Date() };
   if (body.title !== undefined) {
@@ -274,7 +274,7 @@ app.patch("/:id", requireRole("admin", "moderator"), zValidator("json", updateBo
 app.delete("/:id", requireRole("admin", "moderator"), async (c) => {
   const db = c.get("db");
   const thread = await db.query.threads.findFirst({ where: threadIdentifierWhere(c.req.param("id")) });
-  if (!thread) return c.json({ error: "Konu bulunamadı" }, 404);
+  if (!thread) return c.json({ error: "Thread not found" }, 404);
 
   await db.delete(schema.threads).where(eq(schema.threads.id, thread.id));
   await db
@@ -288,7 +288,7 @@ app.delete("/:id", requireRole("admin", "moderator"), async (c) => {
 app.patch("/:id/pin", requireRole("admin", "moderator"), async (c) => {
   const db = c.get("db");
   const thread = await db.query.threads.findFirst({ where: threadIdentifierWhere(c.req.param("id")) });
-  if (!thread) return c.json({ error: "Bulunamadı" }, 404);
+  if (!thread) return c.json({ error: "Not found" }, 404);
   await db.update(schema.threads).set({ pinned: !thread.pinned }).where(eq(schema.threads.id, thread.id));
   return c.json({ ok: true, pinned: !thread.pinned });
 });
@@ -296,7 +296,7 @@ app.patch("/:id/pin", requireRole("admin", "moderator"), async (c) => {
 app.patch("/:id/lock", requireRole("admin", "moderator"), async (c) => {
   const db = c.get("db");
   const thread = await db.query.threads.findFirst({ where: threadIdentifierWhere(c.req.param("id")) });
-  if (!thread) return c.json({ error: "Bulunamadı" }, 404);
+  if (!thread) return c.json({ error: "Not found" }, 404);
   await db.update(schema.threads).set({ locked: !thread.locked }).where(eq(schema.threads.id, thread.id));
   return c.json({ ok: true, locked: !thread.locked });
 });
@@ -304,7 +304,7 @@ app.patch("/:id/lock", requireRole("admin", "moderator"), async (c) => {
 app.patch("/:id/feature", requireRole("admin", "moderator"), async (c) => {
   const db = c.get("db");
   const thread = await db.query.threads.findFirst({ where: threadIdentifierWhere(c.req.param("id")) });
-  if (!thread) return c.json({ error: "Bulunamadı" }, 404);
+  if (!thread) return c.json({ error: "Not found" }, 404);
   await db.update(schema.threads).set({ featured: !thread.featured }).where(eq(schema.threads.id, thread.id));
   return c.json({ ok: true, featured: !thread.featured });
 });

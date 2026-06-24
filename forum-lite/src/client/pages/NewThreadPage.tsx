@@ -23,7 +23,7 @@ export default function NewThreadPage() {
   const { data: categories } = useQuery({ queryKey: ["categories"], queryFn: api.categories });
   const { data: tags } = useQuery({ queryKey: ["tags"], queryFn: api.tags });
 
-  const defaultCatSlug = sp.get("kategori");
+  const defaultCatSlug = sp.get("categorySlug");
   const defaultCatId = sp.get("category");
   const defaultCat = categories?.find((c) => c.slug === defaultCatSlug || String(c.id) === defaultCatId || c.publicId === defaultCatId);
 

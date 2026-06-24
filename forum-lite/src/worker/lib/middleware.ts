@@ -31,16 +31,16 @@ export const loadUser: MiddlewareHandler<AppEnv> = async (c, next) => {
 };
 
 export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
-  if (!c.get("user")) return c.json({ error: "Giriş yapmanız gerekiyor" }, 401);
+  if (!c.get("user")) return c.json({ error: "You need to sign in" }, 401);
   await next();
 };
 
 export function requireRole(...roles: Array<"admin" | "moderator">): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const user = c.get("user");
-    if (!user) return c.json({ error: "Giriş yapmanız gerekiyor" }, 401);
+    if (!user) return c.json({ error: "You need to sign in" }, 401);
     if (!roles.includes(user.role as "admin" | "moderator")) {
-      return c.json({ error: "Bu işlem için yetkiniz yok" }, 403);
+      return c.json({ error: "You do not have permission for this action" }, 403);
     }
     await next();
   };

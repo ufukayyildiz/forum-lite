@@ -110,7 +110,7 @@ app.get("/:username", async (c) => {
   const user = await db.query.users.findFirst({
     where: eq(schema.users.username, username),
   });
-  if (!user) return c.json({ error: "Üye bulunamadı" }, 404);
+  if (!user) return c.json({ error: "Member not found" }, 404);
 
   const replyQuery = db
     .select({
@@ -178,10 +178,10 @@ app.patch("/:username", requireAuth, zValidator("json", updateBody), async (c) =
   const target = await db.query.users.findFirst({
     where: eq(schema.users.username, username),
   });
-  if (!target) return c.json({ error: "Üye bulunamadı" }, 404);
+  if (!target) return c.json({ error: "Member not found" }, 404);
 
   if (me.id !== target.id && me.role !== "admin") {
-    return c.json({ error: "Bu profili düzenleyemezsiniz" }, 403);
+    return c.json({ error: "You cannot edit this profile" }, 403);
   }
 
   const body = c.req.valid("json");

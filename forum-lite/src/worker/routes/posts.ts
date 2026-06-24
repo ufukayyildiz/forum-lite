@@ -12,7 +12,7 @@ const app = new Hono<AppEnv>();
 app.get("/", async (c) => {
   const db = c.get("db");
   const threadId = Number(c.req.query("threadId"));
-  if (!threadId) return c.json({ error: "threadId gerekli" }, 400);
+  if (!threadId) return c.json({ error: "threadId is required" }, 400);
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
   const perPage = 20;
   const me = c.get("user");
@@ -80,7 +80,7 @@ app.get("/", async (c) => {
 
 const createBody = z.object({
   threadId: z.number().int(),
-  content: z.string().min(2, "En az 2 karakter girin"),
+  content: z.string().min(2, "Enter at least 2 characters"),
 });
 
 app.post("/", requireAuth, zValidator("json", createBody), async (c) => {
@@ -89,8 +89,8 @@ app.post("/", requireAuth, zValidator("json", createBody), async (c) => {
   const body = c.req.valid("json");
 
   const thread = await db.query.threads.findFirst({ where: eq(schema.threads.id, body.threadId) });
-  if (!thread) return c.json({ error: "Konu bulunamadı" }, 404);
-  if (thread.locked && user.role === "member") return c.json({ error: "Bu konu kilitli" }, 403);
+  if (!thread) return c.json({ error: "Thread not found" }, 404);
+  if (thread.locked && user.role === "member") return c.json({ error: "This thread is locked" }, 403);
 
   const now = new Date();
   const [post] = await db
@@ -136,8 +136,8 @@ app.patch("/:id", requireAuth, zValidator("json", z.object({ content: z.string()
   const user = c.get("user")!;
   const id = Number(c.req.param("id"));
   const post = await db.query.posts.findFirst({ where: eq(schema.posts.id, id) });
-  if (!post) return c.json({ error: "Gönderi bulunamadı" }, 404);
-  if (post.userId !== user.id && user.role === "member") return c.json({ error: "Yetkiniz yok" }, 403);
+  if (!post) return c.json({ error: "Post not found" }, 404);
+  if (post.userId !== user.id && user.role === "member") return c.json({ error: "You do not have permission" }, 403);
   const { content } = c.req.valid("json");
   const [updated] = await db
     .update(schema.posts)
@@ -152,8 +152,8 @@ app.delete("/:id", requireAuth, async (c) => {
   const user = c.get("user")!;
   const id = Number(c.req.param("id"));
   const post = await db.query.posts.findFirst({ where: eq(schema.posts.id, id) });
-  if (!post) return c.json({ error: "Gönderi bulunamadı" }, 404);
-  if (post.userId !== user.id && user.role === "member") return c.json({ error: "Yetkiniz yok" }, 403);
+  if (!post) return c.json({ error: "Post not found" }, 404);
+  if (post.userId !== user.id && user.role === "member") return c.json({ error: "You do not have permission" }, 403);
   await db.delete(schema.posts).where(eq(schema.posts.id, id));
   await db
     .update(schema.threads)
@@ -167,7 +167,7 @@ app.post("/:id/like", requireAuth, async (c) => {
   const user = c.get("user")!;
   const id = Number(c.req.param("id"));
   const post = await db.query.posts.findFirst({ where: eq(schema.posts.id, id) });
-  if (!post) return c.json({ error: "Gönderi bulunamadı" }, 404);
+  if (!post) return c.json({ error: "Post not found" }, 404);
 
   const existing = await db.query.likes.findFirst({
     where: and(eq(schema.likes.postId, id), eq(schema.likes.userId, user.id)),

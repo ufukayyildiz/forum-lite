@@ -1,441 +1,414 @@
 # forum-lite
 
-Cloudflare Workers + D1 + R2 üzerinde çalışan, sunucusuz, tam özellikli forum yazılımı.  
-VM yok, sunucu yok — her şey Cloudflare'in edge altyapısında çalışır.
+**A serverless, SEO-ready forum engine for Cloudflare Workers, D1, R2 and React.**
 
-> Gruvbox Dark tasarım sistemi — yoğun monospace tablolar, satır numaralı listeler, vim-style arayüz.
+forum-lite is a compact open-source forum that runs as a single Cloudflare Worker. It ships the React frontend, Hono API, D1 database schema, optional R2 attachments, optional Cloudflare Email, admin tools, ads, sitemaps, dynamic Open Graph images and structured data in one deployable app.
 
----
-
-## Özellikler
-
-- Konu / yanıt sistemi, beğeni
-- Kategoriler ve etiketler, tam metin arama
-- Üye profilleri, avatar, biyografi
-- PBKDF2 ile şifrelenmiş parola, D1-backed oturum yönetimi
-- Rol sistemi: `member` / `moderator` / `admin`
-- Admin paneli: istatistikler, kullanıcı yönetimi, kategori/etiket CRUD, aktivite logu, site ayarları
-- Admin Ads Management: AdSense client/slot, her N postta reklam slotu, dinamik `ads.txt`
-- Cloudflare Email Service: welcome mail ve link kullanmadan 8 haneli yeni şifre gönderimi
-- R2 dosya ekleri (görsel yükleme, inline render), DOMPurify XSS koruması
-- SEO: Open Graph, canonical URL, JSON-LD structured data, sitemap index ve robots.txt
-- Tamamen Cloudflare Free / Paid tier üzerinde çalışır — üçüncü taraf servis yok
+> Terminal-inspired Gruvbox Dark UI with dense tables, numbered lists, monospace content and fast navigation.
 
 ---
 
-## Teknoloji Yığını
+## Features
 
-| Katman | Teknoloji |
+- Threads, replies, likes, quotes and markdown rendering
+- Categories, tags, member profiles, avatars, bios and search
+- PBKDF2 password hashing and D1-backed session storage
+- Role system: `member`, `moderator`, `admin`
+- Admin dashboard for stats, users, categories, tags, settings, ads and logs
+- AdSense-compatible ad management, per-thread ad intervals and dynamic `ads.txt`
+- Cloudflare Email support for welcome emails and password reset emails without reset links
+- R2 file attachments for images and PDFs, with inline rendering and DOMPurify XSS protection
+- SEO routes: Open Graph, canonical URLs, JSON-LD, sitemap index and `robots.txt`
+- Public-safe Cloudflare config with placeholder IDs and runtime bindings
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
 |---|---|
-| Runtime | Cloudflare Workers (V8 isolates) |
-| Backend | Hono v4 |
-| Veritabanı | Cloudflare D1 (SQLite dialect) |
+| Runtime | Cloudflare Workers |
+| Backend | Hono |
+| Database | Cloudflare D1 |
 | ORM | Drizzle ORM |
-| Depolama | Cloudflare R2 |
+| Storage | Cloudflare R2 |
 | Frontend | React 18 + Vite 6 |
-| Routing | React Router v7 |
-| Veri çekme | TanStack Query v5 |
-| Validasyon | Zod |
+| Routing | React Router 7 |
+| Data fetching | TanStack Query 5 |
+| Validation | Zod |
 | Auth | PBKDF2 / Web Crypto API, DB-backed session token |
-| Stil | Özel CSS (Gruvbox Dark, JetBrains Mono) |
+| Styling | Custom CSS, Gruvbox Dark, JetBrains Mono |
 
 ---
 
-## Proje Yapısı
+## Project Structure
 
-```
+```text
 forum-lite/
 ├── src/
-│   ├── worker/                  # Hono backend (Cloudflare Worker)
-│   │   ├── index.ts             # Giriş noktası
+│   ├── worker/                  # Hono backend for Cloudflare Workers
+│   │   ├── index.ts             # Worker entry point
 │   │   ├── routes/              # auth, categories, threads, posts,
-│   │   │                        #   members, search, tags, attachments, admin
+│   │   │                        # members, search, tags, attachments, admin
 │   │   ├── lib/
-│   │   │   ├── auth.ts          # PBKDF2, session token, safeISO()
-│   │   │   ├── email.ts         # Email Workers entegrasyonu
-│   │   │   └── middleware.ts    # Auth middleware, RBAC
+│   │   │   ├── auth.ts          # PBKDF2, session tokens, safeISO()
+│   │   │   ├── email.ts         # Cloudflare Email integration
+│   │   │   ├── seo.ts           # Server-rendered SEO HTML
+│   │   │   └── middleware.ts    # Auth middleware and RBAC
 │   │   ├── db/
-│   │   │   ├── schema.ts        # Drizzle şeması (tek kaynak)
+│   │   │   ├── schema.ts        # Drizzle schema
 │   │   │   └── index.ts
-│   │   └── types.ts             # Binding tipleri: DB, BUCKET, SEND_EMAIL, ASSETS
+│   │   └── types.ts             # DB, BUCKET, SEND_EMAIL, ASSETS bindings
 │   └── client/                  # React SPA
-│       ├── main.tsx             # Route tanımları
-│       ├── index.css            # Gruvbox Dark CSS sistemi (gb-* sınıfları)
+│       ├── main.tsx             # Routes
+│       ├── index.css            # Gruvbox Dark CSS system
 │       ├── lib/
-│       │   ├── api.ts           # Tiplenmiş fetch istemcisi
+│       │   ├── api.ts           # Typed fetch client
 │       │   ├── sanitize.ts      # DOMPurify markdown renderer
 │       │   └── useAuth.ts
 │       ├── components/
-│       └── pages/               # Tüm sayfalar + admin/
-├── migrations/                  # Drizzle D1 SQL migration dosyaları
-├── wrangler.jsonc               # Public-safe CF Worker config (placeholder ID)
-├── wrangler.local.example.jsonc # Lokal geliştirme şablonu
-├── .dev.vars.example            # Lokal secret şablonu (şu an boş)
+│       └── pages/               # Public pages and admin pages
+├── migrations/                  # Drizzle D1 SQL migrations
+├── scripts/                     # Local seed, import and OG tooling
+├── wrangler.jsonc               # Public-safe Worker config
+├── wrangler.local.example.jsonc # Local development template
 └── package.json
 ```
 
 ---
 
-## Binding Mimarisi
+## Binding Architecture
 
-Tüm dış servis bağlantıları kod içine yazılmaz. Her şey **Cloudflare Worker Bindings** üzerinden yapılır:
+External services are accessed through Cloudflare Worker bindings, not hardcoded credentials.
 
-| Binding adı | Tür | Açıklama |
-|---|---|---|
-| `DB` | D1 Database | Tüm forum verisi (zorunlu) |
-| `BUCKET` | R2 Bucket | Dosya ekleri (opsiyonel) |
-| `SEND_EMAIL` | Email Workers | E-posta gönderimi (opsiyonel) |
-| `ASSETS` | Static Assets | React SPA dosyaları (otomatik) |
+| Binding | Type | Required | Purpose |
+|---|---|---|---|
+| `DB` | D1 Database | Yes | Forum data |
+| `BUCKET` | R2 Bucket | No | Attachments and Open Graph images |
+| `SEND_EMAIL` | Send Email | No | Transactional email |
+| `ASSETS` | Static Assets | Yes | React SPA assets |
 
-Kodda `env.DB`, `env.BUCKET`, `env.SEND_EMAIL` şeklinde erişilir — ID, token veya bağlantı dizesi kod içinde **hiç geçmez**.
+The application reads `env.DB`, `env.BUCKET` and `env.SEND_EMAIL` at runtime. No database password, token or connection string is committed.
 
-> **Sır gerekmez:** Oturumlar D1'da saklanan rastgele token ile yönetilir (HMAC imzası yok). Ekstra environment variable veya secret tanımlamanıza gerek yoktur.
+Sessions are stored in D1 as random tokens. You do not need a `SESSION_SECRET` or any extra secret to run the default setup.
 
 ---
 
-## Ön Koşullar
+## Requirements
 
 - [Node.js](https://nodejs.org) 18+
-- [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/): `npm install -g wrangler`
-- [Cloudflare hesabı](https://dash.cloudflare.com/sign-up)
+- [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/)
+- [Cloudflare account](https://dash.cloudflare.com/sign-up)
 
 ---
 
-## Kurulum ve Deploy
+## Install And Deploy
 
-### 1. Fork et
+### 1. Fork
 
-GitHub'da sağ üstteki **Fork** butonuna tıklayın. Forku kendi hesabınıza oluşturun:
+Click **Fork** on GitHub and create your own copy:
 
+```text
+https://github.com/YOUR_NAME/forum-lite.git
 ```
-https://github.com/KULLANICI_ADINIZ/forum-lite.git
-```
 
----
-
-### 2. Clone ve kur
+### 2. Clone And Install
 
 ```bash
-git clone https://github.com/KULLANICI_ADINIZ/forum-lite.git
+git clone https://github.com/YOUR_NAME/forum-lite.git
 cd forum-lite/forum-lite
 npm install
 ```
 
----
-
-### 3. İlk deploy
+### 3. First Deploy
 
 ```bash
 npx wrangler login
 npm run deploy
 ```
 
-Worker Cloudflare'e yüklenir. Çıktıda URL'niz görünür:
+Wrangler uploads the Worker and prints a URL similar to:
 
-```
-https://forum-lite.HESABINIZ.workers.dev
+```text
+https://forum-lite.YOUR_ACCOUNT.workers.dev
 ```
 
-Bu noktada forum henüz çalışmaz — D1 ve diğer binding'ler bağlanmamıştır.
+At this point the app still needs D1 and optional service bindings.
 
 ---
 
-### 4. Cloudflare Dashboard — Worker Binding'lerini Ekle
+## Cloudflare Bindings
 
-[dash.cloudflare.com](https://dash.cloudflare.com) → **Workers & Pages** → **forum-lite** → **Settings** sekmesi
+Open [dash.cloudflare.com](https://dash.cloudflare.com), then go to **Workers & Pages → forum-lite → Settings → Bindings**.
 
----
+### D1 Database
 
-#### 4a. D1 Veritabanı (Zorunlu)
-
-Önce D1 veritabanını oluşturun:
+Create a D1 database:
 
 ```bash
 npx wrangler d1 create forum-db
 ```
 
-Çıktıdaki `database_id` değerini not alın — bir sonraki adımda migrations için gerekecek.
+Copy the returned `database_id` for migrations and local development.
 
-Dashboard'da:
+Dashboard binding:
 
-**Settings → Bindings → Add**
-
-```
-Tür        : D1 Database
-Binding adı: DB
-Database   : forum-db  (listeden seçin)
+```text
+Type: D1 Database
+Binding name: DB
+Database: forum-db
 ```
 
-**Save** butonuna tıklayın.
+### R2 Bucket
 
----
-
-#### 4b. R2 Bucket — Dosya Ekleri (Opsiyonel)
-
-Dosya yükleme özelliği istemiyorsanız bu adımı atlayın.
+Skip this step if you do not want file uploads.
 
 ```bash
 npx wrangler r2 bucket create forum-lite-uploads
 ```
 
-Dashboard'da:
+Dashboard binding:
 
-**Settings → Bindings → Add**
-
-```
-Tür        : R2 Bucket
-Binding adı: BUCKET
-Bucket     : forum-lite-uploads  (listeden seçin)
+```text
+Type: R2 Bucket
+Binding name: BUCKET
+Bucket: forum-lite-uploads
 ```
 
-**Save** butonuna tıklayın.
+### Cloudflare Email
 
----
-
-#### 4c. Cloudflare Email Service — E-posta (Opsiyonel)
-
-Şifre sıfırlama veya bildirim e-postaları için.
-
-Önce gönderim domainini Cloudflare Email Sending'e onboard edin:
+Use this for password reset emails and welcome emails.
 
 ```bash
-npx wrangler email sending enable siteadiniz.com
-npx wrangler email sending dns get siteadiniz.com
+npx wrangler email sending enable example.com
+npx wrangler email sending dns get example.com
 ```
 
-Dashboard'da:
+Dashboard binding:
 
-**Settings → Bindings → Add**
-
-```
-Tür        : Send Email
-Binding adı: SEND_EMAIL
-From       : noreply@siteadiniz.com  (doğrulanmış adresiniz)
+```text
+Type: Send Email
+Binding name: SEND_EMAIL
+From: noreply@example.com
 ```
 
-**Save** butonuna tıklayın.
+If the email binding is missing, the forum still works. Email features fail silently and never block requests.
 
-E-posta binding eklenmezse forum sorunsuz çalışır; yalnızca e-posta özellikleri devre dışı kalır. Public repo için örnek adresleri kendi doğrulanmış domaininizle değiştirin.
+### Public Config Note
+
+The tracked `wrangler.jsonc` only contains binding names, public example values and a placeholder D1 database ID. Keep real Cloudflare IDs in ignored local files or in the Cloudflare dashboard.
 
 ---
 
-#### 4d. Public Config Notu
+## Migrations
 
-Tracked `wrangler.jsonc` dosyasında yalnızca binding adları, public örnek değerler ve placeholder D1 ID bulunur. Gerçek Cloudflare ID'lerini public dosyalara yazmayın. Dashboard'a da **secret veya variable eklemenize gerek yoktur** — oturumlar D1'da saklandığından SESSION_SECRET gibi bir değer gerekmez.
-
----
-
-### 5. D1 Migrasyonlarını Uygula
+Apply D1 migrations after the database exists:
 
 ```bash
 npx wrangler d1 migrations apply forum-db --remote --migrations-dir=migrations
 ```
 
-Bu komut `migrations/` klasöründeki SQL dosyalarını Cloudflare D1'a uygular ve tüm tabloları oluşturur.
-
----
-
-### 6. Yeniden Deploy Et
-
-Binding'ler eklendikten sonra bir kez daha deploy edin:
+Deploy once more after bindings are connected:
 
 ```bash
 npm run deploy
 ```
 
-Forum artık canlıda: `https://forum-lite.HESABINIZ.workers.dev`
-
 ---
 
-### 7. İlk Admin Hesabı
+## First Admin User
 
-Forumun `/register` sayfasından bir hesap oluşturun. Ardından admin yetkisi verin:
+Create an account from `/register`, then grant admin access:
 
 ```bash
 npx wrangler d1 execute forum-db --remote \
-  --command "UPDATE users SET role='admin' WHERE username='KULLANICI_ADINIZ';"
+  --command "UPDATE users SET role='admin' WHERE username='YOUR_USERNAME';"
 ```
 
-Tarayıcıda `/admin` adresine gidin.
+Open `/admin` in the browser.
 
 ---
 
-### 8. Forum Ayarları — Admin Paneli
+## Admin Settings
 
-Tüm forum yapılandırması `/admin/settings` sayfasından yapılır.  
-Kod değişikliğine veya yeniden deploy'a gerek yoktur.
+Most runtime configuration is managed from `/admin/settings` and does not require a redeploy.
 
-**Genel:**
+General settings:
 
-| Ayar | Açıklama |
+| Setting | Description |
 |---|---|
-| `forum_title` | Forum adı (başlık çubuğu ve logo) |
-| `forum_description` | Kısa açıklama (SEO) |
-| `registration_open` | `true` kayıt açık / `false` kapalı |
-| `maintenance_mode` | `true` bakım modu — sadece adminler erişebilir |
-| `threads_per_page` | Sayfa başına konu sayısı |
-| `posts_per_page` | Sayfa başına yanıt sayısı |
+| `forum_title` | Forum title used in the UI |
+| `forum_description` | Short SEO description |
+| `registration_open` | `true` to allow registration |
+| `maintenance_mode` | `true` to restrict access to admins |
+| `threads_per_page` | Threads per page |
+| `posts_per_page` | Replies per page |
 
-**E-posta** (`SEND_EMAIL` binding eklendiyse):
+Email settings:
 
-| Ayar | Açıklama |
+| Setting | Description |
 |---|---|
-| `email_from` | Gönderici adresi — CF'de doğruladığınız adres |
-| `site_url` | E-postalardaki linklerde kullanılacak tam URL |
+| `email_from` | Verified sender address |
+| `site_url` | Public site URL used in emails |
 
-**Dosya Yükleme** (`BUCKET` binding eklendiyse):
+Upload settings:
 
-| Ayar | Açıklama |
+| Setting | Description |
 |---|---|
-| `uploads_enabled` | `true` yüklemeyi etkinleştir |
-| `max_attachment_size_mb` | Tek dosya max boyutu (MB) |
-| `allowed_file_types` | İzin verilen uzantılar: `jpg,jpeg,png,gif,webp,pdf` |
+| `uploads_enabled` | `true` to enable uploads |
+| `max_attachment_size_mb` | Maximum attachment size |
+| `allowed_file_types` | Allowed extensions, for example `jpg,jpeg,png,gif,webp,pdf` |
 
 ---
 
-### 9. Özel Domain (İsteğe Bağlı)
+## Custom Domain
 
-**forum-lite → Settings → Domains & Routes → Add → Custom Domain**
+Go to **forum-lite → Settings → Domains & Routes → Add → Custom Domain**.
 
-Domain adresinizi girin (ör. `forum.siteadiniz.com`).  
-Domain'iniz Cloudflare DNS'deyse otomatik bağlanır.
+If the domain is already on Cloudflare DNS, Workers can connect it automatically.
 
 ---
 
-## Lokal Geliştirme
+## Local Development
 
-> Bu bölüm **isteğe bağlıdır.** Sadece deploy etmek istiyorsanız yukarıdaki adımlar yeterlidir.  
-> Lokal geliştirme; kodu değiştirip test etmek için kullanılır.
-
-`wrangler dev` çalışırken Wrangler, CF servislerini lokal olarak simüle eder:
-
-| Servis | Lokal | Prodüksiyon |
-|---|---|---|
-| D1 | `.wrangler/state/` içindeki SQLite dosyası | Cloudflare D1 (dashboard binding) |
-| R2 | `.wrangler/state/` içindeki dosya sistemi | Cloudflare R2 (dashboard binding) |
-| Email | Simüle edilmez (sessizce görmezden gelinir) | Cloudflare Email Workers |
-| Secrets | `.dev.vars` dosyası (şu an boş) | Cloudflare Secrets |
-
-### Kurulum
-
-**1. Wrangler yapılandırması:**
+Local development is optional. It is useful when changing code or testing migrations.
 
 ```bash
 cp wrangler.local.example.jsonc wrangler.local.jsonc
 ```
 
-`wrangler.local.jsonc` içindeki `PASTE_YOUR_D1_DATABASE_ID_HERE` alanına, Adım 4a'da `wrangler d1 create forum-db` çalıştırdığınızda aldığınız `database_id`'yi yapıştırın.
+Paste your D1 `database_id` into `wrangler.local.jsonc`. This file is ignored by Git and must not be committed.
 
-Bu dosya gitignore altındadır. Lokal geliştirme, remote migration ve repo sahibi deploy'larında kullanılabilir; public repo'ya commit etmeyin.
-
-**2. Migrasyon ve seed:**
+Run local migrations and seed data:
 
 ```bash
-npm run db:migrate:local   # tabloları lokal simülasyona oluştur
-npm run seed:local         # örnek veri (opsiyonel)
+npm run db:migrate:local
+npm run seed:local
 ```
 
-**3. Sunucuyu başlat:**
+Start the development server:
 
 ```bash
 npm run dev
 ```
 
-`http://localhost:5173` adresinde açılır. React SPA ve Hono API aynı portta çalışır.
+Open `http://localhost:5173`.
 
-**4. Lokal admin yetkisi:**
+Grant local admin access:
 
 ```bash
 npx wrangler d1 execute forum-db \
   --local \
   --config wrangler.local.jsonc \
-  --command "UPDATE users SET role='admin' WHERE username='KULLANICI_ADINIZ';"
+  --command "UPDATE users SET role='admin' WHERE username='YOUR_USERNAME';"
 ```
 
 ---
 
-## Veritabanı Migrasyonları
+## Database Commands
 
 ```bash
-# Şema değiştirildikten sonra yeni migrasyon oluştur
+# Generate a migration after schema changes
 npm run db:generate
 
-# Lokal simülasyona uygula
+# Apply local migrations
 npm run db:migrate:local
 
-# Prodüksiyon D1'a uygula
+# Apply remote migrations
 npm run db:migrate:remote
 ```
 
 ---
 
-## API Rotaları
+## API Routes
 
-### Backend (`/api/*`)
-
-| Method | Endpoint | Auth | Açıklama |
+| Method | Endpoint | Auth | Description |
 |---|---|---|---|
-| POST | `/api/auth/register` | — | Hesap oluştur |
-| POST | `/api/auth/login` | — | Giriş yap |
-| POST | `/api/auth/logout` | oturum | Çıkış yap |
-| GET | `/api/auth/me` | — | Aktif kullanıcı |
-| GET | `/api/categories` | — | Kategoriler |
-| GET | `/api/threads` | — | Konu listesi (sayfalı) |
-| POST | `/api/threads` | üye | Konu oluştur |
-| GET | `/api/threads/:id` | — | Konu + yanıtlar |
-| DELETE | `/api/threads/:id` | admin/mod | Konu sil |
-| POST | `/api/posts` | üye | Yanıt ekle |
-| POST | `/api/posts/:id/like` | üye | Beğeni toggle |
-| GET | `/api/members` | — | Üye listesi |
-| GET | `/api/members/:username` | — | Üye profili |
-| GET | `/api/search` | — | Arama |
-| GET | `/api/tags` | — | Etiket listesi |
-| GET | `/api/tags/:slug/threads` | — | Etikete göre konular |
-| POST | `/api/attachments` | üye | R2'ye dosya yükle |
-| GET | `/api/attachments/:key` | — | R2'den dosya sun |
-| GET | `/api/admin/stats` | admin | Dashboard istatistikleri |
-| GET/PATCH | `/api/admin/users` | admin | Kullanıcı yönetimi |
-| GET/POST/PUT/DELETE | `/api/admin/categories` | admin | Kategori CRUD |
-| GET/POST/DELETE | `/api/admin/tags` | admin | Etiket CRUD |
-| GET | `/api/admin/logs` | admin | Aktivite logu |
-| GET/POST | `/api/admin/settings` | admin | Site ayarları |
+| POST | `/api/auth/register` | Public | Create account |
+| POST | `/api/auth/login` | Public | Sign in |
+| POST | `/api/auth/logout` | Session | Sign out |
+| POST | `/api/auth/reset-password` | Public | Email a new temporary password |
+| GET | `/api/auth/me` | Session | Current user |
+| GET | `/api/categories` | Public | Categories |
+| GET | `/api/threads` | Public | Thread list |
+| POST | `/api/threads` | Member | Create thread |
+| GET | `/api/threads/:id` | Public | Thread detail |
+| PATCH | `/api/threads/:id` | Admin/mod | Edit thread |
+| DELETE | `/api/threads/:id` | Admin/mod | Delete thread |
+| GET | `/api/posts` | Public | Replies for a thread |
+| POST | `/api/posts` | Member | Add reply |
+| PATCH | `/api/posts/:id` | Owner/admin/mod | Edit reply |
+| DELETE | `/api/posts/:id` | Owner/admin/mod | Delete reply |
+| POST | `/api/posts/:id/like` | Member | Toggle like |
+| GET | `/api/members` | Public | Member list |
+| GET | `/api/members/:username` | Public | Member profile |
+| PATCH | `/api/members/:username` | Owner/admin | Edit profile |
+| GET | `/api/search` | Public | Search |
+| GET | `/api/tags` | Public | Tag list |
+| GET | `/api/tags/:slug` | Public | Threads by tag |
+| POST | `/api/attachments/upload` | Member | Upload to R2 |
+| GET | `/api/attachments/:id` | Public | Serve attachment |
+| GET/PATCH | `/api/admin/users` | Admin | User management |
+| GET/POST/PUT/DELETE | `/api/admin/categories` | Admin | Category CRUD |
+| GET/POST/DELETE | `/api/admin/tags` | Admin | Tag CRUD |
+| GET | `/api/admin/logs` | Admin | Activity logs |
+| GET/POST | `/api/admin/settings` | Admin | Site settings |
 
-### Frontend Sayfaları
+---
 
-| Adres | Sayfa |
+## Frontend Routes
+
+| Route | Page |
 |---|---|
-| `/` | Ana sayfa |
-| `/c/:id` | Kategori konu listesi |
-| `/t/:id` | Konu detayı + yanıtlar |
-| `/new-thread` | Konu oluşturma |
-| `/members` | Üye listesi |
-| `/u/:username` | Üye profili |
-| `/login` / `/register` | Giriş / Kayıt |
-| `/search` | Arama |
-| `/tags` / `/tag/:slug` | Etiketler |
-| `/admin/*` | Admin paneli |
+| `/` | Thread list |
+| `/c/:id` | Category threads |
+| `/t/:id` | Thread detail and replies |
+| `/new-thread` | Create thread |
+| `/members` | Member list |
+| `/u/:username` | Member profile |
+| `/login` / `/register` | Auth |
+| `/search` | Search |
+| `/tags` / `/tag/:slug` | Tags |
+| `/admin/*` | Admin panel |
 
 ---
 
-## Mimari Notlar
+## SEO
 
-- **Tek port SPA + API** — `@cloudflare/vite-plugin` geliştirmede React ve Hono'yu aynı portta çalıştırır. Prodüksiyonda aynı Worker bundle; CORS veya ayrı API domain'i gerekmez.
-- **D1 timestamp'ları integer** — D1 timestamp kolonlarını Unix epoch integer olarak döndürür. `safeISO(v)` fonksiyonu (`src/worker/lib/auth.ts`) hem integer hem string'i kabul eder.
-- **DB-backed session** — Oturumlar D1'da saklanan 64 hex char (256 bit) rastgele token ile yönetilir. HMAC imzası veya session secret gerekmez.
-- **XSS koruması** — Tüm markdown çıktısı DOMPurify ile sanitize edilir (`src/client/lib/sanitize.ts`).
-- **Binding'ler env üzerinden** — `env.DB`, `env.BUCKET`, `env.SEND_EMAIL`. Kod içinde hiçbir ID, token veya bağlantı dizesi bulunmaz.
-- **Public-safe config** — tracked `wrangler.jsonc` placeholder ID kullanır; gerçek `database_id` yalnızca gitignored `wrangler.local.jsonc` veya Cloudflare Dashboard'da tutulur.
+forum-lite includes:
 
----
+- Server-rendered SEO HTML for crawlers and social previews
+- Page-level titles, descriptions and canonical URLs
+- Open Graph and Twitter Card metadata
+- Dynamic WebP thread cards at `/og/thread/:publicId.webp`
+- `DiscussionForumPosting`, `ProfilePage`, `CollectionPage`, `ItemList`, `BreadcrumbList` and `WebSite` JSON-LD
+- `/robots.txt`
+- `/sitemap.xml` and sitemap index files
+- Dynamic `ads.txt`
 
-## Bilinen Sınırlamalar
-
-- Gerçek zamanlı güncelleme yok (WebSocket yok).
-- Workers ücretsiz plan: istek başına 10ms CPU. Büyük veri setlerinde ağır admin sorguları ücretli plan gerektirebilir.
-- Seed verilerindeki demo kullanıcıların parolaları çalışmaz — giriş için yeni hesap kaydedin.
+Run the public launch checklist in the root [SEO.md](../SEO.md) before making a production site public.
 
 ---
 
-## Lisans
+## Architecture Notes
+
+- **Single Worker app:** React assets and Hono API ship together. No separate API domain is required.
+- **D1 timestamps:** D1 values may arrive as Unix epoch integers or strings. `safeISO()` handles both.
+- **DB-backed sessions:** Session tokens are stored in D1. No HMAC secret is required for the default session flow.
+- **Markdown safety:** Rendered markdown is sanitized with DOMPurify.
+- **Runtime bindings:** Cloudflare service access goes through `env.DB`, `env.BUCKET` and `env.SEND_EMAIL`.
+- **Public-safe config:** tracked config uses placeholders; real IDs stay out of public source.
+
+---
+
+## Known Limits
+
+- No WebSocket realtime updates.
+- Free Workers plans have CPU limits. Large admin queries may need a paid plan.
+- Demo seed users have placeholder password hashes. Register a new account to sign in.
+
+---
+
+## License
 
 MIT

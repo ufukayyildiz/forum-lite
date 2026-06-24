@@ -57,7 +57,7 @@ app.patch("/users/:id/ban", requireRole("admin"), async (c) => {
   const db = c.get("db");
   const id = Number(c.req.param("id"));
   const user = await db.query.users.findFirst({ where: eq(schema.users.id, id) });
-  if (!user) return c.json({ error: "Bulunamadı" }, 404);
+  if (!user) return c.json({ error: "Not found" }, 404);
   await db.update(schema.users).set({ banned: !user.banned }).where(eq(schema.users.id, id));
   return c.json({ ok: true, banned: !user.banned });
 });

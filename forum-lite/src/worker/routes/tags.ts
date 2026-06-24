@@ -31,7 +31,7 @@ app.get("/:slug", async (c) => {
   const slug = c.req.param("slug");
 
   const tag = await db.query.tags.findFirst({ where: eq(schema.tags.slug, slug) });
-  if (!tag) return c.json({ error: "Etiket bulunamadı" }, 404);
+  if (!tag) return c.json({ error: "Tag not found" }, 404);
 
   const sort = c.req.query("sort") ?? "recent";
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
@@ -108,7 +108,7 @@ app.post("/", requireRole("admin", "moderator"), zValidator("json", z.object({ n
   const db = c.get("db");
   const slug = slugify(name);
   const existing = await db.query.tags.findFirst({ where: eq(schema.tags.slug, slug) });
-  if (existing) return c.json({ error: "Bu etiket zaten var" }, 409);
+  if (existing) return c.json({ error: "This tag already exists" }, 409);
   const [tag] = await db
     .insert(schema.tags)
     .values({ name, slug })
@@ -120,7 +120,7 @@ app.delete("/:slug", requireRole("admin"), async (c) => {
   const db = c.get("db");
   const slug = c.req.param("slug");
   const tag = await db.query.tags.findFirst({ where: eq(schema.tags.slug, slug) });
-  if (!tag) return c.json({ error: "Etiket bulunamadı" }, 404);
+  if (!tag) return c.json({ error: "Tag not found" }, 404);
   await db.delete(schema.tags).where(eq(schema.tags.id, tag.id));
   return c.json({ ok: true });
 });
