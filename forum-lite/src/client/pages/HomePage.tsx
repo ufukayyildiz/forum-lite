@@ -6,9 +6,8 @@ import { TopicRow, EmptyRows } from "../components/TopicRow";
 import { GbToolbar } from "../components/layout/Header";
 import { useMe } from "../lib/useAuth";
 import { SEOHead } from "../components/SEOHead";
-import { categoryPath, threadPath } from "../lib/routes";
+import { threadPath } from "../lib/routes";
 
-const CAT_COLORS = ["#b8bb26","#83a598","#fabd2f","#d3869b","#8ec07c","#fe8019","#fb4934","#a89984"];
 const THREAD_ROWS = 15;
 
 export default function HomePage() {
@@ -19,10 +18,6 @@ export default function HomePage() {
   const { data: threads, isLoading: tLoading } = useQuery({
     queryKey: ["threads", "all", page, sort],
     queryFn: () => api.threads({ page, sort }),
-  });
-  const { data: categories, isLoading: cLoading } = useQuery({
-    queryKey: ["categories"],
-    queryFn: api.categories,
   });
 
   const totalPages = threads ? Math.ceil(threads.total / threads.perPage) : 1;
@@ -58,41 +53,6 @@ export default function HomePage() {
         ]}
       />
       <GbToolbar crumbs={[{ label: "home" }]} />
-
-      {/* CATEGORIES strip */}
-      <div className="gb-home-categories" style={{ borderBottom: "1px solid var(--gb-bg2)", background: "var(--gb-bg1)" }}>
-        <div style={{ padding: "4px 0" }}>
-          <div style={{ padding: "2px 20px 4px", fontSize: 10, color: "var(--gb-bg3)", letterSpacing: ".08em", fontWeight: 700 }}>
-            " CATEGORIES
-          </div>
-          {cLoading ? (
-            <div style={{ padding: "4px 20px", fontSize: 12, color: "var(--gb-gray)" }}>$ loading...</div>
-          ) : (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 0 }}>
-              {categories?.map((cat, i) => (
-                <Link
-                  key={cat.id}
-                  to={categoryPath(cat)}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 6,
-                    padding: "3px 16px", textDecoration: "none",
-                    borderRight: "1px solid var(--gb-bg2)",
-                    fontSize: 12, color: "var(--gb-fg4)",
-                  }}
-                  className="gb-cat-link"
-                >
-                  <span style={{ color: CAT_COLORS[i % CAT_COLORS.length], fontSize: 13 }}>#</span>
-                  <span style={{ color: "var(--gb-fg)" }}>{cat.name.toLowerCase()}</span>
-                  <span style={{ color: "var(--gb-bg3)", fontSize: 11 }}>{cat.threadCount}</span>
-                </Link>
-              ))}
-              {!cLoading && !categories?.length && (
-                <div style={{ padding: "4px 20px", fontSize: 12, color: "var(--gb-gray)" }}>no categories</div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
 
       {/* Sort tabs */}
       <div className="gb-tabs">

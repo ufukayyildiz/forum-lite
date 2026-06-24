@@ -773,9 +773,6 @@ textarea.gb-input {
   /* Show hamburger button */
   .gb-hamburger { display: flex; }
 
-  /* Categories are already available in the mobile sidebar menu */
-  .gb-home-categories { display: none !important; }
-
   /* Sidebar */
   .gb-sidebar { display: none; }
   .gb-sidebar.open { display: flex; position: fixed; left: 0; top: 0; bottom: 0; z-index: 200; }
