@@ -18,12 +18,42 @@ type SeoPayload = {
   contentHtml?: string;
 };
 
+type BootstrapQuery = {
+  key: unknown[];
+  data: unknown;
+  updatedAt?: number;
+};
+
+type BootstrapPayload = {
+  queries: BootstrapQuery[];
+};
+
+type ApiCategory = {
+  id: number;
+  publicId: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  color: string;
+  icon: string;
+  position: number;
+  createdAt: string;
+  threadCount: number;
+  postCount: number;
+};
+
+type BootstrapBuild = {
+  payload: BootstrapPayload;
+  categories: ApiCategory[];
+};
+
 const SITE_NAME = "FSTDESK Forum";
 const SITE_DESCRIPTION = "Food science, food safety, product development and food technology forum discussions.";
 const HTML_LANG = "en";
 const CONTENT_LANGUAGE = "en-US";
 const OG_LOCALE = "en_US";
 const DEFAULT_IMAGE = "/og/default.webp";
+const CAT_COLORS = ["#b8bb26", "#83a598", "#fabd2f", "#d3869b", "#8ec07c", "#fe8019", "#fb4934", "#a89984"];
 
 function cleanText(input: unknown, max = 160): string {
   const text = String(input ?? "")
@@ -50,6 +80,10 @@ function escapeJsonLd(schema: SeoSchema): string {
   return JSON.stringify(schema).replace(/</g, "\\u003c");
 }
 
+function escapeJsonScript(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
 function absoluteUrl(base: string, path: string): string {
   return new URL(path || "/", base).toString();
 }
@@ -73,6 +107,242 @@ function isoDate(value: unknown): string {
 function numericId(value: string): number {
   const n = Number(value);
   return Number.isInteger(n) && n > 0 ? n : -1;
+}
+
+function apiDate(value: unknown): string {
+  return isoDate(value);
+}
+
+function apiCategoryPath(category: Pick<ApiCategory, "publicId" | "slug" | "id">): string {
+  return `/c/${category.publicId || category.slug || category.id}`;
+}
+
+function apiThreadPath(thread: { publicId?: unknown; slug?: unknown; id?: unknown }): string {
+  return `/t/${thread.publicId || thread.slug || thread.id}`;
+}
+
+async function loadStatsApi(c: AppContext) {
+  const stats = await c.env.DB.prepare(
+    "SELECT (SELECT COUNT(*) FROM users) AS users, (SELECT COUNT(*) FROM threads) AS threads, (SELECT COUNT(*) FROM posts) AS posts",
+  ).first<Record<string, unknown>>();
+  return {
+    users: Number(stats?.users ?? 0),
+    threads: Number(stats?.threads ?? 0),
+    posts: Number(stats?.posts ?? 0),
+  };
+}
+
+async function loadCategoriesApi(c: AppContext): Promise<ApiCategory[]> {
+  const [rows, counts] = await Promise.all([
+    c.env.DB.prepare("SELECT id, public_id AS publicId, name, slug, description, color, icon, position, created_at AS createdAt FROM categories ORDER BY position, id")
+      .all<Record<string, unknown>>(),
+    c.env.DB.prepare(
+      `SELECT category_id AS categoryId, COUNT(*) AS threadCount, COALESCE(SUM(reply_count), 0) + COUNT(*) AS postCount
+       FROM threads
+       GROUP BY category_id`,
+    ).all<Record<string, unknown>>(),
+  ]);
+  const countMap = new Map((counts.results ?? []).map((row) => [Number(row.categoryId), row]));
+  return (rows.results ?? []).map((cat) => {
+    const count = countMap.get(Number(cat.id));
+    return {
+      id: Number(cat.id),
+      publicId: String(cat.publicId ?? ""),
+      name: String(cat.name ?? ""),
+      slug: String(cat.slug ?? ""),
+      description: cat.description == null ? null : String(cat.description),
+      color: String(cat.color ?? "#b8bb26"),
+      icon: String(cat.icon ?? "Hash"),
+      position: Number(cat.position ?? 0),
+      createdAt: apiDate(cat.createdAt),
+      threadCount: Number(count?.threadCount ?? 0),
+      postCount: Number(count?.postCount ?? 0),
+    };
+  });
+}
+
+async function loadCategoryApi(c: AppContext, id: string): Promise<ApiCategory | null> {
+  const category = await c.env.DB.prepare(
+    "SELECT id, public_id AS publicId, name, slug, description, color, icon, position, created_at AS createdAt FROM categories WHERE public_id = ? OR id = ? OR slug = ? LIMIT 1",
+  )
+    .bind(id, numericId(id), id)
+    .first<Record<string, unknown>>();
+  if (!category) return null;
+
+  const count = await c.env.DB.prepare(
+    "SELECT COUNT(*) AS threadCount, COALESCE(SUM(reply_count), 0) + COUNT(*) AS postCount FROM threads WHERE category_id = ?",
+  )
+    .bind(Number(category.id))
+    .first<Record<string, unknown>>();
+
+  return {
+    id: Number(category.id),
+    publicId: String(category.publicId ?? ""),
+    name: String(category.name ?? ""),
+    slug: String(category.slug ?? ""),
+    description: category.description == null ? null : String(category.description),
+    color: String(category.color ?? "#b8bb26"),
+    icon: String(category.icon ?? "Hash"),
+    position: Number(category.position ?? 0),
+    createdAt: apiDate(category.createdAt),
+    threadCount: Number(count?.threadCount ?? 0),
+    postCount: Number(count?.postCount ?? 0),
+  };
+}
+
+function mapThreadApi(row: Record<string, unknown>) {
+  return {
+    id: Number(row.id),
+    publicId: String(row.publicId ?? ""),
+    title: String(row.title ?? ""),
+    slug: String(row.slug ?? ""),
+    pinned: !!row.pinned,
+    locked: !!row.locked,
+    featured: !!row.featured,
+    views: Number(row.views ?? 0),
+    replyCount: Number(row.replyCount ?? 0),
+    createdAt: apiDate(row.createdAt),
+    lastPostAt: apiDate(row.lastPostAt),
+    category: {
+      id: Number(row.categoryId),
+      publicId: String(row.categoryPublicId ?? ""),
+      name: String(row.categoryName ?? ""),
+      slug: String(row.categorySlug ?? ""),
+      color: String(row.categoryColor ?? "#b8bb26"),
+    },
+    author: {
+      id: Number(row.authorId),
+      publicId: String(row.authorPublicId ?? ""),
+      username: String(row.authorUsername ?? ""),
+      displayName: String(row.authorDisplayName ?? ""),
+      avatarUrl: row.authorAvatar == null ? null : String(row.authorAvatar),
+      role: String(row.authorRole ?? "member"),
+    },
+    tags: [],
+  };
+}
+
+async function loadThreadsApi(c: AppContext, opts: { categoryId?: number; sort?: string; page?: number; all?: boolean } = {}) {
+  const sort = opts.sort ?? "recent";
+  const page = Math.max(1, opts.page ?? 1);
+  const where = opts.categoryId ? "WHERE t.category_id = ?" : "";
+  const orderBy =
+    sort === "popular"
+      ? "ORDER BY t.pinned DESC, t.views DESC"
+      : sort === "replies"
+        ? "ORDER BY t.pinned DESC, t.reply_count DESC"
+        : "ORDER BY t.pinned DESC, t.last_post_at DESC";
+  const totalRow = await c.env.DB.prepare(`SELECT COUNT(*) AS total FROM threads t ${where}`)
+    .bind(...(opts.categoryId ? [opts.categoryId] : []))
+    .first<Record<string, unknown>>();
+  const total = Number(totalRow?.total ?? 0);
+  const perPage = opts.all ? Math.max(total, 1) : 20;
+  const offset = opts.all ? 0 : (page - 1) * perPage;
+  const rows = await c.env.DB.prepare(
+    `SELECT t.id, t.public_id AS publicId, t.title, t.slug, t.pinned, t.locked, t.featured,
+      t.views, t.reply_count AS replyCount, t.created_at AS createdAt, t.last_post_at AS lastPostAt,
+      c.id AS categoryId, c.public_id AS categoryPublicId, c.name AS categoryName, c.slug AS categorySlug, c.color AS categoryColor,
+      u.id AS authorId, u.public_id AS authorPublicId, u.username AS authorUsername, u.display_name AS authorDisplayName,
+      u.avatar_url AS authorAvatar, u.role AS authorRole
+     FROM threads t
+     INNER JOIN categories c ON c.id = t.category_id
+     INNER JOIN users u ON u.id = t.user_id
+     ${where}
+     ${orderBy}
+     LIMIT ? OFFSET ?`,
+  )
+    .bind(...(opts.categoryId ? [opts.categoryId] : []), perPage, offset)
+    .all<Record<string, unknown>>();
+
+  return {
+    threads: (rows.results ?? []).map(mapThreadApi),
+    total,
+    page: opts.all ? 1 : page,
+    perPage,
+  };
+}
+
+async function loadThreadApi(c: AppContext, id: string) {
+  const thread = await c.env.DB.prepare(
+    `SELECT t.id, t.public_id AS publicId, t.title, t.slug, t.content, t.pinned, t.locked, t.featured,
+      t.views, t.reply_count AS replyCount, t.created_at AS createdAt, t.last_post_at AS lastPostAt,
+      c.id AS categoryId, c.public_id AS categoryPublicId, c.name AS categoryName, c.slug AS categorySlug, c.color AS categoryColor,
+      u.id AS authorId, u.public_id AS authorPublicId, u.username AS authorUsername, u.display_name AS authorDisplayName,
+      u.avatar_url AS authorAvatar, u.role AS authorRole
+     FROM threads t
+     INNER JOIN categories c ON c.id = t.category_id
+     INNER JOIN users u ON u.id = t.user_id
+     WHERE t.public_id = ? OR t.id = ? OR printf('%012d', 100000000000 + ((t.id * 982451653 + 57885161) % 900000000000)) = ?
+     LIMIT 1`,
+  )
+    .bind(id, numericId(id), id)
+    .first<Record<string, unknown>>();
+  if (!thread) return null;
+
+  const tagRows = await c.env.DB.prepare(
+    `SELECT tags.id, tags.name, tags.slug
+     FROM tags
+     INNER JOIN thread_tags tt ON tt.tag_id = tags.id
+     WHERE tt.thread_id = ?
+     ORDER BY tags.name`,
+  )
+    .bind(Number(thread.id))
+    .all<Record<string, unknown>>();
+
+  return {
+    ...mapThreadApi(thread),
+    content: String(thread.content ?? ""),
+    tags: (tagRows.results ?? []).map((tag) => ({
+      id: Number(tag.id),
+      name: String(tag.name ?? ""),
+      slug: String(tag.slug ?? ""),
+    })),
+  };
+}
+
+async function loadPostsApi(c: AppContext, threadId: number, page = 1) {
+  const perPage = 20;
+  const rows = await c.env.DB.prepare(
+    `SELECT p.id, p.content, p.like_count AS likeCount, p.edited_at AS editedAt, p.created_at AS createdAt,
+      u.id AS authorId, u.username AS authorUsername, u.display_name AS authorDisplayName, u.avatar_url AS authorAvatar,
+      u.role AS authorRole, u.post_count AS authorPostCount, u.thread_count AS authorThreadCount,
+      u.created_at AS authorCreatedAt, u.bio AS authorBio
+     FROM posts p
+     INNER JOIN users u ON u.id = p.user_id
+     WHERE p.thread_id = ?
+     ORDER BY p.created_at ASC
+     LIMIT ? OFFSET ?`,
+  )
+    .bind(threadId, perPage, (page - 1) * perPage)
+    .all<Record<string, unknown>>();
+  const total = await c.env.DB.prepare("SELECT COUNT(*) AS total FROM posts WHERE thread_id = ?")
+    .bind(threadId)
+    .first<Record<string, unknown>>();
+
+  return {
+    posts: (rows.results ?? []).map((post) => ({
+      id: Number(post.id),
+      content: String(post.content ?? ""),
+      likeCount: Number(post.likeCount ?? 0),
+      likedByMe: false,
+      editedAt: post.editedAt == null ? null : apiDate(post.editedAt),
+      createdAt: apiDate(post.createdAt),
+      author: {
+        id: Number(post.authorId),
+        username: String(post.authorUsername ?? ""),
+        displayName: String(post.authorDisplayName ?? ""),
+        avatarUrl: post.authorAvatar == null ? null : String(post.authorAvatar),
+        role: String(post.authorRole ?? "member"),
+        postCount: Number(post.authorPostCount ?? 0),
+        threadCount: Number(post.authorThreadCount ?? 0),
+        createdAt: apiDate(post.authorCreatedAt),
+        bio: post.authorBio == null ? null : String(post.authorBio),
+      },
+    })),
+    total: Number(total?.total ?? 0),
+    page,
+    perPage,
+  };
 }
 
 function rootSchemas(base: string): SeoSchema[] {
@@ -717,14 +987,122 @@ function metaHtml(payload: SeoPayload, base: string): string {
   ].join("\n    ");
 }
 
-function injectHtml(indexHtml: string, payload: SeoPayload, base: string): string {
+async function bootstrapForUrl(c: AppContext, url: URL): Promise<BootstrapBuild> {
+  const pathname = url.pathname;
+  const parts = pathname.split("/").filter(Boolean).map((part) => decodeURIComponent(part));
+  const queries: BootstrapQuery[] = [];
+
+  const [categories, stats] = await Promise.all([loadCategoriesApi(c), loadStatsApi(c)]);
+  queries.push({ key: ["categories"], data: categories });
+  queries.push({ key: ["stats"], data: stats });
+
+  if (pathname === "/") {
+    const threads = await loadThreadsApi(c, { page: 1, sort: "recent" });
+    queries.push({ key: ["threads", "all", 1, "recent"], data: threads });
+  } else if (parts[0] === "c" && parts[1]) {
+    const sort = url.searchParams.get("sort") ?? "recent";
+    const category = await loadCategoryApi(c, parts[1]);
+    if (category) {
+      const threads = await loadThreadsApi(c, { categoryId: category.id, sort, all: true });
+      queries.push({ key: ["category", parts[1]], data: category });
+      queries.push({ key: ["threads", "cat", parts[1], sort, "all"], data: threads });
+    }
+  } else if (parts[0] === "t" && parts[1]) {
+    const thread = await loadThreadApi(c, parts[1]);
+    if (thread) {
+      const posts = await loadPostsApi(c, thread.id, 1);
+      queries.push({ key: ["thread", parts[1]], data: thread });
+      queries.push({ key: ["posts", thread.id, 1], data: posts, updatedAt: 0 });
+    }
+  }
+
+  return { categories, payload: { queries } };
+}
+
+function staticSidebarHtml(pathname: string, categories: ApiCategory[]): string {
+  const nav = [
+    { href: "/", label: "threads", exact: true },
+    { href: "/members", label: "members" },
+    { href: "/tags", label: "tags" },
+  ];
+  const navHtml = nav
+    .map((item) => {
+      const active = item.exact ? pathname === item.href : pathname.startsWith(item.href);
+      return [
+        `<a class="gb-tree-item${active ? " active" : ""}" href="${escapeHtml(item.href)}">`,
+        `<span style="color:${active ? "var(--gb-yellow)" : "var(--gb-gray)"};width:16px;flex-shrink:0">#</span>`,
+        `<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${escapeHtml(item.label)}</span>`,
+        "</a>",
+      ].join("");
+    })
+    .join("");
+
+  const categoryHtml = categories
+    .map((cat, index) => {
+      const href = apiCategoryPath(cat);
+      const active = pathname === href || pathname === `/c/${cat.id}`;
+      return [
+        `<a class="gb-tree-item${active ? " active" : ""}" href="${escapeHtml(href)}">`,
+        `<span style="color:${CAT_COLORS[index % CAT_COLORS.length]};width:16px;flex-shrink:0;font-size:14px">${active ? "&gt;" : "#"}</span>`,
+        `<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${escapeHtml(cat.name.toLowerCase())}</span>`,
+        cat.threadCount > 0 ? `<span class="gb-tree-count">${escapeHtml(cat.threadCount)}</span>` : "",
+        "</a>",
+      ].join("");
+    })
+    .join("");
+
+  return [
+    '<div style="display:flex;flex-direction:column;height:100%">',
+    '<div class="gb-sidebar-scroll">',
+    '<div class="gb-section">NAVIGATION</div>',
+    navHtml,
+    '<div class="gb-section" style="display:flex;align-items:center;gap:6px"><span>CATEGORIES</span></div>',
+    categoryHtml || '<div style="padding:3px 16px 3px 38px;font-size:12px;color:var(--gb-gray)">no categories</div>',
+    "</div>",
+    '<div class="gb-sidebar-bottom">',
+    '<div style="display:flex;gap:6px;flex-wrap:wrap">',
+    '<a href="/login?next=/new-thread" class="gb-btn gb-btn-new" style="flex:1 1 100%;justify-content:center;font-size:12px">+ new</a>',
+    '<a href="/login" class="gb-btn" style="flex:1;justify-content:center;font-size:12px">login</a>',
+    '<a href="/register" class="gb-btn gb-btn-primary" style="flex:1;justify-content:center;font-size:12px">register</a>',
+    "</div>",
+    "</div>",
+    "</div>",
+  ].join("");
+}
+
+function staticShellHtml(contentHtml: string, pathname: string, categories: ApiCategory[]): string {
+  const page = pathname === "/" ? "threads" : pathname.replace("/", "").split("/")[0] || "threads";
+  return [
+    '<div class="gb-shell" data-server-rendered="seo-shell">',
+    '<div class="gb-tabline">',
+    '<div class="gb-tabline-left">',
+    '<button class="gb-hamburger" title="Menu" aria-label="Open sidebar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>',
+    '<div class="gb-tab active" style="padding-left:12px"><a href="/" style="color:var(--gb-yellow);font-weight:700;text-decoration:none">FSTDESK</a></div>',
+    "</div>",
+    '<div class="gb-tabline-right">utf-8 | unix</div>',
+    "</div>",
+    '<div class="gb-body">',
+    `<div class="gb-sidebar">${staticSidebarHtml(pathname, categories)}</div>`,
+    `<div class="gb-main">${contentHtml}</div>`,
+    "</div>",
+    '<div class="gb-statusbar">',
+    '<span class="gb-statusbar-mode">NORMAL &nbsp; guest</span>',
+    '<span style="flex:1"></span>',
+    `<span class="gb-statusbar-right">${escapeHtml(page)} &nbsp; 100%</span>`,
+    "</div>",
+    "</div>",
+  ].join("");
+}
+
+function injectHtml(indexHtml: string, payload: SeoPayload, base: string, url: URL, bootstrap: BootstrapBuild): string {
   const withCleanHead = stripFallbackHead(indexHtml);
   const seoMeta = metaHtml(payload, base);
+  const bootstrapScript = `<script>window.__FSTDESK_BOOTSTRAP__=${escapeJsonScript(bootstrap.payload)};</script>`;
   const withMeta = /<meta\s+name="theme-color"[^>]*>\s*/i.test(withCleanHead)
-    ? withCleanHead.replace(/(<meta\s+name="theme-color"[^>]*>\s*)/i, `$1\n    ${seoMeta}\n`)
-    : withCleanHead.replace("<head>", `<head>\n    ${seoMeta}`);
+    ? withCleanHead.replace(/(<meta\s+name="theme-color"[^>]*>\s*)/i, `$1\n    ${seoMeta}\n    ${bootstrapScript}\n`)
+    : withCleanHead.replace("<head>", `<head>\n    ${seoMeta}\n    ${bootstrapScript}`);
   const content = payload.contentHtml ?? seoBlock(SITE_NAME, payload.description);
-  return withMeta.replace(/<div id="root"><\/div>/, `<div id="root">${content}</div>`);
+  return withMeta.replace(/<div id="root"><\/div>/, `<div id="root">${staticShellHtml(content, url.pathname, bootstrap.categories)}</div>`);
 }
 
 export async function renderSeoHtml(c: AppContext): Promise<Response> {
@@ -736,8 +1114,11 @@ export async function renderSeoHtml(c: AppContext): Promise<Response> {
 
   const url = new URL(c.req.url);
   const base = `${url.protocol}//${url.host}`;
-  const payload = await payloadForPath(c, base, url.pathname);
-  const html = injectHtml(await assetResponse.text(), payload, base);
+  const [payload, bootstrap] = await Promise.all([
+    payloadForPath(c, base, url.pathname),
+    bootstrapForUrl(c, url),
+  ]);
+  const html = injectHtml(await assetResponse.text(), payload, base, url, bootstrap);
   const headers = new Headers(assetResponse.headers);
   headers.set("content-type", "text/html; charset=utf-8");
   headers.set("cache-control", payload.robots?.startsWith("noindex") ? "public, max-age=0, must-revalidate" : "public, max-age=60");

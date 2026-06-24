@@ -5,6 +5,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { HelmetProvider } from "react-helmet-async";
 import { Toaster } from "sonner";
 import { queryClient } from "./lib/queryClient";
+import { primeQueryClientFromBootstrap } from "./lib/bootstrap";
 import { Layout } from "./components/layout/Layout";
 import "./index.css";
 
@@ -28,6 +29,8 @@ import AdminSettings from "./pages/admin/AdminSettings";
 import AdminTags from "./pages/admin/AdminTags";
 import AdminLogs from "./pages/admin/AdminLogs";
 import AdminAds from "./pages/admin/AdminAds";
+
+primeQueryClientFromBootstrap(queryClient);
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
