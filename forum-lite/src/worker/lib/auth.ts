@@ -50,16 +50,32 @@ export function generateToken(): string {
   return toHex(crypto.getRandomValues(new Uint8Array(32)).buffer);
 }
 
+export function secureRandomInt(maxExclusive: number): number {
+  if (!Number.isSafeInteger(maxExclusive) || maxExclusive <= 0 || maxExclusive > 0x1_0000_0000) {
+    throw new RangeError("maxExclusive must be an integer between 1 and 2^32");
+  }
+
+  const range = 0x1_0000_0000;
+  const limit = Math.floor(range / maxExclusive) * maxExclusive;
+  const value = new Uint32Array(1);
+
+  do {
+    crypto.getRandomValues(value);
+  } while (value[0] >= limit);
+
+  return value[0] % maxExclusive;
+}
+
 export const SESSION_COOKIE = "forum_session";
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 export function generatePublicId(): string {
-  const n = Math.floor(Math.random() * 900_000) + 100_000;
+  const n = secureRandomInt(900_000) + 100_000;
   return String(n);
 }
 
 export function generateShortId(): string {
-  const n = Math.floor(Math.random() * 9_000) + 1_000;
+  const n = secureRandomInt(9_000) + 1_000;
   return String(n);
 }
 

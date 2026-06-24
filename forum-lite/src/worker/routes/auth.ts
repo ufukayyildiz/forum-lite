@@ -9,6 +9,7 @@ import {
   verifyPassword,
   generateToken,
   generatePublicId,
+  secureRandomInt,
   SESSION_COOKIE,
   SESSION_TTL_MS,
 } from "../lib/auth";
@@ -97,10 +98,10 @@ async function createUserPublicId(db: DB): Promise<string> {
   throw new Error("Could not allocate a unique user public_id");
 }
 
-function generateTemporaryPassword(): string {
-  const digits = Array.from({ length: 6 }, () => String(Math.floor(Math.random() * 10))).join("");
-  const upper = String.fromCharCode(65 + Math.floor(Math.random() * 26));
-  const lower = String.fromCharCode(97 + Math.floor(Math.random() * 26));
+export function generateTemporaryPassword(): string {
+  const digits = Array.from({ length: 6 }, () => String(secureRandomInt(10))).join("");
+  const upper = String.fromCharCode(65 + secureRandomInt(26));
+  const lower = String.fromCharCode(97 + secureRandomInt(26));
   return `${digits}${upper}${lower}`;
 }
 

@@ -2,6 +2,11 @@ import type { Bindings } from "../types";
 
 const DEFAULT_FROM = "noreply@devfox.net";
 
+function generateMimeBoundary(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(12));
+  return "=_" + [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 function buildMime({
   from,
   to,
@@ -15,7 +20,7 @@ function buildMime({
   text: string;
   html: string;
 }): string {
-  const boundary = "=_" + Math.random().toString(36).slice(2, 18);
+  const boundary = generateMimeBoundary();
   return [
     `From: ${from}`,
     `To: ${to}`,
