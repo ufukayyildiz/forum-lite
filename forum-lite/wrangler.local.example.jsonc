@@ -1,0 +1,37 @@
+// Local development overrides — copy to wrangler.local.jsonc (gitignored).
+// Run: npx wrangler d1 create forum-db  →  paste the database_id below.
+// Run: npx wrangler r2 bucket create forum-lite-uploads
+//
+// Usage:  npx wrangler dev --config wrangler.local.jsonc
+//         npx wrangler d1 migrations apply forum-db --local --config wrangler.local.jsonc
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "forum-lite",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "forum-db",
+      "database_id": "PASTE_YOUR_D1_DATABASE_ID_HERE",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "BUCKET",
+      "bucket_name": "forum-lite-uploads"
+    }
+  ],
+  "send_email": [
+    {
+      "name": "SEND_EMAIL",
+      "allowed_sender_addresses": ["noreply@example.com"]
+    }
+  ]
+}

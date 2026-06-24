@@ -1,0 +1,65 @@
+import React from "react";
+import ReactDOM from "react-dom/client";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { HelmetProvider } from "react-helmet-async";
+import { Toaster } from "sonner";
+import { queryClient } from "./lib/queryClient";
+import { Layout } from "./components/layout/Layout";
+import "./index.css";
+
+import HomePage from "./pages/HomePage";
+import CategoryPage from "./pages/CategoryPage";
+import ThreadPage from "./pages/ThreadPage";
+import NewThreadPage from "./pages/NewThreadPage";
+import MembersPage from "./pages/MembersPage";
+import MemberPage from "./pages/MemberPage";
+import LoginPage from "./pages/LoginPage";
+import RegisterPage from "./pages/RegisterPage";
+import SearchPage from "./pages/SearchPage";
+import TagsPage from "./pages/TagsPage";
+import TagDetailPage from "./pages/TagDetailPage";
+import NotFoundPage from "./pages/NotFoundPage";
+import AdminLayout from "./pages/admin/AdminLayout";
+import AdminDashboard from "./pages/admin/AdminDashboard";
+import AdminUsers from "./pages/admin/AdminUsers";
+import AdminCategories from "./pages/admin/AdminCategories";
+import AdminSettings from "./pages/admin/AdminSettings";
+import AdminTags from "./pages/admin/AdminTags";
+import AdminLogs from "./pages/admin/AdminLogs";
+import AdminAds from "./pages/admin/AdminAds";
+
+ReactDOM.createRoot(document.getElementById("root")!).render(
+  <React.StrictMode>
+    <HelmetProvider>
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<Layout><HomePage /></Layout>} />
+          <Route path="/c/:id" element={<Layout><CategoryPage /></Layout>} />
+          <Route path="/t/:id" element={<Layout><ThreadPage /></Layout>} />
+          <Route path="/new-thread" element={<Layout><NewThreadPage /></Layout>} />
+          <Route path="/members" element={<Layout><MembersPage /></Layout>} />
+          <Route path="/u/:username" element={<Layout><MemberPage /></Layout>} />
+          <Route path="/login" element={<Layout><LoginPage /></Layout>} />
+          <Route path="/register" element={<Layout><RegisterPage /></Layout>} />
+          <Route path="/search" element={<Layout><SearchPage /></Layout>} />
+          <Route path="/tags" element={<Layout><TagsPage /></Layout>} />
+          <Route path="/tag/:slug" element={<Layout><TagDetailPage /></Layout>} />
+          <Route path="/admin" element={<Layout><AdminLayout /></Layout>}>
+            <Route index element={<AdminDashboard />} />
+            <Route path="users" element={<AdminUsers />} />
+            <Route path="categories" element={<AdminCategories />} />
+            <Route path="tags" element={<AdminTags />} />
+            <Route path="ads" element={<AdminAds />} />
+            <Route path="logs" element={<AdminLogs />} />
+            <Route path="settings" element={<AdminSettings />} />
+          </Route>
+          <Route path="*" element={<Layout><NotFoundPage /></Layout>} />
+        </Routes>
+      </BrowserRouter>
+      <Toaster position="bottom-right" theme="dark" richColors />
+    </QueryClientProvider>
+    </HelmetProvider>
+  </React.StrictMode>,
+);

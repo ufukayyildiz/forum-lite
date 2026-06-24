@@ -1,0 +1,17 @@
+{
+  "name": "forum-lite",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "install:app": "npm --prefix forum-lite install",
+    "dev": "npm --prefix forum-lite run dev",
+    "build": "npm run install:app && npm --prefix forum-lite run build",
+    "preview": "npm --prefix forum-lite run preview",
+    "deploy": "npm run install:app && npm --prefix forum-lite run deploy",
+    "db:migrate:local": "npm --prefix forum-lite run db:migrate:local",
+    "db:migrate:remote": "npm --prefix forum-lite run db:migrate:remote",
+    "import:old-users:sql": "npm --prefix forum-lite run import:old-users:sql",
+    "import:old-content:sql": "npm --prefix forum-lite run import:old-content:sql"
+  }
+}

@@ -1,0 +1,6 @@
+# Copy this file to .dev.vars for local development.
+# .dev.vars is gitignored and never committed.
+#
+# forum-lite uses D1-backed sessions — no secret key is required.
+# All bindings (DB, BUCKET, SEND_EMAIL) are configured in wrangler.local.jsonc.
+# This file is intentionally empty.

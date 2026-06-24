@@ -1,0 +1,7 @@
+node_modules
+dist
+.wrangler
+.dev.vars
+*.local
+package-lock.json
+wrangler.local.jsonc

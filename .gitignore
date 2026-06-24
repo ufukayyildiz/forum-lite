@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+forum-lite/node_modules/
+
+# Build output
+dist/
+forum-lite/dist/
+*.tsbuildinfo
+
+# Cloudflare local state and private deploy config
+.wrangler/
+forum-lite/.wrangler/
+.dev.vars
+forum-lite/.dev.vars
+wrangler.local.jsonc
+forum-lite/wrangler.local.jsonc
+
+# Local/generated files
+package-lock.json
+forum-lite/package-lock.json
+*.local
+tmp/
+coverage/
+
+# Editors and OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json

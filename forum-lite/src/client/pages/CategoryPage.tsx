@@ -1,0 +1,129 @@
+import { useParams, Link, useSearchParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "../lib/api";
+import { TopicRow, EmptyRows } from "../components/TopicRow";
+import { useMe } from "../lib/useAuth";
+import { GbToolbar } from "../components/layout/Header";
+import { Plus } from "lucide-react";
+import { SEOHead } from "../components/SEOHead";
+import { categoryPath, threadPath } from "../lib/routes";
+
+const VISIBLE_ROWS = 18;
+
+export default function CategoryPage() {
+  const { id: catId } = useParams<{ id: string }>();
+  const { data: me } = useMe();
+  const [sp, setSp] = useSearchParams();
+  const page = Number(sp.get("page") ?? 1);
+  const sort = sp.get("sort") ?? "recent";
+
+  const { data: cat } = useQuery({ queryKey: ["category", catId], queryFn: () => api.category(catId!), enabled: !!catId });
+  const { data, isLoading } = useQuery({
+    queryKey: ["threads", "cat", catId, page, sort],
+    queryFn: () => api.threads({ category: catId!, page, sort }),
+    enabled: !!catId,
+  });
+
+  const totalPages = data ? Math.ceil(data.total / data.perPage) : 1;
+  const list = data?.threads ?? [];
+  const emptyCount = Math.max(0, VISIBLE_ROWS - list.length);
+
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const catPath = cat ? categoryPath(cat) : `/c/${catId}`;
+
+  return (
+    <>
+      <SEOHead
+        title={cat?.name ?? "Category"}
+        description={cat?.description ?? `${cat?.name ?? "Category"} forum discussions and threads.`}
+        canonical={catPath}
+        breadcrumbs={[
+          { name: "Forum", url: origin + "/" },
+          { name: cat?.name ?? "Category", url: `${origin}${catPath}` },
+        ]}
+        structuredData={[
+          {
+            "@context": "https://schema.org",
+            "@type": "CollectionPage",
+            name: cat?.name ?? "Category",
+            description: cat?.description ?? undefined,
+            url: `${origin}${catPath}`,
+            inLanguage: "en-US",
+            numberOfItems: data?.total ?? 0,
+          },
+          {
+            "@context": "https://schema.org",
+            "@type": "ItemList",
+            itemListElement: list.slice(0, 20).map((thread, i) => ({
+              "@type": "ListItem",
+              position: i + 1 + (page - 1) * (data?.perPage ?? 20),
+              url: `${origin}${threadPath(thread)}`,
+              name: thread.title,
+            })),
+          },
+        ]}
+      />
+      <GbToolbar
+        crumbs={[
+          { label: "threads", href: "/" },
+          { label: cat ? cat.name.toLowerCase() : "..." },
+        ]}
+      />
+
+      <div className="gb-tabs">
+        {[["recent","RECENT"],["replies","MOST REPLIES"],["popular","POPULAR"]].map(([v,l]) => (
+          <div key={v} className={`gb-tab-item${sort === v ? " active" : ""}`}
+            onClick={() => setSp({ sort: v, page: "1" })}>{l}</div>
+        ))}
+      </div>
+
+      <div className="gb-content">
+        {isLoading ? (
+          <div className="gb-state-pad" style={{ color: "var(--gb-gray)" }}>$ loading...</div>
+        ) : (
+          <table className="gb-table">
+            <thead>
+              <tr>
+                <th style={{ textAlign: "right", paddingRight: 16 }}>#</th>
+                <th style={{ width: 20 }} />
+                <th>NAME</th>
+                <th style={{ textAlign: "right", paddingRight: 16 }}>REPLIES</th>
+                <th className="gb-col-views" style={{ textAlign: "right", paddingRight: 16 }}>VIEWS</th>
+                <th className="gb-col-modified" style={{ textAlign: "right", paddingRight: 12 }}>MODIFIED</th>
+              </tr>
+            </thead>
+            <tbody>
+              {list.map((t, i) => (
+                <TopicRow key={t.id} thread={t} showCategory={false} lineNum={i + 1 + (page - 1) * (data?.perPage ?? 20)} />
+              ))}
+              {!list.length && (
+                <tr>
+                  <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16 }}>1</td>
+                  <td colSpan={5} style={{ color: "var(--gb-gray)", padding: "20px 0" }}>
+                    empty — <Link
+                      to={me ? `/new-thread?category=${catId}` : `/login?next=${encodeURIComponent(`/new-thread?category=${catId}`)}`}
+                      style={{ color: "var(--gb-green)", fontWeight: 700 }}
+                    >
+                      $ new thread
+                    </Link>
+                  </td>
+                </tr>
+              )}
+              <EmptyRows count={emptyCount} />
+            </tbody>
+          </table>
+        )}
+
+        {totalPages > 1 && (
+          <div className="gb-pag-row">
+            <button className="gb-btn" style={{ padding: "2px 10px" }} disabled={page <= 1}
+              onClick={() => setSp({ sort, page: String(page - 1) })}>prev</button>
+            <span style={{ color: "var(--gb-gray)", fontSize: 12 }}>{page} / {totalPages}</span>
+            <button className="gb-btn" style={{ padding: "2px 10px" }} disabled={page >= totalPages}
+              onClick={() => setSp({ sort, page: String(page + 1) })}>next</button>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
