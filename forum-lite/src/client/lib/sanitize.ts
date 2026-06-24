@@ -78,10 +78,14 @@ export function renderMarkdown(md: string): string {
     if (!["http:", "https:"].includes(url.protocol)) return;
 
     const isSameOrigin = url.origin === origin;
+    const isPdfMarker =
+      url.searchParams.get("type") === "pdf" ||
+      (a.textContent ?? "").toLowerCase().includes(".pdf") ||
+      (a.getAttribute("title") ?? "").toLowerCase() === "pdf";
     const isAttachmentPdf =
       isSameOrigin &&
       /^\/api\/attachments\/\d+$/.test(url.pathname) &&
-      ((a.textContent ?? "").toLowerCase().includes(".pdf") || (a.getAttribute("title") ?? "").toLowerCase() === "pdf");
+      isPdfMarker;
 
     if (isAttachmentPdf) {
       a.dataset.pdfUrl = `${url.pathname}${url.search}`;
