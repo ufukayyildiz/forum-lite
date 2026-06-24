@@ -10,6 +10,13 @@
   "main": "src/worker/index.ts",
   "compatibility_date": "2025-01-01",
   "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "logs": {
+      "enabled": false,
+      "invocation_logs": true,
+      "persist": true
+    }
+  },
   "assets": {
     "binding": "ASSETS",
     "not_found_handling": "single-page-application"
