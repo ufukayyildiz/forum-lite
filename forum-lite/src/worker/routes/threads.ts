@@ -92,7 +92,7 @@ app.get("/", async (c) => {
   const categoryFilter = c.req.query("category");
   const sort = c.req.query("sort") ?? "recent";
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
-  const perPage = 20;
+  const loadAllCategoryThreads = !!categoryFilter && c.req.query("all") === "1";
 
   let where: any = undefined;
   if (categoryFilter) {
@@ -103,7 +103,7 @@ app.get("/", async (c) => {
         : or(eq(schema.categories.publicId, categoryFilter), eq(schema.categories.slug, categoryFilter)),
       columns: { id: true },
     });
-    if (!category) return c.json({ threads: [], total: 0, page, perPage });
+    if (!category) return c.json({ threads: [], total: 0, page, perPage: 20 });
     where = eq(schema.threads.categoryId, category.id);
   }
 
@@ -114,6 +114,10 @@ app.get("/", async (c) => {
         ? [desc(schema.threads.pinned), desc(schema.threads.replyCount)]
         : [desc(schema.threads.pinned), desc(schema.threads.lastPostAt)];
 
+  const total = await db.$count(schema.threads, where);
+  const perPage = loadAllCategoryThreads ? Math.max(total, 1) : 20;
+  const offset = loadAllCategoryThreads ? 0 : (page - 1) * perPage;
+
   const rows = await db
     .select(threadAuthorSelect)
     .from(schema.threads)
@@ -122,10 +126,9 @@ app.get("/", async (c) => {
     .where(where)
     .orderBy(...orderBy)
     .limit(perPage)
-    .offset((page - 1) * perPage);
+    .offset(offset);
 
-  const total = await db.$count(schema.threads, where);
-  return c.json({ threads: rows.map(mapThread), total, page, perPage });
+  return c.json({ threads: rows.map(mapThread), total, page: loadAllCategoryThreads ? 1 : page, perPage });
 });
 
 app.get("/recent", async (c) => {

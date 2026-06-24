@@ -14,17 +14,15 @@ export default function CategoryPage() {
   const { id: catId } = useParams<{ id: string }>();
   const { data: me } = useMe();
   const [sp, setSp] = useSearchParams();
-  const page = Number(sp.get("page") ?? 1);
   const sort = sp.get("sort") ?? "recent";
 
   const { data: cat } = useQuery({ queryKey: ["category", catId], queryFn: () => api.category(catId!), enabled: !!catId });
   const { data, isLoading } = useQuery({
-    queryKey: ["threads", "cat", catId, page, sort],
-    queryFn: () => api.threads({ category: catId!, page, sort }),
+    queryKey: ["threads", "cat", catId, sort, "all"],
+    queryFn: () => api.threads({ category: catId!, sort, all: 1 }),
     enabled: !!catId,
   });
 
-  const totalPages = data ? Math.ceil(data.total / data.perPage) : 1;
   const list = data?.threads ?? [];
   const emptyCount = Math.max(0, VISIBLE_ROWS - list.length);
 
@@ -56,7 +54,7 @@ export default function CategoryPage() {
             "@type": "ItemList",
             itemListElement: list.slice(0, 20).map((thread, i) => ({
               "@type": "ListItem",
-              position: i + 1 + (page - 1) * (data?.perPage ?? 20),
+              position: i + 1,
               url: `${origin}${threadPath(thread)}`,
               name: thread.title,
             })),
@@ -73,7 +71,7 @@ export default function CategoryPage() {
       <div className="gb-tabs">
         {[["recent","RECENT"],["replies","MOST REPLIES"],["popular","POPULAR"]].map(([v,l]) => (
           <div key={v} className={`gb-tab-item${sort === v ? " active" : ""}`}
-            onClick={() => setSp({ sort: v, page: "1" })}>{l}</div>
+            onClick={() => setSp(v === "recent" ? {} : { sort: v })}>{l}</div>
         ))}
       </div>
 
@@ -94,7 +92,7 @@ export default function CategoryPage() {
             </thead>
             <tbody>
               {list.map((t, i) => (
-                <TopicRow key={t.id} thread={t} showCategory={false} lineNum={i + 1 + (page - 1) * (data?.perPage ?? 20)} />
+                <TopicRow key={t.id} thread={t} showCategory={false} lineNum={i + 1} />
               ))}
               {!list.length && (
                 <tr>
@@ -112,16 +110,6 @@ export default function CategoryPage() {
               <EmptyRows count={emptyCount} />
             </tbody>
           </table>
-        )}
-
-        {totalPages > 1 && (
-          <div className="gb-pag-row">
-            <button className="gb-btn" style={{ padding: "2px 10px" }} disabled={page <= 1}
-              onClick={() => setSp({ sort, page: String(page - 1) })}>prev</button>
-            <span style={{ color: "var(--gb-gray)", fontSize: 12 }}>{page} / {totalPages}</span>
-            <button className="gb-btn" style={{ padding: "2px 10px" }} disabled={page >= totalPages}
-              onClick={() => setSp({ sort, page: String(page + 1) })}>next</button>
-          </div>
         )}
       </div>
     </>
