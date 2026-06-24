@@ -12,7 +12,7 @@
   "compatibility_flags": ["nodejs_compat"],
   "observability": {
     "logs": {
-      "enabled": false,
+      "enabled": true,
       "invocation_logs": true,
       "persist": true
     }
