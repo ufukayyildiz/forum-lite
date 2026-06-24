@@ -100,7 +100,6 @@ export function AdSlot({ config, index }: { config?: AdsConfig; index: number })
 
   return (
     <div className="gb-ad-slot" data-ad-index={index}>
-      <div className="gb-ad-label">ADVERTISEMENT</div>
       <div ref={htmlRef} className="gb-ad-frame" />
     </div>
   );
