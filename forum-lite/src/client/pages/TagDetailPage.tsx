@@ -12,17 +12,15 @@ const VISIBLE_ROWS = 20;
 export default function TagDetailPage() {
   const { slug } = useParams<{ slug: string }>();
   const [sort, setSort] = useState("recent");
-  const [page, setPage] = useState(1);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["tag-threads", slug, sort, page],
-    queryFn: () => api.tagThreads(slug!, { sort, page }),
+    queryKey: ["tag-threads", slug, sort, "all"],
+    queryFn: () => api.tagThreads(slug!, { sort, all: 1 }),
     enabled: !!slug,
   });
 
   const threads = data?.threads ?? [];
   const tag = data?.tag;
-  const totalPages = data ? Math.ceil(data.total / data.perPage) : 1;
   const emptyCount = Math.max(0, VISIBLE_ROWS - threads.length);
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
@@ -50,9 +48,9 @@ export default function TagDetailPage() {
           {
             "@context": "https://schema.org",
             "@type": "ItemList",
-            itemListElement: threads.slice(0, 20).map((thread, i) => ({
+            itemListElement: threads.map((thread, i) => ({
               "@type": "ListItem",
-              position: i + 1 + (page - 1) * (data?.perPage ?? 20),
+              position: i + 1,
               url: `${origin}${threadPath(thread)}`,
               name: thread.title,
             })),
@@ -67,7 +65,7 @@ export default function TagDetailPage() {
       <div className="gb-tabs">
         {[["recent", "RECENT"], ["replies", "MOST REPLIES"], ["popular", "POPULAR"]].map(([v, l]) => (
           <div key={v} className={`gb-tab-item${sort === v ? " active" : ""}`}
-            onClick={() => { setSort(v); setPage(1); }}>{l}</div>
+            onClick={() => setSort(v)}>{l}</div>
         ))}
       </div>
 
@@ -96,19 +94,11 @@ export default function TagDetailPage() {
                 </tr>
               )}
               {threads.map((t, i) => (
-                <TopicRow key={t.id} thread={t} lineNum={i + 1 + (page - 1) * (data?.perPage ?? 20)} />
+                <TopicRow key={t.id} thread={t} lineNum={i + 1} />
               ))}
               <EmptyRows count={emptyCount} />
             </tbody>
           </table>
-        )}
-
-        {totalPages > 1 && (
-          <div className="gb-pag-row">
-            <button className="gb-btn" style={{ padding: "2px 10px" }} disabled={page <= 1} onClick={() => setPage(p => p - 1)}>prev</button>
-            <span style={{ color: "var(--gb-gray)", fontSize: 12 }}>{page} / {totalPages}</span>
-            <button className="gb-btn" style={{ padding: "2px 10px" }} disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>next</button>
-          </div>
         )}
       </div>
     </>

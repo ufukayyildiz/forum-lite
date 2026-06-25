@@ -1,7 +1,7 @@
 import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useRef } from "react";
-import { Heart, Reply, Pin, Lock, Star, Edit, Trash2, ChevronLeft, ChevronRight, Paperclip } from "lucide-react";
+import { Heart, Reply, Pin, Lock, Star, Edit, Trash2, Paperclip } from "lucide-react";
 import { api, type Post, type Thread } from "../lib/api";
 import { DAvatar } from "../components/DAvatar";
 import { useMe } from "../lib/useAuth";
@@ -68,8 +68,8 @@ function useAttachmentUploader(
   return { trigger, uploading, input };
 }
 
-function PostItem({ post, threadId, page, onQuote }: {
-  post: Post; threadId: number; page: number;
+function PostItem({ post, threadId, onQuote }: {
+  post: Post; threadId: number;
   onQuote: (content: string, author: string) => void;
 }) {
   const { data: me } = useMe();
@@ -81,17 +81,17 @@ function PostItem({ post, threadId, page, onQuote }: {
 
   const like = useMutation({
     mutationFn: () => api.likePost(post.id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["posts", threadId, page] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["posts", threadId, "all"] }),
     onError: (e: any) => toast.error(e.message ?? "Like failed"),
   });
   const update = useMutation({
     mutationFn: () => api.updatePost(post.id, content),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["posts", threadId, page] }); setEditing(false); toast.success("Updated"); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["posts", threadId, "all"] }); setEditing(false); toast.success("Updated"); },
     onError: (e: any) => toast.error(e.message),
   });
   const del = useMutation({
     mutationFn: () => api.deletePost(post.id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["posts", threadId, page] }); toast.success("Deleted"); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["posts", threadId, "all"] }); toast.success("Deleted"); },
   });
 
   const canEdit = me && (me.id === post.author.id || me.role !== "member");
@@ -187,7 +187,6 @@ export default function ThreadPage() {
   const location = useLocation();
   const { data: me } = useMe();
   const qc = useQueryClient();
-  const [page, setPage] = useState(1);
   const [reply, setReply] = useState("");
   const [composerOpen, setComposerOpen] = useState(false);
   const [threadEditing, setThreadEditing] = useState(false);
@@ -211,8 +210,8 @@ export default function ThreadPage() {
     placeholderData: () => matchingPreview,
   });
   const { data: postsData, isLoading: pLoading } = useQuery({
-    queryKey: ["posts", thread?.id, page],
-    queryFn: () => api.posts(thread!.id, page),
+    queryKey: ["posts", thread?.id, "all"],
+    queryFn: () => api.posts(thread!.id, { all: 1 }),
     enabled: !!thread?.id,
   });
   const { data: adsConfig } = useQuery({
@@ -227,8 +226,6 @@ export default function ThreadPage() {
       qc.invalidateQueries({ queryKey: ["posts", thread?.id] });
       qc.invalidateQueries({ queryKey: ["thread", id] });
       toast.success("Reply posted");
-      const lastPage = Math.ceil(((postsData?.total ?? 0) + 1) / 20);
-      setPage(lastPage);
     },
     onError: (e: any) => toast.error(e.message),
   });
@@ -281,7 +278,6 @@ export default function ThreadPage() {
   }
 
   const canMod = me && (me.role === "admin" || me.role === "moderator");
-  const totalPages = postsData ? Math.ceil(postsData.total / postsData.perPage) : 1;
   const adInterval = Math.max(1, Math.min(20, Number(adsConfig?.postInterval ?? 3)));
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
@@ -483,31 +479,16 @@ export default function ThreadPage() {
         {!pLoading && postsData && postsData.posts.length > 0 && (
           <div style={{ borderBottom: "1px solid var(--gb-bg2)" }}>
             {postsData.posts.map((p, i) => {
-              const absolutePostNumber = 2 + (page - 1) * postsData.perPage + i;
+              const absolutePostNumber = 2 + i;
               return (
                 <div key={p.id}>
-                  <PostItem post={p} threadId={thread.id} page={page} onQuote={handleQuote} />
+                  <PostItem post={p} threadId={thread.id} onQuote={handleQuote} />
                   {adsConfig?.enabled && absolutePostNumber % adInterval === 0 && (
                     <AdSlot config={adsConfig} index={absolutePostNumber} />
                   )}
                 </div>
               );
             })}
-          </div>
-        )}
-
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0" }}>
-            <button className="gb-btn" style={{ padding: "2px 10px" }} disabled={page <= 1}
-              onClick={() => { setPage(p => p - 1); window.scrollTo(0, 0); }}>
-              <ChevronLeft size={13} /> prev
-            </button>
-            <span style={{ color: "var(--gb-gray)", fontSize: 12 }}>{page}/{totalPages}</span>
-            <button className="gb-btn" style={{ padding: "2px 10px" }} disabled={page >= totalPages}
-              onClick={() => { setPage(p => p + 1); window.scrollTo(0, 0); }}>
-              next <ChevronRight size={13} />
-            </button>
           </div>
         )}
 

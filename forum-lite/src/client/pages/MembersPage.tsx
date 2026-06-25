@@ -12,14 +12,12 @@ const VISIBLE_ROWS = 18;
 
 export default function MembersPage() {
   const [sort, setSort] = useState("posts");
-  const [page, setPage] = useState(1);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["members", sort, page],
-    queryFn: () => api.members({ sort, page }),
+    queryKey: ["members", sort, "all"],
+    queryFn: () => api.members({ sort, all: 1 }),
   });
 
-  const totalPages = data ? Math.ceil(data.total / data.perPage) : 1;
   const list = data?.members ?? [];
   const emptyCount = Math.max(0, VISIBLE_ROWS - list.length);
 
@@ -49,7 +47,7 @@ export default function MembersPage() {
       <div className="gb-tabs">
         {[["posts","by posts"],["threads","by threads"],["newest","newest"]].map(([v,l]) => (
           <div key={v} className={`gb-tab-item${sort === v ? " active" : ""}`}
-            onClick={() => { setSort(v); setPage(1); }}>{l.toUpperCase()}</div>
+            onClick={() => setSort(v)}>{l.toUpperCase()}</div>
         ))}
       </div>
 
@@ -71,7 +69,7 @@ export default function MembersPage() {
             <tbody>
               {list.map((m, i) => (
                 <tr key={m.id}>
-                  <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>{i + 1 + (page - 1) * (data?.perPage ?? 20)}</td>
+                  <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>{i + 1}</td>
                   <td style={{ width: 36, paddingRight: 8 }}>
                     <DAvatar src={m.avatarUrl} name={m.displayName} size={24} />
                   </td>
@@ -107,14 +105,6 @@ export default function MembersPage() {
               ))}
             </tbody>
           </table>
-        )}
-
-        {totalPages > 1 && (
-          <div className="gb-pag-row">
-            <button className="gb-btn" style={{ padding: "2px 10px" }} disabled={page <= 1} onClick={() => setPage(p => p - 1)}>prev</button>
-            <span style={{ color: "var(--gb-gray)", fontSize: 12 }}>{page} / {totalPages}</span>
-            <button className="gb-btn" style={{ padding: "2px 10px" }} disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>next</button>
-          </div>
         )}
       </div>
     </>

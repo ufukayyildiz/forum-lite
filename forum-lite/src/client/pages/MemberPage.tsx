@@ -1,7 +1,7 @@
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, Edit2 } from "lucide-react";
+import { useState } from "react";
+import { Edit2 } from "lucide-react";
 import { api } from "../lib/api";
 import { DAvatar } from "../components/DAvatar";
 import { useMe } from "../lib/useAuth";
@@ -32,20 +32,15 @@ export default function MemberPage() {
   const { data: me } = useMe();
   const qc = useQueryClient();
   const [tab, setTab] = useState<ActivityTab>("threads");
-  const [page, setPage] = useState(1);
   const [editing, setEditing] = useState(false);
   const [displayName, setDisplayName] = useState("");
   const [bio, setBio] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
 
-  useEffect(() => {
-    setPage(1);
-  }, [username]);
-
   const activityTab = tab === "replies" ? "replies" : "threads";
   const { data, isLoading } = useQuery({
-    queryKey: ["member", username, activityTab, page],
-    queryFn: () => api.member(username!, { tab: activityTab, page }),
+    queryKey: ["member", username, activityTab, "all"],
+    queryFn: () => api.member(username!, { tab: activityTab, all: 1 }),
     enabled: !!username,
   });
 
@@ -71,7 +66,6 @@ export default function MemberPage() {
 
   function selectTab(next: ActivityTab) {
     setTab(next);
-    setPage(1);
     if (next !== "about") setEditing(false);
   }
 
@@ -100,35 +94,7 @@ export default function MemberPage() {
   const threads = data?.threads ?? [];
   const replies = data?.replies ?? [];
   const activeRows = tab === "replies" ? replies : threads;
-  const currentPage = data?.page ?? page;
-  const perPage = data?.perPage ?? 50;
-  const activeTotal = tab === "replies"
-    ? (data?.totals?.replies ?? u.postCount)
-    : (data?.totals?.threads ?? u.threadCount);
-  const totalPages = Math.max(1, Math.ceil(activeTotal / perPage));
   const emptyCount = Math.max(0, VISIBLE_ROWS - activeRows.length);
-  const showPager = tab !== "about" && totalPages > 1;
-  const pager = showPager ? (
-    <div className="gb-pag-row">
-      <button
-        className="gb-btn"
-        disabled={currentPage <= 1}
-        onClick={() => setPage((p) => Math.max(1, p - 1))}
-      >
-        <ChevronLeft size={13} /> prev
-      </button>
-      <span style={{ color: "var(--gb-gray)", fontSize: 12 }}>
-        {currentPage}/{totalPages} · {activeTotal} {tab}
-      </span>
-      <button
-        className="gb-btn"
-        disabled={currentPage >= totalPages}
-        onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-      >
-        next <ChevronRight size={13} />
-      </button>
-    </div>
-  ) : null;
 
   return (
     <>
@@ -227,7 +193,7 @@ export default function MemberPage() {
             <tbody>
               {threads.map((t: any, i: number) => (
                 <tr key={t.id}>
-                  <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>{(currentPage - 1) * perPage + i + 1}</td>
+                  <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>{i + 1}</td>
                   <td style={{ width: 20 }}><span style={{ color: "var(--gb-green)", fontSize: 13 }}>#</span></td>
                   <td>
                     <Link to={threadPath(t)} className="gb-col-name" style={{ color: "var(--gb-fg)" }}>{t.title}</Link>
@@ -259,7 +225,6 @@ export default function MemberPage() {
               ))}
             </tbody>
           </table>
-          {pager}
         </div>
       )}
 
@@ -279,7 +244,7 @@ export default function MemberPage() {
             <tbody>
               {replies.map((p: any, i: number) => (
                 <tr key={p.id}>
-                  <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>{(currentPage - 1) * perPage + i + 1}</td>
+                  <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>{i + 1}</td>
                   <td style={{ width: 20 }}><span style={{ color: "var(--gb-aqua)", fontSize: 13 }}>~</span></td>
                   <td style={{ minWidth: 260 }}>
                     <Link to={threadPath({ id: p.threadId, publicId: p.threadPublicId })} className="gb-col-name" style={{ color: "var(--gb-fg)" }}>{p.threadTitle}</Link>
@@ -311,7 +276,6 @@ export default function MemberPage() {
               ))}
             </tbody>
           </table>
-          {pager}
         </div>
       )}
 

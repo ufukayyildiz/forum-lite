@@ -73,7 +73,7 @@ app.get("/", async (c) => {
   const q = c.req.query("q")?.trim();
   const sort = c.req.query("sort") ?? "posts";
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
-  const perPage = 24;
+  const loadAllMembers = c.req.query("all") === "1";
 
   const where = q ? like(schema.users.username, `%${q}%`) : undefined;
   const orderBy =
@@ -83,19 +83,22 @@ app.get("/", async (c) => {
         ? desc(schema.users.threadCount)
         : desc(schema.users.postCount);
 
+  const total = await db.$count(schema.users, where);
+  const perPage = loadAllMembers ? Math.max(total, 1) : 24;
+  const offset = loadAllMembers ? 0 : (page - 1) * perPage;
+
   const rows = await db
     .select()
     .from(schema.users)
     .where(where)
     .orderBy(orderBy)
     .limit(perPage)
-    .offset((page - 1) * perPage);
+    .offset(offset);
 
-  const total = await db.$count(schema.users, where);
   return c.json({
     members: rows.map(toPublicUser),
     total,
-    page,
+    page: loadAllMembers ? 1 : page,
     perPage,
   });
 });
@@ -104,13 +107,22 @@ app.get("/", async (c) => {
 app.get("/:username", async (c) => {
   const db = c.get("db");
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
-  const perPage = 50;
+  const loadAllActivity = c.req.query("all") === "1";
   const tab = c.req.query("tab") === "replies" ? "replies" : "threads";
   const username = c.req.param("username").toLowerCase();
   const user = await db.query.users.findFirst({
     where: eq(schema.users.username, username),
   });
   if (!user) return c.json({ error: "Member not found" }, 404);
+
+  const [authoredThreadCount, activityThreadCount, realReplyCount] = await Promise.all([
+    db.$count(schema.threads, eq(schema.threads.userId, user.id)),
+    countActivityThreads(c.env.DB, user.id),
+    db.$count(schema.posts, eq(schema.posts.userId, user.id)),
+  ]);
+  const activeTotal = tab === "replies" ? realReplyCount : activityThreadCount;
+  const perPage = loadAllActivity ? Math.max(activeTotal, 1) : 50;
+  const offset = loadAllActivity ? 0 : (page - 1) * perPage;
 
   const replyQuery = db
     .select({
@@ -133,15 +145,12 @@ app.get("/:username", async (c) => {
     .innerJoin(schema.categories, eq(schema.categories.id, schema.threads.categoryId))
     .where(eq(schema.posts.userId, user.id))
     .orderBy(desc(schema.posts.createdAt))
-      .limit(perPage)
-    .offset((page - 1) * perPage);
+    .limit(perPage)
+    .offset(offset);
 
-  const [recentThreads, recentReplies, authoredThreadCount, activityThreadCount, realReplyCount] = await Promise.all([
-    tab === "threads" ? fetchActivityThreads(c.env.DB, user.id, perPage, (page - 1) * perPage) : Promise.resolve([]),
+  const [recentThreads, recentReplies] = await Promise.all([
+    tab === "threads" ? fetchActivityThreads(c.env.DB, user.id, perPage, offset) : Promise.resolve([]),
     tab === "replies" ? replyQuery : Promise.resolve([]),
-    db.$count(schema.threads, eq(schema.threads.userId, user.id)),
-    countActivityThreads(c.env.DB, user.id),
-    db.$count(schema.posts, eq(schema.posts.userId, user.id)),
   ]);
 
   const publicUser = toPublicUser(user);
@@ -157,7 +166,7 @@ app.get("/:username", async (c) => {
     })),
     replies: recentReplies.map((p) => ({ ...p, createdAt: safeISO(p.createdAt) })),
     totals: { threads: activityThreadCount, authoredThreads: authoredThreadCount, replies: realReplyCount },
-    page,
+    page: loadAllActivity ? 1 : page,
     perPage,
     tab,
   });

@@ -300,8 +300,14 @@ async function loadThreadApi(c: AppContext, id: string) {
   };
 }
 
-async function loadPostsApi(c: AppContext, threadId: number, page = 1) {
-  const perPage = 20;
+async function loadPostsApi(c: AppContext, threadId: number, opts: { page?: number; all?: boolean } = {}) {
+  const page = Math.max(1, opts.page ?? 1);
+  const total = await c.env.DB.prepare("SELECT COUNT(*) AS total FROM posts WHERE thread_id = ?")
+    .bind(threadId)
+    .first<Record<string, unknown>>();
+  const totalCount = Number(total?.total ?? 0);
+  const perPage = opts.all ? Math.max(totalCount, 1) : 20;
+  const offset = opts.all ? 0 : (page - 1) * perPage;
   const rows = await c.env.DB.prepare(
     `SELECT p.id, p.content, p.like_count AS likeCount, p.edited_at AS editedAt, p.created_at AS createdAt,
       u.id AS authorId, u.username AS authorUsername, u.display_name AS authorDisplayName, u.avatar_url AS authorAvatar,
@@ -313,11 +319,8 @@ async function loadPostsApi(c: AppContext, threadId: number, page = 1) {
      ORDER BY p.created_at ASC
      LIMIT ? OFFSET ?`,
   )
-    .bind(threadId, perPage, (page - 1) * perPage)
+    .bind(threadId, perPage, offset)
     .all<Record<string, unknown>>();
-  const total = await c.env.DB.prepare("SELECT COUNT(*) AS total FROM posts WHERE thread_id = ?")
-    .bind(threadId)
-    .first<Record<string, unknown>>();
 
   return {
     posts: (rows.results ?? []).map((post) => ({
@@ -339,9 +342,193 @@ async function loadPostsApi(c: AppContext, threadId: number, page = 1) {
         bio: post.authorBio == null ? null : String(post.authorBio),
       },
     })),
-    total: Number(total?.total ?? 0),
-    page,
+    total: totalCount,
+    page: opts.all ? 1 : page,
     perPage,
+  };
+}
+
+async function loadMembersApi(c: AppContext, sort = "posts") {
+  const orderBy =
+    sort === "newest"
+      ? "ORDER BY created_at DESC"
+      : sort === "threads"
+        ? "ORDER BY thread_count DESC, id DESC"
+        : "ORDER BY post_count DESC, id DESC";
+  const total = await c.env.DB.prepare("SELECT COUNT(*) AS total FROM users").first<Record<string, unknown>>();
+  const rows = await c.env.DB.prepare(
+    `SELECT id, public_id AS publicId, username, display_name AS displayName, avatar_url AS avatarUrl, bio, role,
+      banned, post_count AS postCount, thread_count AS threadCount, created_at AS createdAt
+     FROM users
+     ${orderBy}`,
+  ).all<Record<string, unknown>>();
+
+  return {
+    members: (rows.results ?? []).map((user) => ({
+      id: Number(user.id),
+      publicId: String(user.publicId ?? ""),
+      username: String(user.username ?? ""),
+      displayName: String(user.displayName ?? ""),
+      avatarUrl: user.avatarUrl == null ? null : String(user.avatarUrl),
+      bio: user.bio == null ? null : String(user.bio),
+      role: String(user.role ?? "member"),
+      banned: !!user.banned,
+      postCount: Number(user.postCount ?? 0),
+      threadCount: Number(user.threadCount ?? 0),
+      createdAt: apiDate(user.createdAt),
+    })),
+    total: Number(total?.total ?? 0),
+    page: 1,
+    perPage: Math.max(Number(total?.total ?? 0), 1),
+  };
+}
+
+async function loadMemberActivityApi(c: AppContext, username: string, tab = "threads") {
+  const user = await c.env.DB.prepare(
+    `SELECT id, public_id AS publicId, username, display_name AS displayName, avatar_url AS avatarUrl, bio, role,
+      banned, post_count AS postCount, thread_count AS threadCount, created_at AS createdAt
+     FROM users
+     WHERE username = ?
+     LIMIT 1`,
+  )
+    .bind(username.toLowerCase())
+    .first<Record<string, unknown>>();
+  if (!user) return null;
+
+  const userId = Number(user.id);
+  const [authoredThreadCount, activityThreadCount, replyCount] = await Promise.all([
+    c.env.DB.prepare("SELECT COUNT(*) AS total FROM threads WHERE user_id = ?").bind(userId).first<Record<string, unknown>>(),
+    c.env.DB.prepare(
+      `WITH ids AS (
+        SELECT id AS threadId FROM threads WHERE user_id = ?
+        UNION
+        SELECT thread_id AS threadId FROM posts WHERE user_id = ?
+      )
+      SELECT COUNT(*) AS total FROM ids`,
+    ).bind(userId, userId).first<Record<string, unknown>>(),
+    c.env.DB.prepare("SELECT COUNT(*) AS total FROM posts WHERE user_id = ?").bind(userId).first<Record<string, unknown>>(),
+  ]);
+
+  const selectedTab = tab === "replies" ? "replies" : "threads";
+  const [threadRows, replyRows] = await Promise.all([
+    selectedTab === "threads"
+      ? c.env.DB.prepare(
+          `WITH activity AS (
+            SELECT id AS threadId, created_at AS activityAt, 1 AS authored
+            FROM threads
+            WHERE user_id = ?
+            UNION ALL
+            SELECT thread_id AS threadId, MAX(created_at) AS activityAt, 0 AS authored
+            FROM posts
+            WHERE user_id = ?
+            GROUP BY thread_id
+          ),
+          ranked AS (
+            SELECT threadId, MAX(activityAt) AS activityAt, MAX(authored) AS authored
+            FROM activity
+            GROUP BY threadId
+          )
+          SELECT t.id, t.public_id AS publicId, t.title, t.slug, t.created_at AS createdAt,
+            t.last_post_at AS lastPostAt, t.reply_count AS replyCount,
+            c.id AS categoryId, c.name AS categoryName, c.slug AS categorySlug, c.public_id AS categoryPublicId,
+            ranked.activityAt AS activityAt, ranked.authored AS authored
+          FROM ranked
+          INNER JOIN threads t ON t.id = ranked.threadId
+          INNER JOIN categories c ON c.id = t.category_id
+          ORDER BY ranked.activityAt DESC, t.id DESC`,
+        ).bind(userId, userId).all<Record<string, unknown>>()
+      : Promise.resolve({ results: [] as Record<string, unknown>[] }),
+    selectedTab === "replies"
+      ? c.env.DB.prepare(
+          `SELECT p.id, p.content, p.like_count AS likeCount, p.created_at AS createdAt,
+            t.id AS threadId, t.public_id AS threadPublicId, t.title AS threadTitle, t.slug AS threadSlug,
+            t.reply_count AS threadReplyCount,
+            c.id AS categoryId, c.name AS categoryName, c.slug AS categorySlug, c.public_id AS categoryPublicId
+           FROM posts p
+           INNER JOIN threads t ON t.id = p.thread_id
+           INNER JOIN categories c ON c.id = t.category_id
+           WHERE p.user_id = ?
+           ORDER BY p.created_at DESC`,
+        ).bind(userId).all<Record<string, unknown>>()
+      : Promise.resolve({ results: [] as Record<string, unknown>[] }),
+  ]);
+
+  const publicUser = {
+    id: userId,
+    publicId: String(user.publicId ?? ""),
+    username: String(user.username ?? ""),
+    displayName: String(user.displayName ?? ""),
+    avatarUrl: user.avatarUrl == null ? null : String(user.avatarUrl),
+    bio: user.bio == null ? null : String(user.bio),
+    role: String(user.role ?? "member"),
+    banned: !!user.banned,
+    postCount: Number(replyCount?.total ?? 0),
+    threadCount: Number(activityThreadCount?.total ?? 0),
+    createdAt: apiDate(user.createdAt),
+  };
+
+  const activeTotal = selectedTab === "replies" ? publicUser.postCount : publicUser.threadCount;
+  return {
+    user: publicUser,
+    threads: (threadRows.results ?? []).map((thread) => ({
+      ...thread,
+      authored: !!thread.authored,
+      createdAt: apiDate(thread.createdAt),
+      lastPostAt: apiDate(thread.lastPostAt),
+      activityAt: apiDate(thread.activityAt),
+    })),
+    replies: (replyRows.results ?? []).map((reply) => ({ ...reply, createdAt: apiDate(reply.createdAt) })),
+    totals: {
+      threads: Number(activityThreadCount?.total ?? 0),
+      authoredThreads: Number(authoredThreadCount?.total ?? 0),
+      replies: Number(replyCount?.total ?? 0),
+    },
+    page: 1,
+    perPage: Math.max(activeTotal, 1),
+    tab: selectedTab,
+  };
+}
+
+async function loadTagThreadsApi(c: AppContext, slug: string, sort = "recent") {
+  const tag = await c.env.DB.prepare("SELECT id, name, slug FROM tags WHERE slug = ? LIMIT 1")
+    .bind(slug)
+    .first<Record<string, unknown>>();
+  if (!tag) return null;
+
+  const orderBy =
+    sort === "popular"
+      ? "ORDER BY t.views DESC"
+      : sort === "replies"
+        ? "ORDER BY t.reply_count DESC"
+        : "ORDER BY t.last_post_at DESC";
+  const total = await c.env.DB.prepare("SELECT COUNT(*) AS total FROM thread_tags WHERE tag_id = ?")
+    .bind(Number(tag.id))
+    .first<Record<string, unknown>>();
+  const rows = await c.env.DB.prepare(
+    `SELECT t.id, t.public_id AS publicId, t.title, t.slug, t.pinned, t.locked, t.featured,
+      t.views, t.reply_count AS replyCount, t.created_at AS createdAt, t.last_post_at AS lastPostAt,
+      c.id AS categoryId, c.public_id AS categoryPublicId, c.name AS categoryName, c.slug AS categorySlug, c.color AS categoryColor,
+      u.id AS authorId, u.public_id AS authorPublicId, u.username AS authorUsername, u.display_name AS authorDisplayName,
+      u.avatar_url AS authorAvatar, u.role AS authorRole
+     FROM thread_tags tt
+     INNER JOIN threads t ON t.id = tt.thread_id
+     INNER JOIN categories c ON c.id = t.category_id
+     INNER JOIN users u ON u.id = t.user_id
+     WHERE tt.tag_id = ?
+     ${orderBy}`,
+  )
+    .bind(Number(tag.id))
+    .all<Record<string, unknown>>();
+
+  return {
+    tag: { id: Number(tag.id), name: String(tag.name ?? ""), slug: String(tag.slug ?? "") },
+    threads: (rows.results ?? []).map((thread) => ({
+      ...mapThreadApi(thread),
+      tags: [{ id: Number(tag.id), name: String(tag.name ?? ""), slug: String(tag.slug ?? "") }],
+    })),
+    total: Number(total?.total ?? 0),
+    page: 1,
+    perPage: Math.max(Number(total?.total ?? 0), 1),
   };
 }
 
@@ -466,8 +653,7 @@ async function homePayload(c: AppContext, base: string): Promise<SeoPayload> {
     FROM threads t
     INNER JOIN categories c ON c.id = t.category_id
     INNER JOIN users u ON u.id = t.user_id
-    ORDER BY t.pinned DESC, t.last_post_at DESC
-    LIMIT 20`,
+    ORDER BY t.pinned DESC, t.last_post_at DESC`,
   ).all<Record<string, unknown>>();
   const threads = rows.results ?? [];
   const stats = await c.env.DB.prepare(
@@ -538,8 +724,7 @@ async function threadPayload(c: AppContext, base: string, id: string): Promise<S
        FROM posts p
        INNER JOIN users u ON u.id = p.user_id
        WHERE p.thread_id = ?
-       ORDER BY p.created_at ASC
-       LIMIT 8`,
+       ORDER BY p.created_at ASC`,
     )
       .bind(Number(thread.id))
       .all<Record<string, unknown>>(),
@@ -634,8 +819,7 @@ async function categoryPayload(c: AppContext, base: string, id: string): Promise
     `SELECT id, public_id AS publicId, title, content, reply_count AS replyCount
      FROM threads
      WHERE category_id = ?
-     ORDER BY pinned DESC, last_post_at DESC
-     LIMIT 20`,
+     ORDER BY pinned DESC, last_post_at DESC`,
   )
     .bind(Number(category.id))
     .all<Record<string, unknown>>();
@@ -684,8 +868,7 @@ async function membersPayload(c: AppContext, base: string): Promise<SeoPayload> 
   const rows = await c.env.DB.prepare(
     `SELECT username, display_name AS displayName, bio, post_count AS postCount, thread_count AS threadCount
      FROM users
-     ORDER BY post_count DESC, id DESC
-     LIMIT 24`,
+     ORDER BY post_count DESC, id DESC`,
   ).all<Record<string, unknown>>();
   const total = await c.env.DB.prepare("SELECT COUNT(*) AS total FROM users").first<{ total: number }>();
   const users = rows.results ?? [];
@@ -750,8 +933,7 @@ async function memberPayload(c: AppContext, base: string, username: string): Pro
     FROM activity
     INNER JOIN threads t ON t.id = activity.threadId
     GROUP BY t.id
-    ORDER BY activityAt DESC
-    LIMIT 12`,
+    ORDER BY activityAt DESC`,
   )
     .bind(Number(user.id), Number(user.id))
     .all<Record<string, unknown>>();
@@ -816,8 +998,7 @@ async function tagsPayload(c: AppContext, base: string): Promise<SeoPayload> {
      FROM tags
      LEFT JOIN thread_tags ON thread_tags.tag_id = tags.id
      GROUP BY tags.id
-     ORDER BY threadCount DESC, tags.name ASC
-     LIMIT 100`,
+     ORDER BY threadCount DESC, tags.name ASC`,
   ).all<Record<string, unknown>>();
   const tags = rows.results ?? [];
   const description = "Browse FSTDESK Forum tags across food science, food safety and product development topics.";
@@ -869,8 +1050,7 @@ async function tagPayload(c: AppContext, base: string, slug: string): Promise<Se
      FROM thread_tags tt
      INNER JOIN threads t ON t.id = tt.thread_id
      WHERE tt.tag_id = ?
-     ORDER BY t.last_post_at DESC
-     LIMIT 20`,
+     ORDER BY t.last_post_at DESC`,
   )
     .bind(Number(tag.id))
     .all<Record<string, unknown>>();
@@ -997,8 +1177,8 @@ async function bootstrapForUrl(c: AppContext, url: URL): Promise<BootstrapBuild>
   queries.push({ key: ["stats"], data: stats });
 
   if (pathname === "/") {
-    const threads = await loadThreadsApi(c, { page: 1, sort: "recent" });
-    queries.push({ key: ["threads", "all", 1, "recent"], data: threads });
+    const threads = await loadThreadsApi(c, { sort: "recent", all: true });
+    queries.push({ key: ["threads", "all", "recent", "all"], data: threads });
   } else if (parts[0] === "c" && parts[1]) {
     const sort = url.searchParams.get("sort") ?? "recent";
     const category = await loadCategoryApi(c, parts[1]);
@@ -1010,10 +1190,22 @@ async function bootstrapForUrl(c: AppContext, url: URL): Promise<BootstrapBuild>
   } else if (parts[0] === "t" && parts[1]) {
     const thread = await loadThreadApi(c, parts[1]);
     if (thread) {
-      const posts = await loadPostsApi(c, thread.id, 1);
+      const posts = await loadPostsApi(c, thread.id, { all: true });
       queries.push({ key: ["thread", parts[1]], data: thread });
-      queries.push({ key: ["posts", thread.id, 1], data: posts, updatedAt: 0 });
+      queries.push({ key: ["posts", thread.id, "all"], data: posts, updatedAt: 0 });
     }
+  } else if (parts[0] === "members" && parts.length === 1) {
+    const sort = url.searchParams.get("sort") ?? "posts";
+    const members = await loadMembersApi(c, sort);
+    queries.push({ key: ["members", sort, "all"], data: members });
+  } else if (parts[0] === "u" && parts[1]) {
+    const tab = url.searchParams.get("tab") === "replies" ? "replies" : "threads";
+    const member = await loadMemberActivityApi(c, parts[1], tab);
+    if (member) queries.push({ key: ["member", parts[1], tab, "all"], data: member });
+  } else if (parts[0] === "tag" && parts[1]) {
+    const sort = url.searchParams.get("sort") ?? "recent";
+    const tagThreads = await loadTagThreadsApi(c, parts[1], sort);
+    if (tagThreads) queries.push({ key: ["tag-threads", parts[1], sort, "all"], data: tagThreads });
   }
 
   return { categories, payload: { queries } };

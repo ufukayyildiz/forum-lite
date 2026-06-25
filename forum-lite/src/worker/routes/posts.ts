@@ -14,8 +14,11 @@ app.get("/", async (c) => {
   const threadId = Number(c.req.query("threadId"));
   if (!threadId) return c.json({ error: "threadId is required" }, 400);
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
-  const perPage = 20;
+  const loadAllPosts = c.req.query("all") === "1";
   const me = c.get("user");
+  const total = await db.$count(schema.posts, eq(schema.posts.threadId, threadId));
+  const perPage = loadAllPosts ? Math.max(total, 1) : 20;
+  const offset = loadAllPosts ? 0 : (page - 1) * perPage;
 
   const rows = await db
     .select({
@@ -39,9 +42,7 @@ app.get("/", async (c) => {
     .where(eq(schema.posts.threadId, threadId))
     .orderBy(asc(schema.posts.createdAt))
     .limit(perPage)
-    .offset((page - 1) * perPage);
-
-  const total = await db.$count(schema.posts, eq(schema.posts.threadId, threadId));
+    .offset(offset);
 
   let likedPostIds: Set<number> = new Set();
   if (me) {
@@ -73,7 +74,7 @@ app.get("/", async (c) => {
       },
     })),
     total,
-    page,
+    page: loadAllPosts ? 1 : page,
     perPage,
   });
 });

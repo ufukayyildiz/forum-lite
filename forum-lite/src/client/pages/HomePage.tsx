@@ -11,16 +11,14 @@ import { threadPath } from "../lib/routes";
 const THREAD_ROWS = 15;
 
 export default function HomePage() {
-  const [page, setPage] = useState(1);
   const [sort, setSort] = useState("recent");
   const { data: me } = useMe();
 
   const { data: threads, isLoading: tLoading } = useQuery({
-    queryKey: ["threads", "all", page, sort],
-    queryFn: () => api.threads({ page, sort }),
+    queryKey: ["threads", "all", sort, "all"],
+    queryFn: () => api.threads({ sort, all: 1 }),
   });
 
-  const totalPages = threads ? Math.ceil(threads.total / threads.perPage) : 1;
   const list = threads?.threads ?? [];
   const emptyCount = Math.max(0, THREAD_ROWS - list.length);
 
@@ -43,9 +41,9 @@ export default function HomePage() {
           {
             "@context": "https://schema.org",
             "@type": "ItemList",
-            itemListElement: list.slice(0, 20).map((thread, i) => ({
+            itemListElement: list.map((thread, i) => ({
               "@type": "ListItem",
-              position: i + 1 + (page - 1) * (threads?.perPage ?? 20),
+              position: i + 1,
               url: typeof window !== "undefined" ? `${window.location.origin}${threadPath(thread)}` : threadPath(thread),
               name: thread.title,
             })),
@@ -58,7 +56,7 @@ export default function HomePage() {
       <div className="gb-tabs">
         {[["recent","RECENT"],["replies","MOST REPLIES"],["popular","POPULAR"]].map(([v, l]) => (
           <div key={v} className={`gb-tab-item${sort === v ? " active" : ""}`}
-            onClick={() => { setSort(v); setPage(1); }}>{l}</div>
+            onClick={() => setSort(v)}>{l}</div>
         ))}
       </div>
 
@@ -80,7 +78,7 @@ export default function HomePage() {
             </thead>
             <tbody>
               {list.map((t, i) => (
-                <TopicRow key={t.id} thread={t} showCategory lineNum={i + 1 + (page - 1) * (threads?.perPage ?? 20)} />
+                <TopicRow key={t.id} thread={t} showCategory lineNum={i + 1} />
               ))}
               {!list.length && (
                 <tr>
@@ -95,13 +93,6 @@ export default function HomePage() {
           </table>
         )}
 
-        {totalPages > 1 && (
-          <div className="gb-pag-row">
-            <button className="gb-btn" style={{ padding: "2px 10px" }} disabled={page <= 1} onClick={() => setPage(p => p - 1)}>prev</button>
-            <span style={{ color: "var(--gb-gray)", fontSize: 12 }}>{page} / {totalPages}</span>
-            <button className="gb-btn" style={{ padding: "2px 10px" }} disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>next</button>
-          </div>
-        )}
       </div>
     </>
   );

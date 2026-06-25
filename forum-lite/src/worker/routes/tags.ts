@@ -35,7 +35,7 @@ app.get("/:slug", async (c) => {
 
   const sort = c.req.query("sort") ?? "recent";
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
-  const perPage = 20;
+  const loadAllThreads = c.req.query("all") === "1";
 
   const orderBy =
     sort === "popular"
@@ -43,6 +43,10 @@ app.get("/:slug", async (c) => {
       : sort === "replies"
         ? [desc(schema.threads.replyCount)]
         : [desc(schema.threads.lastPostAt)];
+
+  const total = await db.$count(schema.threadTags, eq(schema.threadTags.tagId, tag.id));
+  const perPage = loadAllThreads ? Math.max(total, 1) : 20;
+  const offset = loadAllThreads ? 0 : (page - 1) * perPage;
 
   const rows = await db
     .select({
@@ -75,9 +79,7 @@ app.get("/:slug", async (c) => {
     .where(eq(schema.threadTags.tagId, tag.id))
     .orderBy(...orderBy)
     .limit(perPage)
-    .offset((page - 1) * perPage);
-
-  const total = await db.$count(schema.threadTags, eq(schema.threadTags.tagId, tag.id));
+    .offset(offset);
 
   return c.json({
     tag: { id: tag.id, name: tag.name, slug: tag.slug },
@@ -98,7 +100,7 @@ app.get("/:slug", async (c) => {
       tags: [{ id: tag.id, name: tag.name, slug: tag.slug }],
     })),
     total,
-    page,
+    page: loadAllThreads ? 1 : page,
     perPage,
   });
 });

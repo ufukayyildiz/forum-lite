@@ -97,8 +97,18 @@ export const api = {
   featureThread: (id: number | string) => patch<any>(`/threads/${id}/feature`, {}),
 
   // posts
-  posts: (threadId: number, page = 1) =>
-    get<{ posts: Post[]; total: number; page: number; perPage: number }>(`/posts?threadId=${threadId}&page=${page}`),
+  posts: (threadId: number, params: number | Record<string, string | number> = 1) => {
+    const query =
+      typeof params === "number"
+        ? { threadId: String(threadId), page: String(params) }
+        : {
+            threadId: String(threadId),
+            ...Object.fromEntries(Object.entries(params).map(([key, value]) => [key, String(value)])),
+          };
+    return get<{ posts: Post[]; total: number; page: number; perPage: number }>(
+      "/posts?" + new URLSearchParams(query).toString()
+    );
+  },
   createPost: (b: { threadId: number; content: string }) => post<Post>("/posts", b),
   updatePost: (id: number, content: string) => patch<Post>(`/posts/${id}`, { content }),
   deletePost: (id: number) => del<{ ok: boolean }>(`/posts/${id}`),

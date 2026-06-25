@@ -92,7 +92,7 @@ app.get("/", async (c) => {
   const categoryFilter = c.req.query("category");
   const sort = c.req.query("sort") ?? "recent";
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
-  const loadAllCategoryThreads = !!categoryFilter && c.req.query("all") === "1";
+  const loadAllThreads = c.req.query("all") === "1";
 
   let where: any = undefined;
   if (categoryFilter) {
@@ -103,7 +103,7 @@ app.get("/", async (c) => {
         : or(eq(schema.categories.publicId, categoryFilter), eq(schema.categories.slug, categoryFilter)),
       columns: { id: true },
     });
-    if (!category) return c.json({ threads: [], total: 0, page, perPage: 20 });
+    if (!category) return c.json({ threads: [], total: 0, page: loadAllThreads ? 1 : page, perPage: 20 });
     where = eq(schema.threads.categoryId, category.id);
   }
 
@@ -115,8 +115,8 @@ app.get("/", async (c) => {
         : [desc(schema.threads.pinned), desc(schema.threads.lastPostAt)];
 
   const total = await db.$count(schema.threads, where);
-  const perPage = loadAllCategoryThreads ? Math.max(total, 1) : 20;
-  const offset = loadAllCategoryThreads ? 0 : (page - 1) * perPage;
+  const perPage = loadAllThreads ? Math.max(total, 1) : 20;
+  const offset = loadAllThreads ? 0 : (page - 1) * perPage;
 
   const rows = await db
     .select(threadAuthorSelect)
@@ -128,7 +128,7 @@ app.get("/", async (c) => {
     .limit(perPage)
     .offset(offset);
 
-  return c.json({ threads: rows.map(mapThread), total, page: loadAllCategoryThreads ? 1 : page, perPage });
+  return c.json({ threads: rows.map(mapThread), total, page: loadAllThreads ? 1 : page, perPage });
 });
 
 app.get("/recent", async (c) => {
