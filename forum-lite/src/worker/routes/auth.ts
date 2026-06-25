@@ -16,7 +16,8 @@ import {
 import { requireAuth } from "../lib/middleware";
 import { toPublicUser, type AppEnv } from "../types";
 import type { DB } from "../db";
-import { newPasswordEmail, sendEmail, welcomeEmail } from "../lib/email";
+import { accountCreatedPasswordEmail, newPasswordEmail, sendEmail } from "../lib/email";
+import { isEmailSuppressed, normalizeEmailAddress, recordEmailSuppression } from "../lib/email-suppression";
 
 const app = new Hono<AppEnv>();
 
@@ -27,7 +28,6 @@ const registerSchema = z.object({
     .max(12, "Username can be at most 12 characters")
     .regex(/^[a-z0-9]+$/, "Use lowercase letters and numbers only (a-z, 0-9)"),
   email: z.string().email("Enter a valid email address"),
-  password: z.string().min(8, "Password must be at least 8 characters"),
   displayName: z.string().min(2).max(60).optional(),
 });
 
@@ -98,6 +98,22 @@ async function createUserPublicId(db: DB): Promise<string> {
   throw new Error("Could not allocate a unique user public_id");
 }
 
+async function loadSettingsMap(db: DB): Promise<Record<string, string>> {
+  const settingRows: { key: string; value: string }[] = await db.select().from(schema.settings);
+  const settings: Record<string, string> = {};
+  for (const row of settingRows) settings[row.key] = row.value;
+  return settings;
+}
+
+async function findExistingUserIdentity(db: DB, username: string, email?: string) {
+  return db.query.users.findFirst({
+    where: email
+      ? or(eq(schema.users.username, username), eq(schema.users.email, email))
+      : eq(schema.users.username, username),
+    columns: { id: true, username: true, email: true },
+  });
+}
+
 export function generateTemporaryPassword(): string {
   const digits = Array.from({ length: 6 }, () => String(secureRandomInt(10))).join("");
   const upper = String.fromCharCode(65 + secureRandomInt(26));
@@ -116,6 +132,26 @@ function setSessionCookie(c: any, token: string) {
   });
 }
 
+app.get("/availability", async (c) => {
+  const db = c.get("db");
+  const username = (c.req.query("username") ?? "").trim().toLowerCase();
+  const email = c.req.query("email") ? normalizeEmailAddress(c.req.query("email") ?? "") : "";
+
+  const usernameValid = username.length >= 3 && username.length <= 12 && /^[a-z0-9]+$/.test(username);
+  const emailValid = !email || z.string().email().safeParse(email).success;
+
+  const existing = usernameValid
+    ? await findExistingUserIdentity(db, username, emailValid && email ? email : undefined)
+    : null;
+  const suppressed = emailValid && email ? await isEmailSuppressed(db, email) : false;
+
+  return c.json({
+    usernameAvailable: usernameValid ? !existing || existing.username !== username : false,
+    emailAvailable: email && emailValid ? !existing || existing.email !== email : true,
+    emailSuppressed: suppressed,
+  });
+});
+
 app.post("/register", zValidator("json", registerSchema), async (c) => {
   const ip = getClientIp(c);
   const db = c.get("db");
@@ -126,15 +162,18 @@ app.post("/register", zValidator("json", registerSchema), async (c) => {
   }
 
   const body = c.req.valid("json");
-  const username = body.username.toLowerCase();
-  const email = body.email.toLowerCase();
+  const username = body.username.trim().toLowerCase();
+  const email = normalizeEmailAddress(body.email);
 
-  const existing = await db.query.users.findFirst({
-    where: or(eq(schema.users.username, username), eq(schema.users.email, email)),
-  });
-  if (existing) return c.json({ error: "That username or email is already in use" }, 409);
+  const existing = await findExistingUserIdentity(db, username, email);
+  if (existing?.username === username) return c.json({ error: "That username is already in use" }, 409);
+  if (existing?.email === email) return c.json({ error: "That email is already in use" }, 409);
+  if (await isEmailSuppressed(db, email)) {
+    return c.json({ error: "That email cannot receive forum emails. Use another email address." }, 409);
+  }
 
-  const passwordHash = await hashPassword(body.password);
+  const temporaryPassword = generateTemporaryPassword();
+  const passwordHash = await hashPassword(temporaryPassword);
   const publicId = await createUserPublicId(db);
   const [user] = await db
     .insert(schema.users)
@@ -148,26 +187,38 @@ app.post("/register", zValidator("json", registerSchema), async (c) => {
     })
     .returning();
 
-  const token = generateToken();
-  await db.insert(schema.sessions).values({
-    token,
-    userId: user.id,
-    expiresAt: new Date(Date.now() + SESSION_TTL_MS),
+  const settings = await loadSettingsMap(db);
+  const siteUrl = settings["site_url"] || new URL(c.req.url).origin;
+  const from = settings["email_from"] || "noreply@devfox.net";
+  const mail = accountCreatedPasswordEmail(user.username, temporaryPassword, siteUrl);
+  const sent = await sendEmail(c.env, {
+    to: user.email,
+    ...mail,
+    from,
+    headers: { "X-FSTDESK-Mail-Type": "account-password" },
   });
-  setSessionCookie(c, token);
 
-  // Welcome email — fire-and-forget, never blocks the response
-  c.executionCtx.waitUntil((async () => {
-    const settingRows: { key: string; value: string }[] = await db.select().from(schema.settings);
-    const s: Record<string, string> = {};
-    for (const r of settingRows) s[r.key] = r.value;
-    const siteUrl = s["site_url"] || new URL(c.req.url).origin;
-    const from = s["email_from"] || undefined;
-    const welcome = welcomeEmail(user.username, siteUrl);
-    await sendEmail(c.env, { to: user.email, ...welcome, from });
-  })());
+  if (!sent.ok) {
+    await db.delete(schema.users).where(eq(schema.users.id, user.id));
+    if (sent.suppressed) {
+      await recordEmailSuppression(db, c.env, email, {
+        reason: "recipient_suppressed",
+        source: "register_send",
+        details: sent.code,
+        waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),
+      });
+      return c.json({ error: "That email is suppressed and cannot receive forum emails." }, 409);
+    }
+    return c.json({ error: "Could not send the account password email. Please try again later." }, 502);
+  }
 
-  return c.json({ user: toPublicUser(user) }, 201);
+  await db.insert(schema.activityLog).values({
+    userId: user.id,
+    type: "register",
+    summary: `Created account ${user.username}; password email sent`,
+  });
+
+  return c.json({ ok: true, message: "Account created. Your password has been emailed." }, 201);
 });
 
 app.post("/login", zValidator("json", loginSchema), async (c) => {
@@ -190,6 +241,15 @@ app.post("/login", zValidator("json", loginSchema), async (c) => {
     return c.json({ error: "Invalid username or password" }, 401);
   }
   if (user.banned) return c.json({ error: "Your account has been suspended" }, 403);
+
+  const now = new Date();
+  await db
+    .update(schema.users)
+    .set({
+      lastLoginAt: now,
+      emailVerifiedAt: user.emailVerifiedAt ?? now,
+    })
+    .where(eq(schema.users.id, user.id));
 
   const token = generateToken();
   await db.insert(schema.sessions).values({
@@ -217,22 +277,35 @@ app.post("/reset-password", zValidator("json", resetPasswordSchema), async (c) =
   });
 
   if (user && !user.banned) {
-    const settingRows: { key: string; value: string }[] = await db.select().from(schema.settings);
-    const s: Record<string, string> = {};
-    for (const r of settingRows) s[r.key] = r.value;
+    if (await isEmailSuppressed(db, normalizedEmail)) {
+      return c.json({ ok: true, message: "If that email exists, a new password has been sent." });
+    }
 
+    const s = await loadSettingsMap(db);
     const siteUrl = s["site_url"] || new URL(c.req.url).origin;
     const from = s["email_from"] || "noreply@devfox.net";
     const nextPassword = generateTemporaryPassword();
     const mail = newPasswordEmail(user.username, nextPassword, siteUrl);
-    const sent = await sendEmail(c.env, { to: user.email, ...mail, from });
+    const sent = await sendEmail(c.env, {
+      to: user.email,
+      ...mail,
+      from,
+      headers: { "X-FSTDESK-Mail-Type": "password-reset" },
+    });
 
-    if (sent) {
+    if (sent.ok) {
       await db
         .update(schema.users)
         .set({ passwordHash: await hashPassword(nextPassword) })
         .where(eq(schema.users.id, user.id));
       await db.delete(schema.sessions).where(eq(schema.sessions.userId, user.id));
+    } else if (sent.suppressed) {
+      await recordEmailSuppression(db, c.env, user.email, {
+        reason: "recipient_suppressed",
+        source: "password_reset_send",
+        details: sent.code,
+        waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),
+      });
     }
   }
 

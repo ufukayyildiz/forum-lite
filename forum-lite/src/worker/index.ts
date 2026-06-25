@@ -16,6 +16,8 @@ import type { Bindings, Variables } from "./types";
 import { renderSeoHtml } from "./lib/seo";
 import { serveDefaultWebp, serveThreadWebp } from "./lib/og";
 import { legacyCanonicalRedirect } from "./lib/legacy-redirects";
+import { parseBounceEmail } from "./lib/bounce";
+import { recordEmailSuppression } from "./lib/email-suppression";
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -278,4 +280,24 @@ app.on(["GET", "HEAD"], "*", (c, next) => {
 
 app.all("*", (c) => renderSeoHtml(c));
 
-export default app;
+async function handleInboundEmail(message: ForwardableEmailMessage, env: Bindings, ctx: ExecutionContext): Promise<void> {
+  const raw = await new Response(message.raw).text();
+  const bounce = parseBounceEmail(raw, message.headers);
+  if (!bounce) {
+    message.setReject("Only delivery status notifications are accepted.");
+    return;
+  }
+
+  const db = getDb(env);
+  await recordEmailSuppression(db, env, bounce.email, {
+    reason: bounce.reason,
+    source: "inbound_bounce",
+    details: bounce.details,
+    waitUntil: ctx.waitUntil.bind(ctx),
+  });
+}
+
+export default {
+  fetch: app.fetch,
+  email: handleInboundEmail,
+};

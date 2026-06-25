@@ -16,6 +16,10 @@ export const users = sqliteTable(
       .notNull()
       .default("member"),
     banned: integer("banned", { mode: "boolean" }).notNull().default(false),
+    emailVerifiedAt: integer("email_verified_at", { mode: "timestamp" }),
+    lastLoginAt: integer("last_login_at", { mode: "timestamp" }),
+    emailSuppressedAt: integer("email_suppressed_at", { mode: "timestamp" }),
+    emailSuppressionReason: text("email_suppression_reason"),
     postCount: integer("post_count").notNull().default(0),
     threadCount: integer("thread_count").notNull().default(0),
     createdAt: integer("created_at", { mode: "timestamp" })
@@ -221,6 +225,25 @@ export const authAttempts = sqliteTable(
   }),
 );
 
+export const emailSuppressions = sqliteTable(
+  "email_suppressions",
+  {
+    email: text("email").primaryKey(),
+    reason: text("reason").notNull(),
+    source: text("source").notNull(),
+    details: text("details"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => ({
+    createdAtIdx: index("email_suppressions_created_at_idx").on(t.createdAt),
+  }),
+);
+
 export const usersRelations = relations(users, ({ many }) => ({
   threads: many(threads),
   posts: many(posts),
@@ -260,3 +283,4 @@ export type Thread = typeof threads.$inferSelect;
 export type Post = typeof posts.$inferSelect;
 export type Tag = typeof tags.$inferSelect;
 export type Attachment = typeof attachments.$inferSelect;
+export type EmailSuppression = typeof emailSuppressions.$inferSelect;

@@ -27,6 +27,13 @@ export type PublicUser = {
   bio: string | null; role: "admin" | "moderator" | "member"; banned: boolean;
   postCount: number; threadCount: number; createdAt: string;
 };
+export type AdminUser = PublicUser & {
+  email: string;
+  emailVerifiedAt: string | null;
+  lastLoginAt: string | null;
+  emailSuppressedAt: string | null;
+  emailSuppressionReason: string | null;
+};
 export type Category = {
   id: number; publicId: string; name: string; slug: string; description: string | null;
   color: string; icon: string; position: number; createdAt: string;
@@ -69,8 +76,12 @@ export const api = {
   // auth
   me: () => get<{ user: PublicUser | null }>("/auth/me"),
   login: (b: { identifier: string; password: string }) => post<{ user: PublicUser }>("/auth/login", b),
-  register: (b: { username: string; email: string; password: string; displayName?: string }) =>
-    post<{ user: PublicUser }>("/auth/register", b),
+  checkAvailability: (params: { username?: string; email?: string }) =>
+    get<{ usernameAvailable: boolean; emailAvailable: boolean; emailSuppressed: boolean }>(
+      "/auth/availability?" + new URLSearchParams(params as Record<string, string>).toString()
+    ),
+  register: (b: { username: string; email: string; displayName?: string }) =>
+    post<{ ok: boolean; message: string }>("/auth/register", b),
   resetPassword: (b: { email: string }) => post<{ ok: boolean; message: string }>("/auth/reset-password", b),
   logout: () => post<{ ok: boolean }>("/auth/logout"),
 
@@ -106,7 +117,7 @@ export const api = {
             ...Object.fromEntries(Object.entries(params).map(([key, value]) => [key, String(value)])),
           };
     return get<{ posts: Post[]; total: number; page: number; perPage: number }>(
-      "/posts?" + new URLSearchParams(query).toString()
+      "/posts?" + new URLSearchParams(query as Record<string, string>).toString()
     );
   },
   createPost: (b: { threadId: number; content: string }) => post<Post>("/posts", b),
@@ -142,13 +153,14 @@ export const api = {
 
   // admin
   adminStats: () => get<{ userCount: number; threadCount: number; postCount: number; recentActivity: any[] }>("/admin/stats"),
-  adminUsers: (page = 1) => get<{ users: PublicUser[]; total: number }>(`/admin/users?page=${page}`),
+  adminUsers: (page = 1) => get<{ users: AdminUser[]; total: number }>(`/admin/users?page=${page}`),
   adminSetRole: (id: number, role: string) => patch<{ user: PublicUser }>(`/admin/users/${id}/role`, { role }),
   adminBanUser: (id: number) => post<{ user: PublicUser }>(`/admin/users/${id}/ban`),
   adminEditUser: (id: number, data: { displayName?: string; email?: string; bio?: string; avatarUrl?: string }) =>
     patch<{ ok: boolean; user: PublicUser }>(`/admin/users/${id}`, data),
   adminDeleteUser: (id: number) => del<{ ok: boolean }>(`/admin/users/${id}`),
   adminLogs: (page = 1) => get<{ logs: any[]; total: number; page: number; perPage: number }>(`/admin/logs?page=${page}`),
+  adminEmailSuppressions: (page = 1) => get<{ suppressions: any[]; total: number; page: number; perPage: number }>(`/admin/email-suppressions?page=${page}`),
   adminSettings: () => get<Record<string, string>>("/admin/settings"),
   adminSaveSettings: (b: Record<string, string>) => post<{ ok: boolean }>("/admin/settings", b),
 

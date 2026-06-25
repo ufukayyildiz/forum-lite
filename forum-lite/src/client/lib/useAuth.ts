@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, type PublicUser } from "./api";
+import { api } from "./api";
 import { toast } from "sonner";
 
 export function useMe() {
@@ -23,7 +23,7 @@ export function useRegister() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: api.register,
-    onSuccess: (data) => { qc.setQueryData(["me"], data.user); },
+    onSuccess: () => { qc.setQueryData(["me"], null); },
     onError: (e: any) => toast.error(e.message),
   });
 }

@@ -21,6 +21,7 @@ const TYPE_COLOR: Record<string, string> = {
   ban:        "var(--gb-red)",
   role:       "var(--gb-orange)",
   settings:   "var(--gb-fg4)",
+  email_bounce: "var(--gb-red)",
   error:      "var(--gb-red)",
 };
 

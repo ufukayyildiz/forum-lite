@@ -29,6 +29,7 @@ import AdminSettings from "./pages/admin/AdminSettings";
 import AdminTags from "./pages/admin/AdminTags";
 import AdminLogs from "./pages/admin/AdminLogs";
 import AdminAds from "./pages/admin/AdminAds";
+import AdminBounces from "./pages/admin/AdminBounces";
 
 primeQueryClientFromBootstrap(queryClient);
 
@@ -55,6 +56,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <Route path="categories" element={<AdminCategories />} />
             <Route path="tags" element={<AdminTags />} />
             <Route path="ads" element={<AdminAds />} />
+            <Route path="bounces" element={<AdminBounces />} />
             <Route path="logs" element={<AdminLogs />} />
             <Route path="settings" element={<AdminSettings />} />
           </Route>

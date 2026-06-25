@@ -11,6 +11,17 @@ const app = new Hono<AppEnv>();
 
 app.use("/*", requireRole("admin"));
 
+function toAdminUser(u: typeof schema.users.$inferSelect) {
+  return {
+    ...toPublicUser(u),
+    email: u.email,
+    emailVerifiedAt: u.emailVerifiedAt ? safeISO(u.emailVerifiedAt) : null,
+    lastLoginAt: u.lastLoginAt ? safeISO(u.lastLoginAt) : null,
+    emailSuppressedAt: u.emailSuppressedAt ? safeISO(u.emailSuppressedAt) : null,
+    emailSuppressionReason: u.emailSuppressionReason ?? null,
+  };
+}
+
 app.get("/stats", async (c) => {
   const db = c.get("db");
   const [userCount, threadCount, postCount] = await Promise.all([
@@ -42,7 +53,30 @@ app.get("/users", async (c) => {
     .limit(perPage)
     .offset((page - 1) * perPage);
   const total = await db.$count(schema.users);
-  return c.json({ users: rows.map(toPublicUser), total, page, perPage });
+  return c.json({ users: rows.map(toAdminUser), total, page, perPage });
+});
+
+app.get("/email-suppressions", async (c) => {
+  const db = c.get("db");
+  const page = Math.max(1, Number(c.req.query("page") ?? 1));
+  const perPage = 50;
+  const rows = await db
+    .select()
+    .from(schema.emailSuppressions)
+    .orderBy(desc(schema.emailSuppressions.updatedAt))
+    .limit(perPage)
+    .offset((page - 1) * perPage);
+  const total = await db.$count(schema.emailSuppressions);
+  return c.json({
+    suppressions: rows.map((row) => ({
+      ...row,
+      createdAt: safeISO(row.createdAt),
+      updatedAt: safeISO(row.updatedAt),
+    })),
+    total,
+    page,
+    perPage,
+  });
 });
 
 app.patch("/users/:id/role", requireRole("admin"), zValidator("json", z.object({ role: z.enum(["admin", "moderator", "member"]) })), async (c) => {

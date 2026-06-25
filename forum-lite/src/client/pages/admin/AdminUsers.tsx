@@ -123,8 +123,13 @@ export default function AdminUsers() {
                   <div style={{ fontSize: 13, color: "var(--gb-fg)", fontWeight: 500 }}>
                     {u.displayName}
                     {u.banned && <span style={{ fontSize: 11, color: "var(--gb-red)", marginLeft: 8 }}>[banned]</span>}
+                    {!u.emailVerifiedAt && <span style={{ fontSize: 11, color: "var(--gb-yellow)", marginLeft: 8 }}>[unverified]</span>}
+                    {u.emailSuppressedAt && <span style={{ fontSize: 11, color: "var(--gb-red)", marginLeft: 8 }}>[email bounced]</span>}
                   </div>
-                  <div style={{ fontSize: 11, color: "var(--gb-gray)" }}>@{u.username} &bull; {relativeTime(u.createdAt)}</div>
+                  <div style={{ fontSize: 11, color: "var(--gb-gray)" }}>@{u.username} &bull; {u.email} &bull; {relativeTime(u.createdAt)}</div>
+                  {u.emailSuppressionReason && (
+                    <div style={{ fontSize: 11, color: "var(--gb-red)" }}>mail: {u.emailSuppressionReason}</div>
+                  )}
                 </td>
                 <td style={{ textAlign: "right", paddingRight: 16, color: "var(--gb-aqua)", fontSize: 13 }}>{u.postCount}</td>
                 <td style={{ paddingRight: 14 }}>

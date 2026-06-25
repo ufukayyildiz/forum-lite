@@ -4,6 +4,9 @@
 //
 // Usage:  npx wrangler dev --config wrangler.local.jsonc
 //         npx wrangler d1 migrations apply forum-db --local --config wrangler.local.jsonc
+// Optional suppression API secrets:
+//         npx wrangler secret put CF_ACCOUNT_ID
+//         npx wrangler secret put CF_EMAIL_API_TOKEN
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "forum-lite",
