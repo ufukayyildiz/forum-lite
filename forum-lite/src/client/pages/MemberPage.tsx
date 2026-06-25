@@ -43,6 +43,7 @@ export default function MemberPage() {
     queryKey: ["member", username, activityTab, "all"],
     queryFn: () => api.member(username!, { tab: activityTab, all: 1 }),
     enabled: !!username,
+    placeholderData: (previous) => previous,
   });
 
   const update = useMutation({
@@ -75,7 +76,7 @@ export default function MemberPage() {
   const canEdit = isOwn || me?.role === "admin";
   const origin = typeof window !== "undefined" ? window.location.origin : "";
 
-  if (isLoading) return (
+  if (isLoading && !data) return (
     <>
       <SEOHead title={username ?? "Member"} noindex={true} />
       <GbToolbar crumbs={[{ label: "members", href: "/members" }, { label: username ?? "..." }]} />

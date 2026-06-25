@@ -17,11 +17,13 @@ export default function TagDetailPage() {
     queryKey: ["tag-threads", slug, sort, "all"],
     queryFn: () => api.tagThreads(slug!, { sort, all: 1 }),
     enabled: !!slug,
+    placeholderData: (previous) => previous,
   });
 
   const threads = data?.threads ?? [];
   const tag = data?.tag;
   const emptyCount = Math.max(0, VISIBLE_ROWS - threads.length);
+  const showLoading = isLoading && !data;
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
 
@@ -70,7 +72,7 @@ export default function TagDetailPage() {
       </div>
 
       <div className="gb-content">
-        {isLoading ? (
+        {showLoading ? (
           <div className="gb-state-pad" style={{ color: "var(--gb-gray)" }}>$ loading...</div>
         ) : (
           <table className="gb-table">

@@ -1,6 +1,6 @@
 import type React from "react";
 import { useRef } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, type Thread } from "../lib/api";
 import { threadPath } from "../lib/routes";
@@ -21,7 +21,6 @@ type Props = {
   onClick?: (event: React.MouseEvent<HTMLAnchorElement>) => void;
 };
 
-const NAVIGATION_WARMUP_MS = 420;
 const THREAD_STALE_TIME = 5 * 60_000;
 
 function isFullThread(thread: ThreadLike): thread is Thread {
@@ -32,13 +31,8 @@ function isPlainNavigation(event: React.MouseEvent<HTMLAnchorElement>): boolean 
   return event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey;
 }
 
-function wait(ms: number) {
-  return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
-}
-
 export function ThreadLink({ thread, children, className, style, onClick }: Props) {
   const qc = useQueryClient();
-  const navigate = useNavigate();
   const warmupRef = useRef<Promise<void> | null>(null);
   const path = threadPath(thread);
   const routeId = String(thread.publicId ?? thread.id);
@@ -73,17 +67,10 @@ export function ThreadLink({ thread, children, className, style, onClick }: Prop
     return warmupRef.current;
   }
 
-  async function handleClick(event: React.MouseEvent<HTMLAnchorElement>) {
+  function handleClick(event: React.MouseEvent<HTMLAnchorElement>) {
     onClick?.(event);
     if (event.defaultPrevented || !isPlainNavigation(event)) return;
-
-    event.preventDefault();
-    await Promise.race([warmThreadBundle(), wait(NAVIGATION_WARMUP_MS)]);
-
-    const warmed = qc.getQueryData<Thread>(["thread", routeId]);
-    navigate(path, {
-      state: { threadPreview: warmed ?? (isFullThread(thread) ? thread : undefined) },
-    });
+    void warmThreadBundle();
   }
 
   return (

@@ -564,6 +564,23 @@ async function loadTagThreadsApi(c: AppContext, slug: string, sort = "recent") {
   };
 }
 
+async function loadTagsApi(c: AppContext) {
+  const rows = await c.env.DB.prepare(
+    `SELECT tags.id, tags.name, tags.slug, COUNT(thread_tags.thread_id) AS threadCount
+     FROM tags
+     LEFT JOIN thread_tags ON thread_tags.tag_id = tags.id
+     GROUP BY tags.id
+     ORDER BY threadCount DESC, tags.name ASC`,
+  ).all<Record<string, unknown>>();
+
+  return (rows.results ?? []).map((tag) => ({
+    id: Number(tag.id),
+    name: String(tag.name ?? ""),
+    slug: String(tag.slug ?? ""),
+    threadCount: Number(tag.threadCount ?? 0),
+  }));
+}
+
 function rootSchemas(base: string): SeoSchema[] {
   return [
     {
@@ -1253,6 +1270,9 @@ async function bootstrapForUrl(c: AppContext, url: URL): Promise<BootstrapBuild>
     const sort = url.searchParams.get("sort") ?? "posts";
     const members = await loadMembersApi(c, sort);
     queries.push({ key: ["members", sort, "all"], data: members });
+  } else if (parts[0] === "tags" && parts.length === 1) {
+    const tags = await loadTagsApi(c);
+    queries.push({ key: ["tags"], data: tags });
   } else if (parts[0] === "u" && parts[1]) {
     const tab = url.searchParams.get("tab") === "replies" ? "replies" : "threads";
     const member = await loadMemberActivityApi(c, parts[1], tab);
@@ -1371,7 +1391,10 @@ export async function renderSeoHtml(c: AppContext): Promise<Response> {
   const html = injectHtml(await assetResponse.text(), payload, base, url, bootstrap);
   const headers = new Headers(assetResponse.headers);
   headers.set("content-type", "text/html; charset=utf-8");
-  headers.set("cache-control", payload.robots?.startsWith("noindex") ? "no-store, max-age=0" : "public, max-age=60");
+  headers.set(
+    "cache-control",
+    payload.robots?.startsWith("noindex") ? "no-store, max-age=0" : "public, max-age=0, must-revalidate",
+  );
   headers.set("vary", "Accept");
   return new Response(html, { status: payload.status ?? assetResponse.status, headers });
 }

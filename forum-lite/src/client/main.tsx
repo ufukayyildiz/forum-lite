@@ -37,7 +37,7 @@ import { AnalyticsTracker } from "./components/AnalyticsTracker";
 
 primeQueryClientFromBootstrap(queryClient);
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
+const app = (
   <React.StrictMode>
     <HelmetProvider>
     <QueryClientProvider client={queryClient}>
@@ -74,5 +74,17 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
       <Toaster position="bottom-right" theme="dark" richColors />
     </QueryClientProvider>
     </HelmetProvider>
-  </React.StrictMode>,
+  </React.StrictMode>
 );
+
+const root = document.getElementById("root")!;
+if (root.hasChildNodes()) {
+  ReactDOM.hydrateRoot(root, app, {
+    onRecoverableError: () => {
+      // The Worker ships a hand-built SEO shell. Hydration may patch small
+      // markup differences, but it should not clear the whole first paint.
+    },
+  });
+} else {
+  ReactDOM.createRoot(root).render(app);
+}

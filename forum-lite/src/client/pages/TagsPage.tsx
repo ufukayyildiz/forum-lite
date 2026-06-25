@@ -8,6 +8,7 @@ const VISIBLE_ROWS = 18;
 
 export default function TagsPage() {
   const { data: tags, isLoading } = useQuery({ queryKey: ["tags"], queryFn: api.tags });
+  const showLoading = isLoading && !tags;
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
 
@@ -32,7 +33,7 @@ export default function TagsPage() {
       />
       <GbToolbar crumbs={[{ label: "tags" }]} />
       <div className="gb-content">
-        {isLoading ? (
+        {showLoading ? (
           <div className="gb-state-pad" style={{ color: "var(--gb-gray)" }}>$ loading...</div>
         ) : (
           <table className="gb-table">

@@ -16,10 +16,12 @@ export default function MembersPage() {
   const { data, isLoading } = useQuery({
     queryKey: ["members", sort, "all"],
     queryFn: () => api.members({ sort, all: 1 }),
+    placeholderData: (previous) => previous,
   });
 
   const list = data?.members ?? [];
   const emptyCount = Math.max(0, VISIBLE_ROWS - list.length);
+  const showLoading = isLoading && !data;
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
 
@@ -52,7 +54,7 @@ export default function MembersPage() {
       </div>
 
       <div className="gb-content">
-        {isLoading ? (
+        {showLoading ? (
           <div className="gb-state-pad" style={{ color: "var(--gb-gray)" }}>$ loading...</div>
         ) : (
           <table className="gb-table">

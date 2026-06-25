@@ -17,10 +17,12 @@ export default function HomePage() {
   const { data: threads, isLoading: tLoading } = useQuery({
     queryKey: ["threads", "all", sort, "all"],
     queryFn: () => api.threads({ sort, all: 1 }),
+    placeholderData: (previous) => previous,
   });
 
   const list = threads?.threads ?? [];
   const emptyCount = Math.max(0, THREAD_ROWS - list.length);
+  const showLoading = tLoading && !threads;
 
   return (
     <>
@@ -62,7 +64,7 @@ export default function HomePage() {
 
       {/* Threads table */}
       <div className="gb-content">
-        {tLoading ? (
+        {showLoading ? (
           <div className="gb-state-pad" style={{ color: "var(--gb-gray)" }}>$ loading...</div>
         ) : (
           <table className="gb-table">

@@ -331,7 +331,7 @@ export default function ThreadPage() {
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
 
-  if (isLoading) return (
+  if (isLoading && !thread) return (
     <>
       <SEOHead title="Loading..." noindex={true} />
       <GbToolbar crumbs={[{ label: "thread" }]} />

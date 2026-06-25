@@ -21,10 +21,12 @@ export default function CategoryPage() {
     queryKey: ["threads", "cat", catId, sort, "all"],
     queryFn: () => api.threads({ category: catId!, sort, all: 1 }),
     enabled: !!catId,
+    placeholderData: (previous) => previous,
   });
 
   const list = data?.threads ?? [];
   const emptyCount = Math.max(0, VISIBLE_ROWS - list.length);
+  const showLoading = isLoading && !data;
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const catPath = cat ? categoryPath(cat) : `/c/${catId}`;
@@ -76,7 +78,7 @@ export default function CategoryPage() {
       </div>
 
       <div className="gb-content">
-        {isLoading ? (
+        {showLoading ? (
           <div className="gb-state-pad" style={{ color: "var(--gb-gray)" }}>$ loading...</div>
         ) : (
           <table className="gb-table">
