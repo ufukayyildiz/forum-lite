@@ -633,6 +633,110 @@ textarea.gb-input {
   white-space: pre-wrap;
 }
 
+/* ── Admin marketing ─────────────────────────────────────── */
+.gb-admin-marketing-page {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.gb-admin-marketing-panel,
+.gb-admin-marketing-section {
+  min-width: 0;
+  border: 1px solid var(--gb-bg2);
+  padding: 12px;
+}
+.gb-admin-marketing-head {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--gb-bg2);
+}
+.gb-admin-marketing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.gb-admin-marketing-controls {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(280px, 1.2fr);
+  gap: 12px;
+  padding-top: 12px;
+}
+.gb-admin-marketing-recipient {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border-top: 1px solid var(--gb-bg2);
+  margin-top: 12px;
+  padding-top: 10px;
+  font-size: 12px;
+}
+.gb-admin-marketing-tablewrap {
+  max-height: min(420px, 44dvh);
+  overflow: auto;
+  border-top: 1px solid var(--gb-bg2);
+}
+.gb-admin-marketing-logwrap {
+  max-height: min(300px, 34dvh);
+}
+.gb-preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  background: rgba(40, 40, 40, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+}
+.gb-preview-dialog {
+  width: min(920px, 100%);
+  max-height: calc(100dvh - 36px);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--gb-bg);
+  border: 1px solid var(--gb-yellow);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, .4);
+}
+.gb-preview-titlebar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--gb-bg3);
+  background: var(--gb-bg1);
+}
+.gb-preview-title {
+  flex: 1;
+  min-width: 0;
+  color: var(--gb-yellow);
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gb-preview-subject {
+  flex: 0 0 auto;
+  padding: 9px 10px;
+  color: var(--gb-yellow);
+  border-bottom: 1px solid var(--gb-bg2);
+  background: var(--gb-bg1);
+}
+.gb-preview-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+  background: #282828;
+}
+
 /* ── Search bar ──────────────────────────────────────────── */
 .gb-search {
   display: flex;
@@ -1045,6 +1149,23 @@ textarea.gb-input {
   /* Admin forms: single column on mobile */
   .gb-admin-grid-2,
   .gb-admin-marketing-grid { grid-template-columns: 1fr !important; }
+  .gb-admin-marketing-head,
+  .gb-admin-marketing-controls,
+  .gb-admin-marketing-recipient {
+    grid-template-columns: 1fr;
+  }
+  .gb-admin-marketing-actions {
+    justify-content: flex-start;
+  }
+  .gb-admin-marketing-tablewrap {
+    max-height: min(420px, 58dvh);
+  }
+  .gb-preview-overlay {
+    padding: 8px;
+  }
+  .gb-preview-body {
+    padding: 10px;
+  }
 
   /* Content area padding reduce */
   .gb-content { }

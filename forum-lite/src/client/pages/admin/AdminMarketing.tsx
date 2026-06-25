@@ -9,6 +9,7 @@ export default function AdminMarketing() {
   const [q, setQ] = useState("");
   const [selectedId, setSelectedId] = useState<number | "">("");
   const [page, setPage] = useState(1);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const template = useQuery({ queryKey: ["admin-marketing-template"], queryFn: api.adminMarketingTemplate });
   const users = useQuery({
@@ -59,44 +60,59 @@ export default function AdminMarketing() {
   };
 
   return (
-    <div className="gb-admin-marketing-grid" style={{ display: "grid", gridTemplateColumns: "minmax(320px, 520px) 1fr", gap: 18, alignItems: "start" }}>
-      <section style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <div style={{ border: "1px solid var(--gb-bg2)", padding: 12 }}>
-          <div style={{ color: "var(--gb-yellow)", fontWeight: 700, marginBottom: 6 }}>$ marketing --we-are-back</div>
-          <div style={{ color: "var(--gb-gray)", fontSize: 12, lineHeight: 1.7 }}>
-            Single-user campaign sender. Re-sending is allowed, but previous sends are shown before sending.
+    <div className="gb-admin-marketing-page">
+      <section className="gb-admin-marketing-panel">
+        <div className="gb-admin-marketing-head">
+          <div style={{ minWidth: 0 }}>
+            <div style={{ color: "var(--gb-yellow)", fontWeight: 700, marginBottom: 6 }}>$ marketing --we-are-back</div>
+            <div style={{ color: "var(--gb-gray)", fontSize: 12, lineHeight: 1.7 }}>
+              Single-user campaign sender. Re-sending is allowed, but previous sends are shown before sending.
+            </div>
+          </div>
+          <div className="gb-admin-marketing-actions">
+            <button className="gb-btn" type="button" onClick={() => setPreviewOpen(true)}>$ preview template</button>
+            <button className="gb-btn" disabled={send.isPending} onClick={() => send.mutate({ test: true })}>$ send test to me</button>
+            <button
+              className="gb-btn gb-btn-primary"
+              disabled={!selectedUser || !selectedUser.canReceiveMarketing || send.isPending}
+              onClick={() => selectedUser && send.mutate({ userId: selectedUser.id })}
+            >
+              $ send selected
+            </button>
           </div>
         </div>
 
-        <div>
-          <label style={{ fontSize: 10, color: "var(--gb-gray)", display: "block", marginBottom: 4, letterSpacing: ".08em" }}>SEARCH USER</label>
-          <input className="gb-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="username, name, email..." style={{ width: "100%" }} />
-        </div>
+        <div className="gb-admin-marketing-controls">
+          <div>
+            <label style={{ fontSize: 10, color: "var(--gb-gray)", display: "block", marginBottom: 4, letterSpacing: ".08em" }}>SEARCH USER</label>
+            <input className="gb-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="username, name, email..." style={{ width: "100%" }} />
+          </div>
 
-        <div>
-          <label style={{ fontSize: 10, color: "var(--gb-gray)", display: "block", marginBottom: 4, letterSpacing: ".08em" }}>RECIPIENT</label>
-          <select
-            className="gb-input"
-            value={selectedId}
-            onChange={(e) => setSelectedId(e.target.value ? Number(e.target.value) : "")}
-            style={{ width: "100%" }}
-          >
-            <option value="">select user...</option>
-            {(users.data?.users ?? []).map((u: any) => (
-              <option key={u.id} value={u.id} disabled={!u.canReceiveMarketing}>
-                @{u.username} — {u.email} — {u.marketingStatus}{u.sendCount ? ` — sent ${u.sendCount}x` : ""}
-              </option>
-            ))}
-          </select>
+          <div>
+            <label style={{ fontSize: 10, color: "var(--gb-gray)", display: "block", marginBottom: 4, letterSpacing: ".08em" }}>RECIPIENT</label>
+            <select
+              className="gb-input"
+              value={selectedId}
+              onChange={(e) => setSelectedId(e.target.value ? Number(e.target.value) : "")}
+              style={{ width: "100%" }}
+            >
+              <option value="">select user...</option>
+              {(users.data?.users ?? []).map((u: any) => (
+                <option key={u.id} value={u.id} disabled={!u.canReceiveMarketing}>
+                  @{u.username} — {u.email} — {u.marketingStatus}{u.sendCount ? ` — sent ${u.sendCount}x` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         {selectedUser && (
-          <div style={{ border: "1px solid var(--gb-bg2)", padding: 10, fontSize: 12 }}>
-            <div style={{ color: "var(--gb-fg)" }}>{selectedUser.displayName} <span style={{ color: "var(--gb-gray)" }}>@{selectedUser.username}</span></div>
-            <div style={{ color: selectedUser.emailSuppressedAt ? "var(--gb-red)" : "var(--gb-gray)" }}>{selectedUser.email}</div>
-            <div style={{ color: statusColor(selectedUser.marketingStatus), marginTop: 5 }}>
-              marketing status: {selectedUser.marketingStatus}
+          <div className="gb-admin-marketing-recipient">
+            <div style={{ minWidth: 0 }}>
+              <div style={{ color: "var(--gb-fg)" }}>{selectedUser.displayName} <span style={{ color: "var(--gb-gray)" }}>@{selectedUser.username}</span></div>
+              <div style={{ color: selectedUser.emailSuppressedAt ? "var(--gb-red)" : "var(--gb-gray)", overflow: "hidden", textOverflow: "ellipsis" }}>{selectedUser.email}</div>
             </div>
+            <div style={{ color: statusColor(selectedUser.marketingStatus), whiteSpace: "nowrap" }}>{selectedUser.marketingStatus}</div>
             {selectedUser.lastSentAt && (
               <div style={{ color: "var(--gb-yellow)", marginTop: 5 }}>
                 previously sent {relativeTime(selectedUser.lastSentAt)}; sending again is allowed
@@ -110,25 +126,16 @@ export default function AdminMarketing() {
             )}
           </div>
         )}
+      </section>
 
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button className="gb-btn" disabled={send.isPending} onClick={() => send.mutate({ test: true })}>$ send test to me</button>
-          <button
-            className="gb-btn gb-btn-primary"
-            disabled={!selectedUser || !selectedUser.canReceiveMarketing || send.isPending}
-            onClick={() => selectedUser && send.mutate({ userId: selectedUser.id })}
-          >
-            $ send selected
-          </button>
-        </div>
-
-        <div style={{ borderTop: "1px solid var(--gb-bg2)", paddingTop: 10 }}>
-          <div style={{ color: "var(--gb-gray)", fontSize: 10, letterSpacing: ".08em", marginBottom: 6 }}>
+      <section className="gb-admin-marketing-section">
+        <div style={{ color: "var(--gb-gray)", fontSize: 10, letterSpacing: ".08em", marginBottom: 6 }}>
             MARKETING USERS
             <span style={{ color: "var(--gb-green)", marginLeft: 10 }}>{audienceCounts.subscribed} subscribed</span>
             <span style={{ color: "var(--gb-yellow)", marginLeft: 10 }}>{audienceCounts.unsubscribed} unsubscribed</span>
             <span style={{ color: "var(--gb-red)", marginLeft: 10 }}>{audienceCounts.suppressed} suppressed</span>
-          </div>
+        </div>
+        <div className="gb-admin-marketing-tablewrap">
           <table className="gb-table">
             <thead>
               <tr>
@@ -163,8 +170,11 @@ export default function AdminMarketing() {
             </tbody>
           </table>
         </div>
+      </section>
 
+      <section className="gb-admin-marketing-section">
         <div style={{ color: "var(--gb-gray)", fontSize: 10, letterSpacing: ".08em", marginTop: 4 }}>SEND LOG</div>
+        <div className="gb-admin-marketing-tablewrap gb-admin-marketing-logwrap">
         <table className="gb-table">
           <thead>
             <tr>
@@ -195,6 +205,7 @@ export default function AdminMarketing() {
             )}
           </tbody>
         </table>
+        </div>
 
         {totalPages > 1 && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, paddingTop: 8, borderTop: "1px solid var(--gb-bg2)" }}>
@@ -205,16 +216,18 @@ export default function AdminMarketing() {
         )}
       </section>
 
-      <section style={{ minWidth: 0 }}>
-        <div style={{ color: "var(--gb-gray)", fontSize: 10, letterSpacing: ".08em", marginBottom: 6 }}>TEMPLATE PREVIEW</div>
-        <div style={{ border: "1px solid var(--gb-bg2)", background: "var(--gb-bg1)", padding: 10, marginBottom: 8 }}>
-          <div style={{ color: "var(--gb-yellow)", fontSize: 13 }}>{template.data?.subject ?? "$ loading..."}</div>
+      {previewOpen && (
+        <div className="gb-preview-overlay" role="presentation" onClick={(event) => event.target === event.currentTarget && setPreviewOpen(false)}>
+          <section className="gb-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="marketing-preview-title">
+            <div className="gb-preview-titlebar">
+              <div id="marketing-preview-title" className="gb-preview-title">template preview</div>
+              <button className="gb-btn" type="button" onClick={() => setPreviewOpen(false)}>$ close</button>
+            </div>
+            <div className="gb-preview-subject">{template.data?.subject ?? "$ loading..."}</div>
+            <div className="gb-preview-body" dangerouslySetInnerHTML={{ __html: template.data?.html ?? "" }} />
+          </section>
         </div>
-        <div
-          style={{ border: "1px solid var(--gb-bg2)", maxHeight: 640, overflow: "auto", background: "#282828" }}
-          dangerouslySetInnerHTML={{ __html: template.data?.html ?? "" }}
-        />
-      </section>
+      )}
     </div>
   );
 }
