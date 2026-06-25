@@ -41,6 +41,11 @@ export default function AdminMarketing() {
   });
 
   const totalPages = sends.data ? Math.max(1, Math.ceil(sends.data.total / sends.data.perPage)) : 1;
+  const engagement = (count: number, at?: string | null) => (
+    <span style={{ color: count ? "var(--gb-green)" : "var(--gb-gray)", fontSize: 11, whiteSpace: "nowrap" }}>
+      {count ? `${count}x ${at ? relativeTime(at) : ""}` : "-"}
+    </span>
+  );
 
   return (
     <div className="gb-admin-marketing-grid" style={{ display: "grid", gridTemplateColumns: "minmax(320px, 520px) 1fr", gap: 18, alignItems: "start" }}>
@@ -106,6 +111,8 @@ export default function AdminMarketing() {
               <th style={{ textAlign: "right", paddingRight: 16 }}>#</th>
               <th>USER</th>
               <th>STATUS</th>
+              <th>OPENED</th>
+              <th>CLICKED</th>
               <th className="gb-col-modified" style={{ textAlign: "right", paddingRight: 12 }}>WHEN</th>
             </tr>
           </thead>
@@ -118,11 +125,13 @@ export default function AdminMarketing() {
                   <div style={{ color: "var(--gb-gray)", fontSize: 11 }}>@{row.username || "deleted"} / by {row.sentByUsername || "admin"}</div>
                 </td>
                 <td style={{ color: row.status === "sent" ? "var(--gb-green)" : "var(--gb-red)", fontSize: 12 }}>{row.status}</td>
+                <td>{engagement(row.openCount ?? 0, row.lastOpenedAt ?? row.openedAt)}</td>
+                <td>{engagement(row.clickCount ?? 0, row.lastClickedAt ?? row.clickedAt)}</td>
                 <td className="gb-col-modified" style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 12, fontSize: 11 }}>{relativeTime(row.createdAt)}</td>
               </tr>
             ))}
             {!sends.isLoading && !(sends.data?.sends ?? []).length && (
-              <tr><td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16 }}>~</td><td colSpan={3} style={{ color: "var(--gb-gray)" }}>no marketing sends yet</td></tr>
+              <tr><td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16 }}>~</td><td colSpan={5} style={{ color: "var(--gb-gray)" }}>no marketing sends yet</td></tr>
             )}
           </tbody>
         </table>

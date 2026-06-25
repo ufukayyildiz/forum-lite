@@ -282,6 +282,39 @@ app.get("/og/thread/:id", (c) => {
   return serveThreadWebp(c, id);
 });
 
+const TRANSPARENT_GIF = new Uint8Array([
+  71, 73, 70, 56, 57, 97, 1, 0, 1, 0, 128, 0, 0, 0, 0, 0, 255, 255, 255, 33, 249, 4, 1, 0, 0, 0, 0, 44, 0,
+  0, 0, 0, 1, 0, 1, 0, 0, 2, 2, 68, 1, 0, 59,
+]);
+
+function emailTrackingToken(raw: string): string {
+  return raw.replace(/\.gif$/i, "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80);
+}
+
+async function recordEmailOpen(env: Bindings, trackingToken: string): Promise<void> {
+  if (!trackingToken) return;
+  const now = Math.floor(Date.now() / 1000);
+  await env.DB.prepare(
+    `UPDATE email_events
+     SET open_count = COALESCE(open_count, 0) + 1,
+       opened_at = COALESCE(opened_at, ?),
+       last_opened_at = ?
+     WHERE tracking_token = ?`,
+  ).bind(now, now, trackingToken).run();
+}
+
+async function recordEmailClick(env: Bindings, trackingToken: string): Promise<void> {
+  if (!trackingToken) return;
+  const now = Math.floor(Date.now() / 1000);
+  await env.DB.prepare(
+    `UPDATE email_events
+     SET click_count = COALESCE(click_count, 0) + 1,
+       clicked_at = COALESCE(clicked_at, ?),
+       last_clicked_at = ?
+     WHERE tracking_token = ?`,
+  ).bind(now, now, trackingToken).run();
+}
+
 app.on(["GET", "POST"], "/unsubscribe/:token", async (c) => {
   const db = getDb(c.env);
   const token = c.req.param("token");
@@ -293,6 +326,39 @@ app.on(["GET", "POST"], "/unsubscribe/:token", async (c) => {
     : "This unsubscribe link is invalid or expired.";
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="robots" content="noindex"><title>${title}</title></head><body style="margin:0;background:#282828;color:#ebdbb2;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace"><main style="max-width:720px;margin:0 auto;padding:42px 22px"><div style="color:#fabd2f;font-weight:700;margin-bottom:18px">FSTDESK</div><section style="border:1px solid #504945;background:#3c3836;padding:24px"><h1 style="font-size:22px;color:#fabd2f;margin:0 0 14px">${title}</h1><p style="line-height:1.7">${body}</p><p><a href="/" style="color:#95c7c0">Return to forum</a></p></section></main></body></html>`;
   return c.html(html, result.ok ? 200 : 404);
+});
+
+app.get("/email/open/:token", async (c) => {
+  const trackingToken = emailTrackingToken(c.req.param("token"));
+  await recordEmailOpen(c.env, trackingToken);
+  return new Response(TRANSPARENT_GIF, {
+    status: 200,
+    headers: {
+      "Content-Type": "image/gif",
+      "Cache-Control": "no-store, max-age=0",
+      "Content-Length": String(TRANSPARENT_GIF.byteLength),
+    },
+  });
+});
+
+app.get("/email/click/:token", async (c) => {
+  const url = new URL(c.req.url);
+  const trackingToken = emailTrackingToken(c.req.param("token"));
+  await recordEmailClick(c.env, trackingToken);
+
+  let target = new URL("/", url.origin);
+  const rawTarget = url.searchParams.get("u");
+  if (rawTarget) {
+    try {
+      const parsed = new URL(rawTarget, url.origin);
+      const allowedHosts = new Set([url.host, "manufox.com", "www.manufox.com"]);
+      if ((parsed.protocol === "https:" || parsed.protocol === "http:") && allowedHosts.has(parsed.host)) target = parsed;
+    } catch {
+      target = new URL("/", url.origin);
+    }
+  }
+
+  return c.redirect(target.toString(), 302);
 });
 
 app.on(["GET", "HEAD"], "*", async (c, next) => {

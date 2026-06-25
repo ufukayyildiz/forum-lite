@@ -54,6 +54,29 @@ function token(): string {
   return generateToken().slice(0, 48);
 }
 
+function isTrackableHref(href: string): boolean {
+  const value = href.trim();
+  if (!value || value.startsWith("#")) return false;
+  return !/^(mailto:|tel:|sms:|data:|javascript:)/i.test(value);
+}
+
+function trackingUrl(siteUrl: string, trackingToken: string, href: string): string {
+  const target = new URL(href, siteUrl).toString();
+  const url = new URL(`/email/click/${encodeURIComponent(trackingToken)}`, siteUrl);
+  url.searchParams.set("u", target);
+  return url.toString();
+}
+
+function addEmailTracking(html: string, siteUrl: string, trackingToken: string): string {
+  const withTrackedLinks = html.replace(/\bhref=(["'])(.*?)\1/gi, (match, quote: string, href: string) => {
+    if (!isTrackableHref(href)) return match;
+    return `href=${quote}${escapeHtml(trackingUrl(siteUrl, trackingToken, href))}${quote}`;
+  });
+  const pixelUrl = absoluteUrl(siteUrl, `/email/open/${encodeURIComponent(trackingToken)}.gif`);
+  const pixel = `<img src="${escapeHtml(pixelUrl)}" width="1" height="1" alt="" style="display:none;width:1px;height:1px;opacity:0;overflow:hidden" />`;
+  return `${withTrackedLinks}${pixel}`;
+}
+
 async function logEmailEvent(
   db: DB,
   input: {
@@ -65,6 +88,7 @@ async function logEmailEvent(
     relatedType?: string;
     relatedId?: number;
     campaignKey?: string;
+    trackingToken?: string;
     message?: string;
     errorCode?: string;
   },
@@ -80,12 +104,29 @@ async function logEmailEvent(
       relatedType: input.relatedType ?? null,
       relatedId: input.relatedId ?? null,
       campaignKey: input.campaignKey ?? null,
+      trackingToken: input.trackingToken ?? null,
       message: input.message?.slice(0, 1000) ?? null,
       errorCode: input.errorCode ?? null,
       createdAt: new Date(),
     })
     .returning({ id: schema.emailEvents.id });
   return row?.id ?? null;
+}
+
+async function updateEmailEvent(
+  db: DB,
+  eventId: number | null,
+  update: { status: string; message?: string; errorCode?: string },
+) {
+  if (!eventId) return;
+  await db
+    .update(schema.emailEvents)
+    .set({
+      status: update.status,
+      message: update.message?.slice(0, 1000) ?? null,
+      errorCode: update.errorCode ?? null,
+    })
+    .where(eq(schema.emailEvents.id, eventId));
 }
 
 export async function ensureNotificationPreferences(db: DB, userId: number) {
@@ -162,12 +203,22 @@ export async function sendManagedEmail(input: ManagedEmailInput): Promise<{ stat
   }
 
   const unsubscribeUrl = absoluteUrl(input.siteUrl, `/unsubscribe/${encodeURIComponent(pref.unsubscribeToken)}?type=${input.kind}`);
+  const trackingToken = token();
+  const eventId = await logEmailEvent(input.db, {
+    ...input,
+    userId: input.user.id,
+    email,
+    status: "pending",
+    trackingToken,
+  });
+  const htmlWithFooter = `${input.html}<p style="margin-top:22px;color:#928374;font-size:12px">Email preferences: <a href="${escapeHtml(unsubscribeUrl)}" style="color:#95c7c0">unsubscribe</a></p>`;
+  const trackedHtml = addEmailTracking(htmlWithFooter, input.siteUrl, trackingToken);
   const sent = await sendEmail(input.env, {
     to: email,
     from: input.from || DEFAULT_FROM,
     subject: input.subject,
     text: `${input.text}\n\nUnsubscribe: ${unsubscribeUrl}`,
-    html: `${input.html}<p style="margin-top:22px;color:#928374;font-size:12px">Email preferences: <a href="${escapeHtml(unsubscribeUrl)}" style="color:#95c7c0">unsubscribe</a></p>`,
+    html: trackedHtml,
     headers: {
       "List-Unsubscribe": `<${unsubscribeUrl}>`,
       "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
@@ -176,7 +227,7 @@ export async function sendManagedEmail(input: ManagedEmailInput): Promise<{ stat
   });
 
   if (sent.ok) {
-    const eventId = await logEmailEvent(input.db, { ...input, userId: input.user.id, email, status: "sent" });
+    await updateEmailEvent(input.db, eventId, { status: "sent" });
     return { status: "sent", eventId };
   }
 
@@ -190,10 +241,7 @@ export async function sendManagedEmail(input: ManagedEmailInput): Promise<{ stat
   }
 
   const status = sent.suppressed ? "suppressed" : "error";
-  const eventId = await logEmailEvent(input.db, {
-    ...input,
-    userId: input.user.id,
-    email,
+  await updateEmailEvent(input.db, eventId, {
     status,
     message: sent.message,
     errorCode: sent.code,

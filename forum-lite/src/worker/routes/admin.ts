@@ -127,14 +127,16 @@ app.get("/logs", async (c) => {
   const db = c.get("db");
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
   const type = c.req.query("type") ?? "";
+  const where = type ? eq(schema.activityLog.type, type) : undefined;
   const perPage = 30;
   const rows = await db
     .select()
     .from(schema.activityLog)
+    .where(where)
     .orderBy(desc(schema.activityLog.createdAt))
     .limit(perPage)
     .offset((page - 1) * perPage);
-  const total = await db.$count(schema.activityLog);
+  const total = await db.$count(schema.activityLog, where);
   return c.json({
     logs: rows.map((r) => ({ ...r, createdAt: safeISO(r.createdAt) })),
     total, page, perPage,
@@ -156,7 +158,14 @@ app.get("/email-events", async (c) => {
     .offset((page - 1) * perPage);
   const total = await db.$count(schema.emailEvents, where);
   return c.json({
-    events: rows.map((row) => ({ ...row, createdAt: safeISO(row.createdAt) })),
+    events: rows.map((row) => ({
+      ...row,
+      createdAt: safeISO(row.createdAt),
+      openedAt: row.openedAt ? safeISO(row.openedAt) : null,
+      lastOpenedAt: row.lastOpenedAt ? safeISO(row.lastOpenedAt) : null,
+      clickedAt: row.clickedAt ? safeISO(row.clickedAt) : null,
+      lastClickedAt: row.lastClickedAt ? safeISO(row.lastClickedAt) : null,
+    })),
     total,
     page,
     perPage,
@@ -237,16 +246,28 @@ app.get("/marketing/sends", async (c) => {
   const rows = await c.env.DB.prepare(
     `SELECT ms.id, ms.campaign_key AS campaignKey, ms.email, ms.status, ms.created_at AS createdAt,
       u.username, u.display_name AS displayName,
-      admin.username AS sentByUsername
+      admin.username AS sentByUsername,
+      ee.open_count AS openCount, ee.opened_at AS openedAt, ee.last_opened_at AS lastOpenedAt,
+      ee.click_count AS clickCount, ee.clicked_at AS clickedAt, ee.last_clicked_at AS lastClickedAt
      FROM marketing_sends ms
      LEFT JOIN users u ON u.id = ms.user_id
      LEFT JOIN users admin ON admin.id = ms.sent_by_user_id
+     LEFT JOIN email_events ee ON ee.id = ms.email_event_id
      ORDER BY ms.created_at DESC
      LIMIT ? OFFSET ?`,
   ).bind(perPage, (page - 1) * perPage).all();
   const total = await c.get("db").$count(schema.marketingSends);
   return c.json({
-    sends: (rows.results ?? []).map((row: any) => ({ ...row, createdAt: safeISO(row.createdAt) })),
+    sends: (rows.results ?? []).map((row: any) => ({
+      ...row,
+      openCount: Number(row.openCount ?? 0),
+      clickCount: Number(row.clickCount ?? 0),
+      createdAt: safeISO(row.createdAt),
+      openedAt: row.openedAt ? safeISO(row.openedAt) : null,
+      lastOpenedAt: row.lastOpenedAt ? safeISO(row.lastOpenedAt) : null,
+      clickedAt: row.clickedAt ? safeISO(row.clickedAt) : null,
+      lastClickedAt: row.lastClickedAt ? safeISO(row.lastClickedAt) : null,
+    })),
     total,
     page,
     perPage,

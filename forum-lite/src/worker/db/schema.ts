@@ -282,6 +282,13 @@ export const emailEvents = sqliteTable(
     relatedType: text("related_type"),
     relatedId: integer("related_id"),
     campaignKey: text("campaign_key"),
+    trackingToken: text("tracking_token"),
+    openedAt: integer("opened_at", { mode: "timestamp" }),
+    lastOpenedAt: integer("last_opened_at", { mode: "timestamp" }),
+    openCount: integer("open_count").notNull().default(0),
+    clickedAt: integer("clicked_at", { mode: "timestamp" }),
+    lastClickedAt: integer("last_clicked_at", { mode: "timestamp" }),
+    clickCount: integer("click_count").notNull().default(0),
     message: text("message"),
     errorCode: text("error_code"),
     createdAt: integer("created_at", { mode: "timestamp" })
@@ -292,6 +299,7 @@ export const emailEvents = sqliteTable(
     createdAtIdx: index("email_events_created_at_idx").on(t.createdAt),
     kindIdx: index("email_events_kind_idx").on(t.kind),
     userIdx: index("email_events_user_idx").on(t.userId),
+    trackingTokenIdx: uniqueIndex("email_events_tracking_token_idx").on(t.trackingToken),
   }),
 );
 
