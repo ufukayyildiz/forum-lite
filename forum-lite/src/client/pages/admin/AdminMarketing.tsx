@@ -3,6 +3,21 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api } from "../../lib/api";
 import { relativeTime } from "../../lib/utils";
+import { GbSelect, type GbSelectOption } from "../../components/GbSelect";
+
+type MarketingUser = {
+  id: number;
+  username: string;
+  displayName: string;
+  email: string;
+  marketingStatus: "subscribed" | "unsubscribed" | "suppressed";
+  canReceiveMarketing: boolean;
+  marketingUnsubscribed: boolean;
+  emailSuppressedAt?: string | null;
+  suppressionReason?: string | null;
+  sendCount: number;
+  lastSentAt?: string | null;
+};
 
 export default function AdminMarketing() {
   const qc = useQueryClient();
@@ -33,6 +48,26 @@ export default function AdminMarketing() {
     unsubscribed: audience.filter((u: any) => u.marketingStatus === "unsubscribed").length,
     suppressed: audience.filter((u: any) => u.marketingStatus === "suppressed").length,
   }), [audience]);
+  const recipientUsers = useMemo(() => {
+    const group = (user: MarketingUser) => {
+      if (!user.canReceiveMarketing) return 2;
+      if (user.sendCount || user.lastSentAt) return 1;
+      return 0;
+    };
+    return [...audience].sort((a: MarketingUser, b: MarketingUser) => {
+      const byGroup = group(a) - group(b);
+      if (byGroup) return byGroup;
+      return (a.displayName || a.username).localeCompare(b.displayName || b.username);
+    });
+  }, [audience]);
+  const recipientOptions: GbSelectOption[] = useMemo(() => recipientUsers.map((u: MarketingUser) => ({
+    value: u.id,
+    label: `@${u.username} - ${u.email} - ${u.marketingStatus}${u.sendCount ? ` - sent ${u.sendCount}x` : ""}`,
+    description: `${u.displayName} @${u.username} / ${u.email}`,
+    meta: u.sendCount ? `sent ${u.sendCount}x${u.lastSentAt ? ` ${relativeTime(u.lastSentAt)}` : ""}` : u.marketingStatus,
+    disabled: !u.canReceiveMarketing,
+    tone: !u.canReceiveMarketing ? "red" : u.sendCount ? "yellow" : "green",
+  })), [recipientUsers]);
 
   const send = useMutation({
     mutationFn: (body: { test?: boolean; userId?: number }) =>
@@ -90,19 +125,19 @@ export default function AdminMarketing() {
 
           <div>
             <label style={{ fontSize: 10, color: "var(--gb-gray)", display: "block", marginBottom: 4, letterSpacing: ".08em" }}>RECIPIENT</label>
-            <select
-              className="gb-input"
+            <GbSelect
               value={selectedId}
-              onChange={(e) => setSelectedId(e.target.value ? Number(e.target.value) : "")}
-              style={{ width: "100%" }}
-            >
-              <option value="">select user...</option>
-              {(users.data?.users ?? []).map((u: any) => (
-                <option key={u.id} value={u.id} disabled={!u.canReceiveMarketing}>
-                  @{u.username} — {u.email} — {u.marketingStatus}{u.sendCount ? ` — sent ${u.sendCount}x` : ""}
-                </option>
-              ))}
-            </select>
+              options={recipientOptions}
+              placeholder={users.isLoading ? "$ loading users..." : "select user..."}
+              onChange={(value) => setSelectedId(Number(value))}
+              renderOption={(option) => (
+                <>
+                  <span className="gb-select-option-label">{option.label}</span>
+                  {option.meta && <span className="gb-select-option-meta">{option.meta}</span>}
+                  {option.description && <span className="gb-select-option-desc">{option.description}</span>}
+                </>
+              )}
+            />
           </div>
         </div>
 

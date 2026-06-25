@@ -5,6 +5,7 @@ import { DAvatar } from "../../components/DAvatar";
 import { useMe } from "../../lib/useAuth";
 import { relativeTime } from "../../lib/utils";
 import { toast } from "sonner";
+import { GbSelect } from "../../components/GbSelect";
 
 const roles = ["admin", "moderator", "member"] as const;
 
@@ -134,17 +135,12 @@ export default function AdminUsers() {
                 <td style={{ textAlign: "right", paddingRight: 16, color: "var(--gb-aqua)", fontSize: 13 }}>{u.postCount}</td>
                 <td style={{ paddingRight: 14 }}>
                   {me?.role === "admin" && me.id !== u.id ? (
-                    <select
+                    <GbSelect
                       value={u.role}
-                      onChange={(e) => setRole.mutate({ id: u.id, role: e.target.value })}
-                      style={{
-                        background: "var(--gb-bg)", border: "1px solid var(--gb-bg3)",
-                        color: "var(--gb-fg)", fontFamily: "inherit", fontSize: 12,
-                        padding: "2px 6px", cursor: "pointer",
-                      }}
-                    >
-                      {roles.map((r) => <option key={r} value={r}>{r}</option>)}
-                    </select>
+                      onChange={(role) => setRole.mutate({ id: u.id, role: String(role) })}
+                      options={roles.map((r) => ({ value: r, label: r }))}
+                      style={{ width: 128 }}
+                    />
                   ) : (
                     <span style={{ fontSize: 12, color: "var(--gb-gray)" }}>{u.role}</span>
                   )}

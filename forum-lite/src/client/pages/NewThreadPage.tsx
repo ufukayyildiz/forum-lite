@@ -6,6 +6,7 @@ import { useMe } from "../lib/useAuth";
 import { GbToolbar } from "../components/layout/Header";
 import { SEOHead } from "../components/SEOHead";
 import { MarkdownContent } from "../components/MarkdownContent";
+import { GbSelect } from "../components/GbSelect";
 import { threadPath } from "../lib/routes";
 import { toast } from "sonner";
 
@@ -91,10 +92,14 @@ export default function NewThreadPage() {
           <label style={{ display: "block", fontSize: 11, color: "var(--gb-gray)", marginBottom: 5, letterSpacing: ".06em" }}>
             --category *
           </label>
-          <select data-testid="new-thread-category" className="gb-input" value={categoryId} onChange={(e) => setCategoryId(e.target.value)} style={{ maxWidth: 320 }}>
-            <option value="">select category...</option>
-            {categories?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+          <GbSelect
+            testId="new-thread-category"
+            value={categoryId}
+            onChange={(value) => setCategoryId(String(value))}
+            placeholder="select category..."
+            options={(categories ?? []).map((c) => ({ value: String(c.id), label: c.name, meta: c.threadCount ? `${c.threadCount}` : undefined }))}
+            style={{ maxWidth: 320 }}
+          />
         </div>
 
         {/* Title */}
@@ -164,21 +169,15 @@ export default function NewThreadPage() {
                 {selectedTags.length}/{MAX_TAGS}
               </span>
             </div>
-            <select
-              className="gb-input"
-              data-testid="new-thread-tag-select"
+            <GbSelect
               value=""
               disabled={selectedTags.length >= MAX_TAGS || remainingTagOptions.length === 0}
-              onChange={(e) => addTag(Number(e.target.value))}
+              onChange={(value) => addTag(Number(value))}
+              placeholder={selectedTags.length >= MAX_TAGS ? "max tags selected" : "select tag..."}
+              options={remainingTagOptions.map((t) => ({ value: t.id, label: t.name, meta: t.threadCount ? `${t.threadCount}` : undefined }))}
               style={{ maxWidth: 420, marginBottom: selectedTagOptions.length ? 8 : 0 }}
-            >
-              <option value="">
-                {selectedTags.length >= MAX_TAGS ? "max tags selected" : "select tag..."}
-              </option>
-              {remainingTagOptions.map((t) => (
-                <option key={t.id} value={t.id}>{t.name}</option>
-              ))}
-            </select>
+              testId="new-thread-tag-select"
+            />
             {selectedTagOptions.length > 0 && (
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 {selectedTagOptions.map((t) => (

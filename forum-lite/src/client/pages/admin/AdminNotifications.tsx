@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../lib/api";
 import { relativeTime } from "../../lib/utils";
+import { GbSelect } from "../../components/GbSelect";
 
 const STATUS_COLOR: Record<string, string> = {
   sent: "var(--gb-green)",
@@ -60,13 +61,18 @@ export default function AdminNotifications() {
 
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ color: "var(--gb-gray)", fontSize: 11, letterSpacing: ".08em" }}>FILTER</span>
-        <select className="gb-input" value={kind} onChange={(e) => { setKind(e.target.value); setPage(1); }} style={{ width: 180 }}>
-          <option value="">all</option>
-          <option value="reply">reply</option>
-          <option value="like">like</option>
-          <option value="marketing">marketing</option>
-          <option value="account">account</option>
-        </select>
+        <GbSelect
+          value={kind}
+          onChange={(value) => { setKind(String(value)); setPage(1); }}
+          options={[
+            { value: "", label: "all" },
+            { value: "reply", label: "reply" },
+            { value: "like", label: "like" },
+            { value: "marketing", label: "marketing" },
+            { value: "account", label: "account" },
+          ]}
+          style={{ width: 180 }}
+        />
       </div>
 
       <table className="gb-table">
