@@ -74,6 +74,7 @@ const MarketingUserRow = memo(function MarketingUserRow({
             type="checkbox"
             checked={checked}
             disabled={disabled}
+            onMouseDown={(event) => event.preventDefault()}
             onChange={() => onToggle(user)}
             aria-label={`Select ${user.displayName || user.username}`}
           />
@@ -405,7 +406,7 @@ export default function AdminMarketing() {
           {checkedUsers.length ? `checked: ${checkedUsers.map((u) => `@${u.username}`).join(", ")}` : "checked:"}
         </div>
         <div className="gb-admin-marketing-tablewrap" onScroll={loadMoreMarketingUsers}>
-          <table className="gb-table">
+          <table className="gb-table gb-admin-marketing-users-table">
             <thead>
               <tr>
                 <th style={{ width: 34, textAlign: "center" }}>
