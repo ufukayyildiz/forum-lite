@@ -67,7 +67,7 @@ export type MemberActivityResponse = {
 
 export const api = {
   // auth
-  me: () => get<{ user: PublicUser }>("/auth/me"),
+  me: () => get<{ user: PublicUser | null }>("/auth/me"),
   login: (b: { identifier: string; password: string }) => post<{ user: PublicUser }>("/auth/login", b),
   register: (b: { username: string; email: string; password: string; displayName?: string }) =>
     post<{ user: PublicUser }>("/auth/register", b),

@@ -76,12 +76,12 @@ export default function TagDetailPage() {
           <table className="gb-table">
             <thead>
               <tr>
-                <th style={{ textAlign: "right", paddingRight: 16 }}>#</th>
-                <th style={{ width: 20 }} />
-                <th>NAME</th>
-                <th style={{ textAlign: "right", paddingRight: 16 }}>REPLIES</th>
-                <th style={{ textAlign: "right", paddingRight: 16 }}>VIEWS</th>
-                <th style={{ textAlign: "right", paddingRight: 12 }}>MODIFIED</th>
+                <th scope="col" style={{ textAlign: "right", paddingRight: 16 }}>#</th>
+                <th scope="col" aria-label="Status" style={{ width: 20 }} />
+                <th scope="col">NAME</th>
+                <th scope="col" style={{ textAlign: "right", paddingRight: 16 }}>REPLIES</th>
+                <th scope="col" style={{ textAlign: "right", paddingRight: 16 }}>VIEWS</th>
+                <th scope="col" style={{ textAlign: "right", paddingRight: 12 }}>MODIFIED</th>
               </tr>
             </thead>
             <tbody>

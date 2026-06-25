@@ -248,8 +248,9 @@ app.post("/logout", async (c) => {
   return c.json({ ok: true });
 });
 
-app.get("/me", requireAuth, async (c) => {
-  return c.json({ user: toPublicUser(c.get("user")!) });
+app.get("/me", async (c) => {
+  const user = c.get("user");
+  return c.json({ user: user ? toPublicUser(user) : null });
 });
 
 export default app;

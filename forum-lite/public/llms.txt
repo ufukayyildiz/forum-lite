@@ -1,0 +1,17 @@
+# FSTDESK Forum
+
+FSTDESK Forum is a public food science, food safety, product development and food technology discussion archive.
+
+## Useful links
+
+- [Home](https://fstdesk.com/)
+- [Recent threads](https://fstdesk.com/)
+- [Members](https://fstdesk.com/members)
+- [Tags](https://fstdesk.com/tags)
+- [Sitemap index](https://fstdesk.com/sitemap.xml)
+- [Thread sitemap](https://fstdesk.com/sitemap-threads.xml)
+- [Category sitemap](https://fstdesk.com/sitemap-categories.xml)
+
+## Crawling guidance
+
+Public thread, category, member and tag pages are intended for indexing. Admin and authentication pages are not useful for indexing.

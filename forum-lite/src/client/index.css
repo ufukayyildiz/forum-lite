@@ -9,12 +9,12 @@
   --gb-bg2:    #504945;
   --gb-bg3:    #665c54;
   --gb-fg:     #ebdbb2;
-  --gb-fg4:    #a89984;
-  --gb-gray:   #928374;
+  --gb-fg4:    #c7b99e;
+  --gb-gray:   #bdae93;
   --gb-red:    #fb4934;
   --gb-green:  #b8bb26;
   --gb-yellow: #fabd2f;
-  --gb-blue:   #83a598;
+  --gb-blue:   #95c7c0;
   --gb-purple: #d3869b;
   --gb-aqua:   #8ec07c;
   --gb-orange: #fe8019;
@@ -347,7 +347,7 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
 }
 .gb-table th {
   text-align: left;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.08em;
   color: var(--gb-gray);
@@ -360,7 +360,7 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
 }
 .gb-table th:first-child { width: 48px; text-align: right; padding-right: 16px; color: var(--gb-bg3); }
 .gb-table td {
-  padding: 4px 8px 4px 0;
+  padding: 6px 8px 6px 0;
   vertical-align: middle;
   border-bottom: 1px solid rgba(255,255,255,.03);
 }
@@ -379,7 +379,13 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
 .gb-table .empty-row td:first-child { padding-right: 16px; }
 
 /* Column helpers */
-.gb-col-name { font-size: 13px; cursor: pointer; }
+.gb-col-name {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  font-size: 13px;
+  cursor: pointer;
+}
 .gb-col-name:hover { text-decoration: underline; }
 .gb-col-meta { color: var(--gb-fg4); font-size: 12px; white-space: nowrap; }
 .gb-col-dim  { color: var(--gb-gray); font-size: 12px; white-space: nowrap; }
@@ -394,7 +400,7 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
   flex-shrink: 0;
   font-size: 12px;
   font-weight: 700;
-  background: var(--gb-bg2);
+  background: var(--gb-bg1);
   color: var(--gb-fg);
   border-top: 1px solid var(--gb-bg3);
 }
@@ -414,7 +420,7 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
   display: flex;
   gap: 16px;
   margin-right: 20px;
-  color: var(--gb-gray);
+  color: var(--gb-fg4);
   font-size: 11px;
   white-space: nowrap;
 }
@@ -536,7 +542,8 @@ textarea.gb-input {
   background: var(--gb-bg);
 }
 .gb-tab-item {
-  padding: 6px 16px;
+  padding: 7px 16px;
+  min-height: 32px;
   font-size: 12px;
   color: var(--gb-gray);
   cursor: pointer;
@@ -730,7 +737,8 @@ textarea.gb-input {
 .gb-tag {
   display: inline-flex;
   align-items: center;
-  padding: 0 6px;
+  min-height: 24px;
+  padding: 2px 7px;
   font-size: 11px;
   background: var(--gb-bg);
   border: 1px solid var(--gb-bg3);
@@ -745,10 +753,11 @@ textarea.gb-input {
 .gb-cat {
   display: inline-flex;
   align-items: center;
-  padding: 0 6px;
+  min-height: 24px;
+  padding: 2px 7px;
   font-size: 11px;
   border-left: 2px solid;
-  color: inherit;
+  color: var(--gb-aqua);
   text-decoration: none;
   background: transparent;
   white-space: nowrap;

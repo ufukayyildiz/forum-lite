@@ -5,7 +5,7 @@ import { toast } from "sonner";
 export function useMe() {
   return useQuery({
     queryKey: ["me"],
-    queryFn: () => api.me().then((r) => r.user).catch(() => null),
+    queryFn: () => api.me().then((r) => r.user),
     staleTime: 60_000,
   });
 }
