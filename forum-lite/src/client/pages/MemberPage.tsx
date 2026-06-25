@@ -196,13 +196,15 @@ export default function MemberPage() {
                 <tr key={t.id}>
                   <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>{i + 1}</td>
                   <td style={{ width: 20 }}><span style={{ color: "var(--gb-green)", fontSize: 13 }}>#</span></td>
-                  <td>
-                    <ThreadLink thread={t} className="gb-col-name" style={{ color: "var(--gb-fg)" }}>{t.title}</ThreadLink>
-                    {t.categoryName && (
-                      <Link to={categoryPathFromRow(t)} className="gb-cat" style={{ marginLeft: 8, fontSize: 11 }}>
-                        {t.categoryName.toLowerCase()}
-                      </Link>
-                    )}
+                  <td className="gb-topic-cell">
+                    <div className="gb-topic-line">
+                      <ThreadLink thread={t} className="gb-col-name gb-topic-title" style={{ color: "var(--gb-fg)" }}>{t.title}</ThreadLink>
+                      {t.categoryName && (
+                        <Link to={categoryPathFromRow(t)} className="gb-cat gb-topic-cat" style={{ fontSize: 11 }}>
+                          {t.categoryName.toLowerCase()}
+                        </Link>
+                      )}
+                    </div>
                   </td>
                   <td style={{ textAlign: "right", paddingRight: 16, color: "var(--gb-aqua)", fontSize: 13 }}>
                     {t.replyCount ?? 0}
@@ -247,13 +249,15 @@ export default function MemberPage() {
                 <tr key={p.id}>
                   <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>{i + 1}</td>
                   <td style={{ width: 20 }}><span style={{ color: "var(--gb-aqua)", fontSize: 13 }}>~</span></td>
-                  <td style={{ minWidth: 260 }}>
-                    <ThreadLink thread={{ id: p.threadId, publicId: p.threadPublicId }} className="gb-col-name" style={{ color: "var(--gb-fg)" }}>{p.threadTitle}</ThreadLink>
-                    {p.categoryName && (
-                      <Link to={categoryPathFromRow(p)} className="gb-cat" style={{ marginLeft: 8, fontSize: 11 }}>
-                        {p.categoryName.toLowerCase()}
-                      </Link>
-                    )}
+                  <td className="gb-topic-cell" style={{ minWidth: 0 }}>
+                    <div className="gb-topic-line">
+                      <ThreadLink thread={{ id: p.threadId, publicId: p.threadPublicId }} className="gb-col-name gb-topic-title" style={{ color: "var(--gb-fg)" }}>{p.threadTitle}</ThreadLink>
+                      {p.categoryName && (
+                        <Link to={categoryPathFromRow(p)} className="gb-cat gb-topic-cat" style={{ fontSize: 11 }}>
+                          {p.categoryName.toLowerCase()}
+                        </Link>
+                      )}
+                    </div>
                   </td>
                   <td style={{ color: "var(--gb-fg4)", fontSize: 12 }}>
                     {previewText(p.content)}

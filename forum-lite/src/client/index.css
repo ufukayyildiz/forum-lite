@@ -387,6 +387,34 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
   cursor: pointer;
 }
 .gb-col-name:hover { text-decoration: underline; }
+.gb-topic-cell {
+  min-width: 0;
+  max-width: 1px;
+}
+.gb-topic-line {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.gb-topic-title {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 24px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gb-topic-cat {
+  flex: 0 1 auto;
+  max-width: clamp(84px, 18vw, 190px);
+  margin-left: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .gb-col-meta { color: var(--gb-fg4); font-size: 12px; white-space: nowrap; }
 .gb-col-dim  { color: var(--gb-gray); font-size: 12px; white-space: nowrap; }
 
