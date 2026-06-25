@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation, Link } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { useQuery } from "@tanstack/react-query";
@@ -51,11 +51,40 @@ function Statusbar() {
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const shellRef = useRef<HTMLDivElement>(null);
   const { pathname } = useLocation();
   useEffect(() => { setSidebarOpen(false); }, [pathname]);
+  useEffect(() => {
+    const shell = shellRef.current;
+    if (!shell || typeof MutationObserver === "undefined") return;
+
+    const lockShell = () => {
+      const rules: Array<[keyof CSSStyleDeclaration, string]> = [
+        ["height", "100dvh"],
+        ["minHeight", "100dvh"],
+        ["maxHeight", "100dvh"],
+        ["overflow", "hidden"],
+      ];
+      for (const [property, value] of rules) {
+        const cssName = String(property).replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+        if (shell.style.getPropertyValue(cssName) !== value || shell.style.getPropertyPriority(cssName) !== "important") {
+          shell.style.setProperty(cssName, value, "important");
+        }
+      }
+    };
+
+    lockShell();
+    const observer = new MutationObserver(lockShell);
+    observer.observe(shell, { attributes: true, attributeFilter: ["style"] });
+    window.addEventListener("resize", lockShell);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", lockShell);
+    };
+  }, []);
 
   return (
-    <div className="gb-shell">
+    <div ref={shellRef} className="gb-shell">
       <Tabline onMenu={() => setSidebarOpen(true)} />
       <div className="gb-body">
         <div className={`gb-sidebar${sidebarOpen ? " open" : ""}`}>

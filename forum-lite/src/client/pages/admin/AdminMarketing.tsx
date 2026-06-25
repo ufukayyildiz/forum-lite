@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState, type UIEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api } from "../../lib/api";
@@ -47,6 +47,10 @@ function marketingStatusColor(status?: string) {
 
 function userSortName(user: MarketingUser) {
   return (user.displayName || user.username || user.email || "").toLocaleLowerCase();
+}
+
+function sameNumberList(a: number[], b: number[]) {
+  return a.length === b.length && a.every((value, index) => value === b[index]);
 }
 
 const MarketingUserRow = memo(function MarketingUserRow({
@@ -98,6 +102,7 @@ export default function AdminMarketing() {
   const [q, setQ] = useState("");
   const [selectedId, setSelectedId] = useState<number | "">("");
   const [checkedIds, setCheckedIds] = useState<number[]>([]);
+  const [visibleUserLimit, setVisibleUserLimit] = useState(180);
   const [page, setPage] = useState(1);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [bulkLog, setBulkLog] = useState<BulkSendLog>({
@@ -143,17 +148,21 @@ export default function AdminMarketing() {
       return userSortName(a).localeCompare(userSortName(b));
     });
   }, [audience, canSelectForBulk]);
-  const selectableIds = useMemo(
-    () => new Set(marketingUsers.filter(canSelectForBulk).map((user) => user.id)),
+  const selectableIdList = useMemo(
+    () => marketingUsers.filter(canSelectForBulk).map((user) => user.id),
     [marketingUsers, canSelectForBulk],
   );
+  const selectableIds = useMemo(() => new Set(selectableIdList), [selectableIdList]);
   const activeCheckedIds = useMemo(
     () => checkedIds.filter((id) => selectableIds.has(id)),
     [checkedIds, selectableIds],
   );
   useEffect(() => {
-    if (activeCheckedIds.length !== checkedIds.length) setCheckedIds(activeCheckedIds);
-  }, [activeCheckedIds, checkedIds]);
+    setCheckedIds((current) => {
+      const next = current.filter((id) => selectableIds.has(id)).slice(0, MAX_BULK_RECIPIENTS);
+      return sameNumberList(current, next) ? current : next;
+    });
+  }, [selectableIds]);
   const audienceCounts = useMemo(() => ({
     subscribed: users.data?.summary?.subscribed ?? audience.filter((u: any) => u.marketingStatus === "subscribed").length,
     unsubscribed: users.data?.summary?.unsubscribed ?? audience.filter((u: any) => u.marketingStatus === "unsubscribed").length,
@@ -174,6 +183,18 @@ export default function AdminMarketing() {
     () => marketingUsers.filter(canSelectForBulk),
     [marketingUsers, canSelectForBulk],
   );
+  const visibleMarketingUsers = useMemo(
+    () => marketingUsers.slice(0, visibleUserLimit),
+    [marketingUsers, visibleUserLimit],
+  );
+  useEffect(() => {
+    setVisibleUserLimit(180);
+  }, [q, users.data?.total, duplicateBlockEnabled]);
+  const loadMoreMarketingUsers = useCallback((event: UIEvent<HTMLDivElement>) => {
+    const node = event.currentTarget;
+    if (node.scrollTop + node.clientHeight < node.scrollHeight - 180) return;
+    setVisibleUserLimit((current) => Math.min(marketingUsers.length, current + 180));
+  }, [marketingUsers.length]);
   const recipientUsers = useMemo(() => {
     const group = (user: MarketingUser) => canSelectForBulk(user) ? 0 : (user.sendCount || user.lastSentAt) ? 2 : 1;
     return [...audience].sort((a: MarketingUser, b: MarketingUser) => {
@@ -262,7 +283,8 @@ export default function AdminMarketing() {
 
   function toggleFirstVisible() {
     setCheckedIds((current) => {
-      if (activeCheckedIds.length) return [];
+      const currentActive = current.filter((id) => selectableIds.has(id));
+      if (currentActive.length) return [];
       const visibleIds = eligibleAudience.map((u: MarketingUser) => u.id);
       const next: number[] = [];
       for (const id of visibleIds) {
@@ -369,7 +391,9 @@ export default function AdminMarketing() {
       <section className="gb-admin-marketing-section">
         <div style={{ color: "var(--gb-gray)", fontSize: 10, letterSpacing: ".08em", marginBottom: 6 }}>
             MARKETING USERS
-            <span style={{ color: "var(--gb-fg4)", marginLeft: 10 }}>{audience.length} showing / {users.data?.total ?? audience.length} total</span>
+            <span style={{ color: "var(--gb-fg4)", marginLeft: 10 }}>
+              {visibleMarketingUsers.length} visible / {audience.length} loaded / {users.data?.total ?? audience.length} total
+            </span>
             <span style={{ color: "var(--gb-green)", marginLeft: 10 }}>{audienceCounts.subscribed} subscribed total</span>
             <span style={{ color: "var(--gb-yellow)", marginLeft: 10 }}>{audienceCounts.unsubscribed} unsubscribed total</span>
             <span style={{ color: "var(--gb-red)", marginLeft: 10 }}>{audienceCounts.suppressed} suppressed total</span>
@@ -382,7 +406,7 @@ export default function AdminMarketing() {
             checked: {checkedUsers.map((u) => `@${u.username}`).join(", ")}
           </div>
         )}
-        <div className="gb-admin-marketing-tablewrap">
+        <div className="gb-admin-marketing-tablewrap" onScroll={loadMoreMarketingUsers}>
           <table className="gb-table">
             <thead>
               <tr>
@@ -399,7 +423,7 @@ export default function AdminMarketing() {
               </tr>
             </thead>
             <tbody>
-              {marketingUsers.map((u: MarketingUser, i: number) => (
+              {visibleMarketingUsers.map((u: MarketingUser, i: number) => (
                 <MarketingUserRow
                   key={u.id}
                   user={u}
@@ -411,6 +435,14 @@ export default function AdminMarketing() {
               ))}
               {!users.isLoading && !audience.length && (
                 <tr><td style={{ color: "var(--gb-gray)", textAlign: "center" }}>~</td><td colSpan={5} style={{ color: "var(--gb-gray)" }}>no users found</td></tr>
+              )}
+              {visibleMarketingUsers.length < marketingUsers.length && (
+                <tr>
+                  <td style={{ color: "var(--gb-gray)", textAlign: "center" }}>~</td>
+                  <td colSpan={5} style={{ color: "var(--gb-gray)" }}>
+                    scroll for more users ({marketingUsers.length - visibleMarketingUsers.length} remaining)
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
