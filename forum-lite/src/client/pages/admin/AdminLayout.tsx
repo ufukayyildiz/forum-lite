@@ -30,6 +30,7 @@ export default function AdminLayout() {
 
   const activeTab = TABS.find((t) => t.exact ? pathname === t.path : pathname.startsWith(t.path));
   if (!activeTab) return <Navigate to={TABS[0]?.path ?? "/"} replace />;
+  const contentClass = `gb-content gb-admin-content${pathname.startsWith("/admin/marketing") ? " gb-admin-content-marketing" : ""}`;
 
   return (
     <>
@@ -55,7 +56,7 @@ export default function AdminLayout() {
         </div>
       </div>
 
-      <div className="gb-content" style={{ padding: "16px 20px" }}>
+      <div className={contentClass} style={{ padding: "16px 20px" }}>
         <Outlet />
       </div>
     </>

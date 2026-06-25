@@ -296,6 +296,12 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
   padding: 0;
 }
 
+.gb-admin-content-marketing {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .gb-ad-slot {
   --gb-ad-height: 160px;
   display: block;
@@ -878,16 +884,28 @@ textarea.gb-input {
 /* ── Admin marketing ─────────────────────────────────────── */
 .gb-admin-marketing-page {
   width: 100%;
+  height: 100%;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 14px;
+  overflow: hidden;
 }
 .gb-admin-marketing-panel,
 .gb-admin-marketing-section {
   min-width: 0;
+  min-height: 0;
   border: 1px solid var(--gb-bg2);
   padding: 12px;
+}
+.gb-admin-marketing-users-section {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.gb-admin-marketing-send-section {
+  overflow: hidden;
 }
 .gb-admin-marketing-head {
   display: grid;
@@ -921,9 +939,15 @@ textarea.gb-input {
 }
 .gb-admin-marketing-tablewrap {
   max-height: min(420px, 44dvh);
+  min-height: 0;
   overflow: auto;
+  overflow-anchor: none;
   overscroll-behavior: contain;
   border-top: 1px solid var(--gb-bg2);
+}
+.gb-admin-marketing-users-section .gb-admin-marketing-tablewrap {
+  flex: 1 1 auto;
+  max-height: none;
 }
 .gb-admin-marketing-logwrap {
   max-height: min(220px, 28dvh);

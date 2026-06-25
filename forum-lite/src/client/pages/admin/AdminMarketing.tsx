@@ -388,7 +388,7 @@ export default function AdminMarketing() {
         )}
       </section>
 
-      <section className="gb-admin-marketing-section">
+      <section className="gb-admin-marketing-section gb-admin-marketing-users-section">
         <div style={{ color: "var(--gb-gray)", fontSize: 10, letterSpacing: ".08em", marginBottom: 6 }}>
             MARKETING USERS
             <span style={{ color: "var(--gb-fg4)", marginLeft: 10 }}>
@@ -449,7 +449,7 @@ export default function AdminMarketing() {
         </div>
       </section>
 
-      <section className="gb-admin-marketing-section">
+      <section className="gb-admin-marketing-section gb-admin-marketing-send-section">
         <div style={{ color: "var(--gb-gray)", fontSize: 10, letterSpacing: ".08em", marginTop: 4 }}>SEND LOG</div>
         <div className="gb-admin-marketing-tablewrap gb-admin-marketing-logwrap">
         <table className="gb-table">
