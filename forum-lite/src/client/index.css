@@ -306,17 +306,19 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
   border-top: 1px solid var(--gb-bg2);
   border-bottom: 1px solid var(--gb-bg2);
   background: color-mix(in srgb, var(--gb-bg1) 70%, var(--gb-bg) 30%);
+  height: var(--gb-ad-height);
   min-height: var(--gb-ad-height);
-  height: auto;
-  max-height: none;
-  overflow: visible;
+  max-height: var(--gb-ad-height);
+  overflow: hidden;
   contain: layout;
 }
 
 .gb-ad-slot[data-ad-state="waiting"],
 .gb-ad-slot[data-ad-state="loading"],
 .gb-ad-slot[data-ad-state="house"] {
+  height: var(--gb-ad-height);
   min-height: var(--gb-ad-height);
+  max-height: var(--gb-ad-height);
   overflow: hidden;
 }
 
@@ -329,8 +331,10 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
   align-items: center;
   justify-content: center;
   width: 100%;
+  height: var(--gb-ad-height);
   min-height: var(--gb-ad-height);
-  overflow: visible;
+  max-height: var(--gb-ad-height);
+  overflow: hidden;
 }
 
 .gb-ad-slot[data-ad-state="house"] .gb-ad-frame {
@@ -345,34 +349,42 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
 .gb-ad-slot .adsbygoogle,
 .gb-ad-slot iframe {
   max-width: 100% !important;
+  max-height: var(--gb-ad-height) !important;
   min-height: 0;
-  overflow: visible;
+  overflow: hidden;
 }
 
 .gb-ad-slot ins.adsbygoogle,
 .gb-ad-slot .adsbygoogle {
   width: 100% !important;
+  height: var(--gb-ad-height) !important;
+  max-height: var(--gb-ad-height) !important;
   min-height: var(--gb-ad-height) !important;
+  overflow: hidden !important;
 }
 
 .gb-ad-slot iframe {
   border: 0;
+  height: var(--gb-ad-height) !important;
 }
 
 .gb-house-ad {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
+  justify-self: center;
   gap: 16px;
-  width: 100%;
-  height: 100%;
-  max-height: var(--gb-ad-height);
+  width: min(100%, 1400px);
+  min-height: 96px;
+  max-height: calc(var(--gb-ad-height) - 20px);
+  margin: auto;
   padding: 14px 18px;
   border: 1px solid var(--gb-bg2);
   background:
     linear-gradient(135deg, rgba(184, 187, 38, .12), rgba(142, 192, 124, .04)),
     var(--gb-bg);
   color: var(--gb-fg);
+  overflow: hidden;
   text-decoration: none;
 }
 .gb-house-ad:hover {
@@ -384,6 +396,7 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
   display: grid;
   gap: 4px;
   min-width: 0;
+  justify-content: start;
 }
 .gb-house-ad-brand {
   color: var(--gb-green);
@@ -420,9 +433,33 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
   white-space: nowrap;
 }
 .gb-house-ad-aqua .gb-house-ad-brand { color: var(--gb-aqua); }
+.gb-house-ad-aqua {
+  background:
+    linear-gradient(135deg, rgba(149, 199, 192, .14), rgba(142, 192, 124, .03)),
+    var(--gb-bg);
+}
 .gb-house-ad-aqua .gb-house-ad-cta { border-color: var(--gb-aqua); background: var(--gb-aqua); }
 .gb-house-ad-yellow .gb-house-ad-brand { color: var(--gb-yellow); }
+.gb-house-ad-yellow {
+  background:
+    linear-gradient(135deg, rgba(250, 189, 47, .16), rgba(254, 128, 25, .04)),
+    var(--gb-bg);
+}
 .gb-house-ad-yellow .gb-house-ad-cta { border-color: var(--gb-yellow); background: var(--gb-yellow); }
+.gb-house-ad-lime {
+  background:
+    linear-gradient(135deg, rgba(184, 187, 38, .16), rgba(142, 192, 124, .05)),
+    var(--gb-bg);
+}
+.gb-house-ad-focus {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+.gb-house-ad-focus .gb-house-ad-cta {
+  order: -1;
+}
+.gb-house-ad-split {
+  border-color: color-mix(in srgb, var(--gb-yellow) 45%, var(--gb-bg2));
+}
 
 @media (max-width: 640px) {
   .gb-ad-slot {
@@ -432,6 +469,7 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
     grid-template-columns: minmax(0, 1fr);
     gap: 8px;
     padding: 10px 12px;
+    min-height: 128px;
   }
   .gb-house-ad strong {
     font-size: 16px;
