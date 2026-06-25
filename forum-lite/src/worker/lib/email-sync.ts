@@ -34,6 +34,7 @@ export async function syncCloudflareEmailSuppressions(
     hours?: number;
     userId?: number | null;
     logMissingConfig?: boolean;
+    forceCloudflareSync?: boolean;
   },
 ): Promise<EmailSuppressionSyncResult> {
   const hours = Math.max(1, Math.min(720, Math.round(opts.hours ?? 72)));
@@ -83,6 +84,7 @@ export async function syncCloudflareEmailSuppressions(
           reason: String(row.status ?? "").toLowerCase().includes("reject") ? "delivery_rejected" : "delivery_failed",
           source: "cf_activity_sync",
           details: detail,
+          forceCloudflareSync: opts.forceCloudflareSync,
         });
         await env.DB.prepare(
           `UPDATE email_events

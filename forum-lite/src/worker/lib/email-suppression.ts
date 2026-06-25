@@ -26,14 +26,26 @@ export async function recordEmailSuppression(
     details?: string;
     waitUntil?: (promise: Promise<unknown>) => void;
     skipCloudflareSync?: boolean;
+    forceCloudflareSync?: boolean;
   },
 ): Promise<void> {
   const normalized = normalizeEmailAddress(email);
   if (!normalized) return;
 
+  const existing = await db.query.emailSuppressions.findFirst({
+    where: eq(schema.emailSuppressions.email, normalized),
+    columns: { cfSuppressionStatus: true, cfSuppressionError: true },
+  });
+  const keepCloudflareAuthBlock = !opts.skipCloudflareSync && !opts.forceCloudflareSync && existing?.cfSuppressionStatus === "auth_error";
   const now = new Date();
   const details = opts.details ? opts.details.slice(0, 2000) : null;
-  const initialCfStatus = opts.skipCloudflareSync ? "synced" : env.CF_ACCOUNT_ID && env.CF_EMAIL_API_TOKEN ? "pending" : "skipped";
+  const initialCfStatus = opts.skipCloudflareSync
+    ? "synced"
+    : keepCloudflareAuthBlock
+      ? "auth_error"
+      : env.CF_ACCOUNT_ID && env.CF_EMAIL_API_TOKEN
+        ? "pending"
+        : "skipped";
 
   await db
     .insert(schema.emailSuppressions)
@@ -55,7 +67,7 @@ export async function recordEmailSuppression(
         source: opts.source,
         details,
         cfSuppressionStatus: initialCfStatus,
-        cfSuppressionError: null,
+        cfSuppressionError: keepCloudflareAuthBlock ? existing?.cfSuppressionError ?? null : null,
         updatedAt: now,
       },
     });
@@ -71,7 +83,7 @@ export async function recordEmailSuppression(
     createdAt: now,
   });
 
-  if (opts.skipCloudflareSync) return;
+  if (opts.skipCloudflareSync || keepCloudflareAuthBlock) return;
 
   const promise = addCloudflareSuppression(env, normalized)
     .then(async (result) => {
@@ -79,7 +91,7 @@ export async function recordEmailSuppression(
       await db
         .update(schema.emailSuppressions)
         .set({
-          cfSuppressionStatus: result.ok ? "synced" : result.skipped ? "skipped" : "error",
+          cfSuppressionStatus: result.ok ? "synced" : result.skipped ? "skipped" : result.code === "auth_error" ? "auth_error" : "error",
           cfSuppressedAt: result.ok ? doneAt : null,
           cfSuppressionError: result.error?.slice(0, 1000) ?? null,
           updatedAt: doneAt,

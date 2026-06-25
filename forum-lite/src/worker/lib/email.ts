@@ -165,24 +165,38 @@ export function accountCreatedPasswordEmail(username: string, password: string, 
 export async function addCloudflareSuppression(
   env: Bindings,
   email: string,
-): Promise<{ ok: boolean; skipped?: boolean; error?: string }> {
+): Promise<{ ok: boolean; skipped?: boolean; error?: string; code?: "auth_error" | "api_error" }> {
   const accountId = env.CF_ACCOUNT_ID;
   const token = env.CF_EMAIL_API_TOKEN;
   if (!accountId || !token) return { ok: false, skipped: true };
 
-  const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/email/sending/suppression`, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ email }),
-  });
+  const targets = env.CF_ZONE_ID
+    ? [
+      `https://api.cloudflare.com/client/v4/zones/${env.CF_ZONE_ID}/email/sending/suppression`,
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/email/sending/suppression`,
+    ]
+    : [`https://api.cloudflare.com/client/v4/accounts/${accountId}/email/sending/suppression`];
 
-  if (res.ok || res.status === 409) return { ok: true };
-  const body = await res.text().catch(() => "");
-  if (/already|exists|duplicate/i.test(body)) return { ok: true };
-  return { ok: false, error: body.slice(0, 500) };
+  let lastError = "";
+  let authError = false;
+  for (const url of targets) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ email }),
+    });
+
+    if (res.ok || res.status === 409) return { ok: true };
+    const body = await res.text().catch(() => "");
+    if (/already|exists|duplicate/i.test(body)) return { ok: true };
+    lastError = body.slice(0, 500);
+    authError = /authentication error|not authorized|permission/i.test(body);
+    if (!authError) break;
+  }
+  return { ok: false, error: lastError, code: authError ? "auth_error" : "api_error" };
 }
 
 function cloudflareAuth(env: Bindings): { accountId: string; token: string } | null {
@@ -210,9 +224,24 @@ async function cfJson<T>(url: string, token: string, init?: RequestInit): Promis
 export async function listCloudflareSuppressions(env: Bindings): Promise<CloudflareSuppression[]> {
   const auth = cloudflareAuth(env);
   if (!auth) throw new Error("CF_ACCOUNT_ID / CF_EMAIL_API_TOKEN missing");
-  const url = `https://api.cloudflare.com/client/v4/accounts/${auth.accountId}/email/sending/suppression?per_page=1000&order=created_at&direction=desc`;
-  const body = await cfJson<{ result?: CloudflareSuppression[] }>(url, auth.token);
-  return body.result ?? [];
+  const suffix = "email/sending/suppression?per_page=1000&order=created_at&direction=desc";
+  const targets = env.CF_ZONE_ID
+    ? [
+      `https://api.cloudflare.com/client/v4/zones/${env.CF_ZONE_ID}/${suffix}`,
+      `https://api.cloudflare.com/client/v4/accounts/${auth.accountId}/${suffix}`,
+    ]
+    : [`https://api.cloudflare.com/client/v4/accounts/${auth.accountId}/${suffix}`];
+  let lastError: unknown;
+  for (const url of targets) {
+    try {
+      const body = await cfJson<{ result?: CloudflareSuppression[] }>(url, auth.token);
+      return body.result ?? [];
+    } catch (error) {
+      lastError = error;
+      if (!/authentication error|not authorized|permission/i.test(error instanceof Error ? error.message : String(error))) throw error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Cloudflare suppression list sync failed");
 }
 
 async function findZoneId(env: Bindings, sendingDomain: string): Promise<string> {

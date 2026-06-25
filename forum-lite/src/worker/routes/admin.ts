@@ -129,6 +129,7 @@ app.post("/email-suppressions/sync", zValidator("json", z.object({
     requestUrl: c.req.url,
     hours: body.hours ?? 72,
     userId: c.get("user")?.id ?? null,
+    forceCloudflareSync: true,
   });
   return c.json(result);
 });

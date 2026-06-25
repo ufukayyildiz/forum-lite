@@ -4,6 +4,17 @@ import { toast } from "sonner";
 import { api } from "../../lib/api";
 import { relativeTime } from "../../lib/utils";
 
+function explainCfError(error: string): string {
+  const normalized = error.toLowerCase();
+  if (normalized.includes("authentication error") || normalized.includes("not authorized") || normalized.includes("permission")) {
+    return "permission/auth error: token needs Email Sending write access for devfox.net";
+  }
+  if (normalized.includes("not found") || normalized.includes("unknown route")) {
+    return "Cloudflare suppression write API is unavailable for this token";
+  }
+  return error;
+}
+
 export default function AdminBounces() {
   const [page, setPage] = useState(1);
   const [manualEmail, setManualEmail] = useState("");
@@ -39,6 +50,7 @@ export default function AdminBounces() {
 
   const totalPages = data ? Math.ceil(data.total / data.perPage) : 1;
   const rows = data?.suppressions ?? [];
+  const cfWriteBlockedCount = rows.filter((row: any) => row.cfSuppressionStatus === "error" || row.cfSuppressionStatus === "auth_error").length;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -56,11 +68,16 @@ export default function AdminBounces() {
             {sync.isPending ? "$ syncing cf..." : "$ sync cf failures"}
           </button>
           <span style={{ color: "var(--gb-gray)", fontSize: 11 }}>
-            imports Cloudflare suppression list + last 72h failed/rejected events
+            imports Cloudflare suppression list + last 72h failed/rejected events; local suppression blocks future sends immediately
           </span>
           {!data.syncConfigured && (
             <span style={{ color: "var(--gb-red)", fontSize: 11 }}>
               CF sync disabled: set CF_ACCOUNT_ID and CF_EMAIL_API_TOKEN Worker secrets
+            </span>
+          )}
+          {cfWriteBlockedCount > 0 && (
+            <span style={{ color: "var(--gb-yellow)", fontSize: 11 }}>
+              {cfWriteBlockedCount} local suppressions are blocked in FSTDESK, but Cloudflare dashboard write is not authorized
             </span>
           )}
         </div>
@@ -117,7 +134,7 @@ export default function AdminBounces() {
               <td style={{ color: row.cfSuppressionStatus === "synced" ? "var(--gb-green)" : row.cfSuppressionStatus === "error" ? "var(--gb-red)" : "var(--gb-yellow)", fontSize: 12 }}>
                 {row.cfSuppressionStatus ?? "unknown"}
                 {row.cfSuppressedAt && <div style={{ color: "var(--gb-gray)", fontSize: 10 }}>{relativeTime(row.cfSuppressedAt)}</div>}
-                {row.cfSuppressionError && <div style={{ color: "var(--gb-red)", fontSize: 10, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.cfSuppressionError}</div>}
+                {row.cfSuppressionError && <div title={row.cfSuppressionError} style={{ color: "var(--gb-red)", fontSize: 10, maxWidth: 340, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{explainCfError(row.cfSuppressionError)}</div>}
               </td>
               <td style={{ color: "var(--gb-gray)", fontSize: 12 }}>{relativeTime(row.updatedAt)}</td>
             </tr>
