@@ -83,6 +83,13 @@ export type AdminAnalyticsResponse = {
     botViews: number;
     avgDurationMs: number;
     lastSeenAt: string | null;
+    onlineVisitors: number;
+    onlineSignedIn: number;
+    onlineAnonymous: number;
+    onlineRepeat: number;
+    onlineBots: number;
+    onlineWindowSeconds: number;
+    onlineLastSeenAt: string | null;
   };
   sources: Array<{ source: string; medium: string; views: number; visitors: number; avgDurationMs: number }>;
   countries: Array<{ country: string; views: number; visitors: number }>;
@@ -92,6 +99,26 @@ export type AdminAnalyticsResponse = {
   users: Array<{ username: string; displayName: string; views: number; visitors: number; avgDurationMs: number; lastSeenAt: string | null }>;
   referrers: Array<{ referrerHost: string; views: number; visitors: number }>;
   timeline: Array<{ bucket: string; views: number; visitors: number }>;
+  online: Array<{
+    id: number;
+    path: string;
+    routeType: string;
+    source: string;
+    medium: string;
+    country: string | null;
+    city: string | null;
+    colo: string | null;
+    deviceType: string;
+    browser: string;
+    os: string;
+    isRepeat: boolean;
+    isBot: boolean;
+    durationMs: number;
+    createdAt: string;
+    lastSeenAt: string;
+    username: string | null;
+    displayName: string | null;
+  }>;
   recent: Array<{
     id: number;
     path: string;

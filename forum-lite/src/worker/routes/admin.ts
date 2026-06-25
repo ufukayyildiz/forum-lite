@@ -323,11 +323,14 @@ app.get("/notifications", async (c) => {
 
 app.get("/analytics", async (c) => {
   const days = Math.max(1, Math.min(90, Number(c.req.query("days") ?? 7) || 7));
+  const onlineWindowSeconds = 300;
   const since = Math.floor(Date.now() / 1000) - days * 86400;
+  const onlineSince = Math.floor(Date.now() / 1000) - onlineWindowSeconds;
   const bindSince = (sqlText: string) => c.env.DB.prepare(sqlText).bind(since);
 
   const [
     summary,
+    onlineSummary,
     sourceRows,
     countryRows,
     routeRows,
@@ -336,6 +339,7 @@ app.get("/analytics", async (c) => {
     userRows,
     referrerRows,
     timelineRows,
+    onlineRows,
     recentRows,
   ] = await Promise.all([
     bindSince(
@@ -351,6 +355,17 @@ app.get("/analytics", async (c) => {
        FROM analytics_pageviews
        WHERE created_at >= ?`,
     ).first<Record<string, unknown>>(),
+    c.env.DB.prepare(
+      `SELECT
+        COUNT(DISTINCT visitor_id) AS onlineVisitors,
+        COUNT(DISTINCT CASE WHEN user_id IS NOT NULL THEN visitor_id END) AS onlineSignedIn,
+        COUNT(DISTINCT CASE WHEN user_id IS NULL THEN visitor_id END) AS onlineAnonymous,
+        COUNT(DISTINCT CASE WHEN is_repeat = 1 THEN visitor_id END) AS onlineRepeat,
+        COUNT(DISTINCT CASE WHEN is_bot = 1 THEN visitor_id END) AS onlineBots,
+        MAX(last_seen_at) AS lastSeenAt
+       FROM analytics_pageviews
+       WHERE last_seen_at >= ?`,
+    ).bind(onlineSince).first<Record<string, unknown>>(),
     bindSince(
       `SELECT source, medium, COUNT(*) AS views, COUNT(DISTINCT visitor_id) AS visitors, AVG(NULLIF(duration_ms, 0)) AS avgDurationMs
        FROM analytics_pageviews
@@ -417,6 +432,29 @@ app.get("/analytics", async (c) => {
        GROUP BY bucket
        ORDER BY bucket ASC`,
     ).all<Record<string, unknown>>(),
+    c.env.DB.prepare(
+      `WITH latest_seen AS (
+        SELECT visitor_id, MAX(last_seen_at) AS lastSeenAt
+        FROM analytics_pageviews
+        WHERE last_seen_at >= ?
+        GROUP BY visitor_id
+      ),
+      latest AS (
+        SELECT MAX(ap.id) AS id
+        FROM analytics_pageviews ap
+        INNER JOIN latest_seen ls ON ls.visitor_id = ap.visitor_id AND ls.lastSeenAt = ap.last_seen_at
+        GROUP BY ap.visitor_id
+      )
+      SELECT ap.id, ap.path, ap.route_type AS routeType, ap.source, ap.medium, ap.country, ap.city, ap.colo,
+        ap.device_type AS deviceType, ap.browser, ap.os, ap.is_repeat AS isRepeat, ap.is_bot AS isBot,
+        ap.duration_ms AS durationMs, ap.created_at AS createdAt, ap.last_seen_at AS lastSeenAt,
+        u.username, u.display_name AS displayName
+       FROM latest
+       INNER JOIN analytics_pageviews ap ON ap.id = latest.id
+       LEFT JOIN users u ON u.id = ap.user_id
+       ORDER BY ap.last_seen_at DESC
+       LIMIT 80`,
+    ).bind(onlineSince).all<Record<string, unknown>>(),
     bindSince(
       `SELECT ap.id, ap.path, ap.route_type AS routeType, ap.source, ap.medium, ap.country, ap.city, ap.colo,
         ap.device_type AS deviceType, ap.browser, ap.os, ap.is_repeat AS isRepeat, ap.is_bot AS isBot,
@@ -443,6 +481,13 @@ app.get("/analytics", async (c) => {
       botViews: asNumber(summary?.botViews),
       avgDurationMs: Math.round(asNumber(summary?.avgDurationMs)),
       lastSeenAt: summary?.lastSeenAt ? safeISO(asNumber(summary.lastSeenAt)) : null,
+      onlineVisitors: asNumber(onlineSummary?.onlineVisitors),
+      onlineSignedIn: asNumber(onlineSummary?.onlineSignedIn),
+      onlineAnonymous: asNumber(onlineSummary?.onlineAnonymous),
+      onlineRepeat: asNumber(onlineSummary?.onlineRepeat),
+      onlineBots: asNumber(onlineSummary?.onlineBots),
+      onlineWindowSeconds,
+      onlineLastSeenAt: onlineSummary?.lastSeenAt ? safeISO(asNumber(onlineSummary.lastSeenAt)) : null,
     },
     sources: rows(sourceRows).map((row) => ({ ...row, views: asNumber(row.views), visitors: asNumber(row.visitors), avgDurationMs: Math.round(asNumber(row.avgDurationMs)) })),
     countries: rows(countryRows).map((row) => ({ ...row, views: asNumber(row.views), visitors: asNumber(row.visitors) })),
@@ -452,6 +497,14 @@ app.get("/analytics", async (c) => {
     users: rows(userRows).map((row) => ({ ...row, views: asNumber(row.views), visitors: asNumber(row.visitors), avgDurationMs: Math.round(asNumber(row.avgDurationMs)), lastSeenAt: row.lastSeenAt ? safeISO(asNumber(row.lastSeenAt)) : null })),
     referrers: rows(referrerRows).map((row) => ({ ...row, views: asNumber(row.views), visitors: asNumber(row.visitors) })),
     timeline: rows(timelineRows).map((row) => ({ ...row, views: asNumber(row.views), visitors: asNumber(row.visitors) })),
+    online: rows(onlineRows).map((row) => ({
+      ...row,
+      isRepeat: Boolean(row.isRepeat),
+      isBot: Boolean(row.isBot),
+      durationMs: asNumber(row.durationMs),
+      createdAt: safeISO(asNumber(row.createdAt)),
+      lastSeenAt: safeISO(asNumber(row.lastSeenAt)),
+    })),
     recent: rows(recentRows).map((row) => ({
       ...row,
       isRepeat: Boolean(row.isRepeat),

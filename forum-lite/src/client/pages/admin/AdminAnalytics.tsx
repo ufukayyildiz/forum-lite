@@ -88,12 +88,13 @@ export default function AdminAnalytics() {
   const { data, isLoading } = useQuery({
     queryKey: ["admin-analytics", days],
     queryFn: () => api.adminAnalytics(days),
-    refetchInterval: 30_000,
+    refetchInterval: 10_000,
   });
 
   const summary = data?.summary;
   const maxPathViews = useMemo(() => Math.max(1, ...(data?.paths ?? []).map((row) => row.views)), [data?.paths]);
   const activeTotal = summary?.pageviews ?? 0;
+  const onlineWindowMinutes = Math.max(1, Math.round((summary?.onlineWindowSeconds ?? 300) / 60));
 
   return (
     <div className="gb-analytics-page">
@@ -125,12 +126,63 @@ export default function AdminAnalytics() {
       {summary && (
         <>
           <section className="gb-analytics-metrics">
+            <Metric
+              label="ONLINE"
+              value={fmt(summary.onlineVisitors)}
+              sub={`${fmt(summary.onlineSignedIn)} signed-in / ${fmt(summary.onlineAnonymous)} anonymous · ${onlineWindowMinutes}m`}
+              color="var(--gb-green)"
+            />
             <Metric label="PAGEVIEWS" value={fmt(summary.pageviews)} sub={`${fmt(summary.visitors)} unique visitors`} />
             <Metric label="SIGNED-IN" value={fmt(summary.userViews)} sub={pct(summary.userViews, activeTotal)} color="var(--gb-green)" />
             <Metric label="ANONYMOUS" value={fmt(summary.anonymousViews)} sub={pct(summary.anonymousViews, activeTotal)} color="var(--gb-aqua)" />
             <Metric label="REPEAT" value={fmt(summary.repeatViews)} sub={pct(summary.repeatViews, activeTotal)} color="var(--gb-purple)" />
             <Metric label="AVG TIME" value={duration(summary.avgDurationMs)} sub={summary.lastSeenAt ? `last ${relativeTime(summary.lastSeenAt)}` : "no visits"} color="var(--gb-orange)" />
             <Metric label="BOT" value={fmt(summary.botViews)} sub={pct(summary.botViews, activeTotal)} color="var(--gb-red)" />
+          </section>
+
+          <section className="gb-analytics-panel">
+            <div className="gb-analytics-panel-title">" online now</div>
+            <table className="gb-table">
+              <thead>
+                <tr>
+                  <th style={{ textAlign: "right" }}>#</th>
+                  <th>VISITOR</th>
+                  <th>PATH</th>
+                  <th>SOURCE</th>
+                  <th>GEO</th>
+                  <th>DEVICE</th>
+                  <th style={{ textAlign: "right" }}>TIME</th>
+                  <th style={{ textAlign: "right" }}>ACTIVE</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(data?.online ?? []).map((row, index) => (
+                  <tr key={row.id}>
+                    <td style={{ textAlign: "right", color: "var(--gb-gray)" }}>{index + 1}</td>
+                    <td>
+                      <span style={{ color: row.username ? "var(--gb-green)" : "var(--gb-aqua)" }}>
+                        {row.username ? `@${row.username}` : "anonymous"}
+                      </span>
+                      <br />
+                      <span style={{ color: row.isBot ? "var(--gb-red)" : row.isRepeat ? "var(--gb-purple)" : "var(--gb-gray)", fontSize: 11 }}>
+                        {row.isBot ? "bot" : row.isRepeat ? "repeat" : "new"}
+                      </span>
+                    </td>
+                    <td style={{ maxWidth: 420 }}>
+                      <span className="gb-analytics-ellipsis">{row.path}</span>
+                    </td>
+                    <td><SourceBadge source={row.source} medium={row.medium} /></td>
+                    <td style={{ color: "var(--gb-gray)" }}>{row.country || "-"} {row.city ? `/ ${row.city}` : ""} {row.colo ? `/ ${row.colo}` : ""}</td>
+                    <td style={{ color: "var(--gb-gray)" }}>{row.deviceType} / {row.browser} / {row.os}</td>
+                    <td style={{ textAlign: "right" }}>{duration(row.durationMs)}</td>
+                    <td style={{ textAlign: "right", whiteSpace: "nowrap", color: "var(--gb-green)" }}>{relativeTime(row.lastSeenAt)}</td>
+                  </tr>
+                ))}
+                {!(data?.online ?? []).length && (
+                  <tr><td colSpan={8} style={{ color: "var(--gb-gray)" }}>no active visitors in the last {onlineWindowMinutes}m</td></tr>
+                )}
+              </tbody>
+            </table>
           </section>
 
           <div className="gb-analytics-grid">
