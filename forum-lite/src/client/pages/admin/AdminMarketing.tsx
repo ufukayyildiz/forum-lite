@@ -6,6 +6,7 @@ import { relativeTime } from "../../lib/utils";
 import { GbSelect, type GbSelectOption } from "../../components/GbSelect";
 
 const MAX_BULK_RECIPIENTS = 20;
+const DUPLICATE_SETTING_KEY = "marketing_block_duplicate_sends";
 
 type BulkResult = {
   userId?: number;
@@ -113,12 +114,18 @@ export default function AdminMarketing() {
     queryFn: () => api.adminMarketingSends(page),
     refetchInterval: 15000,
   });
+  const settings = useQuery({ queryKey: ["admin-settings"], queryFn: api.adminSettings });
+  const duplicateBlockEnabled = settings.data?.[DUPLICATE_SETTING_KEY] !== "false";
 
   const selectedUser = useMemo(
     () => users.data?.users.find((u: any) => u.id === selectedId),
     [users.data?.users, selectedId],
   );
   const audience = users.data?.users ?? [];
+  const canSelectForBulk = useCallback(
+    (user: MarketingUser) => user.canReceiveMarketing && (!duplicateBlockEnabled || !user.sendCount),
+    [duplicateBlockEnabled],
+  );
   const audienceCounts = useMemo(() => ({
     subscribed: users.data?.summary?.subscribed ?? audience.filter((u: any) => u.marketingStatus === "subscribed").length,
     unsubscribed: users.data?.summary?.unsubscribed ?? audience.filter((u: any) => u.marketingStatus === "unsubscribed").length,
@@ -132,8 +139,8 @@ export default function AdminMarketing() {
   );
   const checkedSet = useMemo(() => new Set(checkedIds), [checkedIds]);
   const eligibleAudience = useMemo(
-    () => audience.filter((u: MarketingUser) => u.canReceiveMarketing),
-    [audience],
+    () => audience.filter(canSelectForBulk),
+    [audience, canSelectForBulk],
   );
   const recipientUsers = useMemo(() => {
     const group = (user: MarketingUser) => {
@@ -152,9 +159,18 @@ export default function AdminMarketing() {
     label: `@${u.username} - ${u.email} - ${u.marketingStatus}${u.sendCount ? ` - sent ${u.sendCount}x` : ""}`,
     description: `${u.displayName} @${u.username} / ${u.email}`,
     meta: u.sendCount ? `sent ${u.sendCount}x${u.lastSentAt ? ` ${relativeTime(u.lastSentAt)}` : ""}` : u.marketingStatus,
-    disabled: !u.canReceiveMarketing,
-    tone: !u.canReceiveMarketing ? "red" : u.sendCount ? "yellow" : "green",
-  })), [recipientUsers]);
+    disabled: !u.canReceiveMarketing || (duplicateBlockEnabled && Boolean(u.sendCount)),
+    tone: !u.canReceiveMarketing ? "red" : duplicateBlockEnabled && u.sendCount ? "red" : u.sendCount ? "yellow" : "green",
+  })), [recipientUsers, duplicateBlockEnabled]);
+
+  const saveDuplicateSetting = useMutation({
+    mutationFn: (enabled: boolean) => api.adminSaveSettings({ [DUPLICATE_SETTING_KEY]: enabled ? "true" : "false" }),
+    onSuccess: (_, enabled) => {
+      qc.invalidateQueries({ queryKey: ["admin-settings"] });
+      toast.success(enabled ? "Duplicate campaign sends are blocked" : "Duplicate campaign sends are allowed");
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
 
   const send = useMutation({
     mutationFn: (body: { test?: boolean; userId?: number; userIds?: number[] }) =>
@@ -165,18 +181,21 @@ export default function AdminMarketing() {
       qc.invalidateQueries({ queryKey: ["admin-email-events"] });
       if (vars.userIds?.length) {
         const userIds = vars.userIds;
-        toast.success(`Bulk sent: ${res.sent ?? 0}/${res.total ?? userIds.length}`);
+        const duplicates = res.duplicate ?? 0;
+        const message = `Bulk sent: ${res.sent ?? 0}/${res.total ?? userIds.length}${duplicates ? `, duplicate blocked: ${duplicates}` : ""}`;
+        (res.sent ?? 0) ? toast.success(message) : toast.warning(message);
         if (userIds.length > 2) {
           setBulkLog((current) => ({
             ...current,
             open: true,
             phase: "done",
             results: (res.results ?? []) as BulkResult[],
-            message: `Done: ${res.sent ?? 0} sent / ${res.total ?? userIds.length} total`,
+            message: `Done: ${res.sent ?? 0} sent / ${duplicates} duplicate blocked / ${res.total ?? userIds.length} total`,
           }));
         }
         setCheckedIds([]);
       } else if (res.status === "sent") toast.success(vars.test ? "Test email sent" : "Campaign email sent");
+      else if (res.status === "duplicate") toast.warning(`Duplicate blocked${res.previousSentAt ? `: already sent ${relativeTime(res.previousSentAt)}` : ""}`);
       else toast.warning(`Email ${res.status}`);
     },
     onError: (e: any) => {
@@ -200,7 +219,7 @@ export default function AdminMarketing() {
   }
 
   const toggleChecked = useCallback((user: MarketingUser) => {
-    if (!user.canReceiveMarketing) return;
+    if (!canSelectForBulk(user)) return;
     setCheckedIds((current) => {
       if (current.includes(user.id)) return current.filter((id) => id !== user.id);
       if (current.length >= MAX_BULK_RECIPIENTS) {
@@ -209,7 +228,7 @@ export default function AdminMarketing() {
       }
       return [...current, user.id];
     });
-  }, []);
+  }, [canSelectForBulk]);
 
   function toggleFirstVisible() {
     setCheckedIds((current) => {
@@ -239,10 +258,19 @@ export default function AdminMarketing() {
           <div style={{ minWidth: 0 }}>
             <div style={{ color: "var(--gb-yellow)", fontWeight: 700, marginBottom: 6 }}>$ marketing --we-are-back</div>
             <div style={{ color: "var(--gb-gray)", fontSize: 12, lineHeight: 1.7 }}>
-              Single-user campaign sender. Re-sending is allowed, but previous sends are shown before sending.
+              Single-user campaign sender. Duplicate welcome sends are {duplicateBlockEnabled ? "blocked by default." : "allowed by admin setting."}
             </div>
           </div>
           <div className="gb-admin-marketing-actions">
+            <button
+              className="gb-btn"
+              type="button"
+              disabled={settings.isLoading || saveDuplicateSetting.isPending}
+              onClick={() => saveDuplicateSetting.mutate(!duplicateBlockEnabled)}
+              style={{ color: duplicateBlockEnabled ? "var(--gb-green)" : "var(--gb-yellow)" }}
+            >
+              $ duplicate block {duplicateBlockEnabled ? "on" : "off"}
+            </button>
             <button className="gb-btn" type="button" onClick={() => setPreviewOpen(true)}>$ preview template</button>
             <button className="gb-btn" disabled={send.isPending} onClick={() => send.mutate({ test: true })}>$ send test to me</button>
             <button
@@ -254,7 +282,7 @@ export default function AdminMarketing() {
             </button>
             <button
               className="gb-btn gb-btn-primary"
-              disabled={!selectedUser || !selectedUser.canReceiveMarketing || send.isPending}
+              disabled={!selectedUser || !selectedUser.canReceiveMarketing || (duplicateBlockEnabled && Boolean(selectedUser.sendCount)) || send.isPending}
               onClick={() => selectedUser && send.mutate({ userId: selectedUser.id })}
             >
               $ send selected
@@ -295,7 +323,7 @@ export default function AdminMarketing() {
             <div style={{ color: marketingStatusColor(selectedUser.marketingStatus), whiteSpace: "nowrap" }}>{selectedUser.marketingStatus}</div>
             {selectedUser.lastSentAt && (
               <div style={{ color: "var(--gb-yellow)", marginTop: 5 }}>
-                previously sent {relativeTime(selectedUser.lastSentAt)}; sending again is allowed
+                previously sent {relativeTime(selectedUser.lastSentAt)}; {duplicateBlockEnabled ? "duplicate send is blocked" : "sending again is allowed"}
               </div>
             )}
             {selectedUser.emailSuppressedAt && (
@@ -347,7 +375,7 @@ export default function AdminMarketing() {
                   user={u}
                   index={i}
                   checked={checkedSet.has(u.id)}
-                  disabled={!u.canReceiveMarketing}
+                  disabled={!canSelectForBulk(u)}
                   onToggle={toggleChecked}
                 />
               ))}
@@ -459,7 +487,7 @@ export default function AdminMarketing() {
                       <td style={{ color: "var(--gb-fg)", fontSize: 12 }}>@{row.username ?? "unknown"}</td>
                       <td style={{ color: "var(--gb-gray)", fontSize: 11 }}>{row.email ?? "-"}</td>
                       <td style={{
-                        color: row.status === "sent" ? "var(--gb-green)" : row.status === "sending" ? "var(--gb-yellow)" : "var(--gb-red)",
+                        color: row.status === "sent" ? "var(--gb-green)" : row.status === "sending" || row.status === "duplicate" ? "var(--gb-yellow)" : "var(--gb-red)",
                         fontSize: 12,
                       }}>
                         {row.status}

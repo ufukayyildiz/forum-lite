@@ -12,6 +12,7 @@ import { recordEmailSuppression } from "../lib/email-suppression";
 
 const app = new Hono<AppEnv>();
 const WE_ARE_BACK_CAMPAIGN = "we-are-back";
+const MARKETING_BLOCK_DUPLICATE_SENDS_KEY = "marketing_block_duplicate_sends";
 
 app.use("/*", requireRole("admin"));
 
@@ -24,6 +25,13 @@ function toAdminUser(u: typeof schema.users.$inferSelect) {
     emailSuppressedAt: u.emailSuppressedAt ? safeISO(u.emailSuppressedAt) : null,
     emailSuppressionReason: u.emailSuppressionReason ?? null,
   };
+}
+
+async function marketingDuplicateBlockingEnabled(db: AppEnv["Variables"]["db"]) {
+  const setting = await db.query.settings.findFirst({
+    where: eq(schema.settings.key, MARKETING_BLOCK_DUPLICATE_SENDS_KEY),
+  });
+  return setting?.value !== "false";
 }
 
 app.get("/stats", async (c) => {
@@ -601,11 +609,29 @@ app.post("/marketing/send", zValidator("json", z.object({
   const admin = c.get("user")!;
   const body = c.req.valid("json");
   const emailSettings = await loadEmailSettings(db, c.req.url);
+  const blockDuplicateSends = !body.test && await marketingDuplicateBlockingEnabled(db);
   const sendOne = async (user: typeof schema.users.$inferSelect, mode: "test" | "single" | "bulk") => {
     const previous = await db.query.marketingSends.findFirst({
       where: and(eq(schema.marketingSends.campaignKey, body.campaignKey), eq(schema.marketingSends.userId, user.id)),
       orderBy: desc(schema.marketingSends.createdAt),
     });
+    if (mode !== "test" && blockDuplicateSends && previous) {
+      if (mode === "single") {
+        await db.insert(schema.activityLog).values({
+          userId: admin.id,
+          type: "marketing",
+          summary: `Skipped duplicate ${body.campaignKey} to ${user.username}`,
+          createdAt: new Date(),
+        });
+      }
+      return {
+        userId: user.id,
+        username: user.username,
+        email: user.email,
+        status: "duplicate",
+        previousSentAt: previous.createdAt ? safeISO(previous.createdAt) : null,
+      };
+    }
     const { siteUrl, from } = emailSettings;
     const mail = weAreBackEmail({ recipientName: user.displayName, siteUrl });
     const result = await sendManagedEmail({
@@ -662,13 +688,14 @@ app.post("/marketing/send", zValidator("json", z.object({
     await db.insert(schema.activityLog).values({
       userId: admin.id,
       type: "marketing",
-      summary: `Bulk sent ${body.campaignKey} to ${ids.length} users (${counts.sent ?? 0} sent)`,
+      summary: `Bulk sent ${body.campaignKey} to ${ids.length} users (${counts.sent ?? 0} sent, ${counts.duplicate ?? 0} duplicate blocked)`,
     });
     return c.json({
-      ok: (counts.sent ?? 0) > 0,
+      ok: true,
       status: "bulk",
       total: results.length,
       sent: counts.sent ?? 0,
+      duplicate: counts.duplicate ?? 0,
       skipped: counts.skipped ?? 0,
       suppressed: counts.suppressed ?? 0,
       error: counts.error ?? 0,
