@@ -6,8 +6,39 @@ import { schema } from "../db";
 import { requireAuth } from "../lib/middleware";
 import { safeISO } from "../lib/auth";
 import { toPublicUser, type AppEnv } from "../types";
+import { isEmailSuppressed } from "../lib/email-suppression";
+import { ensureNotificationPreferences } from "../lib/notifications";
 
 const app = new Hono<AppEnv>();
+
+function serializeEmailPreferences(pref: typeof schema.notificationPreferences.$inferSelect) {
+  return {
+    allEmail: Boolean(pref.allEmail),
+    replyEmail: Boolean(pref.replyEmail),
+    likeEmail: Boolean(pref.likeEmail),
+    marketingEmail: Boolean(pref.marketingEmail),
+  };
+}
+
+async function toMemberProfile(
+  db: AppEnv["Variables"]["db"],
+  user: typeof schema.users.$inferSelect,
+  viewer: typeof schema.users.$inferSelect | null,
+) {
+  const base = toPublicUser(user);
+  const canViewPrivate = Boolean(viewer && (viewer.id === user.id || viewer.role === "admin"));
+  if (!canViewPrivate) return base;
+
+  const pref = await ensureNotificationPreferences(db, user.id);
+  return {
+    ...base,
+    email: user.email,
+    emailVerifiedAt: user.emailVerifiedAt ? safeISO(user.emailVerifiedAt) : null,
+    emailSuppressedAt: user.emailSuppressedAt ? safeISO(user.emailSuppressedAt) : null,
+    emailSuppressionReason: user.emailSuppressionReason ?? null,
+    emailPreferences: serializeEmailPreferences(pref),
+  };
+}
 
 async function fetchActivityThreads(db: D1Database, userId: number, perPage: number, offset: number) {
   const result = await db
@@ -153,7 +184,7 @@ app.get("/:username", async (c) => {
     tab === "replies" ? replyQuery : Promise.resolve([]),
   ]);
 
-  const publicUser = toPublicUser(user);
+  const publicUser = await toMemberProfile(db, user, c.get("user"));
 
   return c.json({
     user: { ...publicUser, threadCount: activityThreadCount, postCount: realReplyCount },
@@ -174,8 +205,15 @@ app.get("/:username", async (c) => {
 
 const updateBody = z.object({
   displayName: z.string().min(2).max(60).optional(),
+  email: z.string().email().optional(),
   bio: z.string().max(500).optional(),
   avatarUrl: z.string().url().optional().or(z.literal("")),
+  emailPreferences: z.object({
+    allEmail: z.boolean().optional(),
+    replyEmail: z.boolean().optional(),
+    likeEmail: z.boolean().optional(),
+    marketingEmail: z.boolean().optional(),
+  }).optional(),
 });
 
 // PATCH by username
@@ -194,17 +232,50 @@ app.patch("/:username", requireAuth, zValidator("json", updateBody), async (c) =
   }
 
   const body = c.req.valid("json");
-  const [updated] = await db
-    .update(schema.users)
-    .set({
-      displayName: body.displayName,
-      bio: body.bio,
-      avatarUrl: body.avatarUrl === "" ? null : body.avatarUrl,
-    })
-    .where(eq(schema.users.username, username))
-    .returning();
+  const userUpdate: Record<string, unknown> = {};
+  if (body.displayName !== undefined) userUpdate.displayName = body.displayName.trim();
+  if (body.bio !== undefined) userUpdate.bio = body.bio;
+  if (body.avatarUrl !== undefined) userUpdate.avatarUrl = body.avatarUrl === "" ? null : body.avatarUrl;
+  if (body.email !== undefined) {
+    const email = body.email.trim().toLowerCase();
+    if (email !== target.email.toLowerCase()) {
+      const existing = await db.query.users.findFirst({
+        where: eq(schema.users.email, email),
+      });
+      if (existing && existing.id !== target.id) {
+        return c.json({ error: "Email is already used by another account" }, 409);
+      }
+      if (await isEmailSuppressed(db, email)) {
+        return c.json({ error: "This email is suppressed and cannot receive mail" }, 409);
+      }
+      userUpdate.email = email;
+      userUpdate.emailVerifiedAt = null;
+      userUpdate.emailSuppressedAt = null;
+      userUpdate.emailSuppressionReason = null;
+    }
+  }
 
-  return c.json({ user: toPublicUser(updated) });
+  if (Object.keys(userUpdate).length) {
+    await db.update(schema.users).set(userUpdate).where(eq(schema.users.id, target.id));
+  }
+
+  if (body.emailPreferences) {
+    await ensureNotificationPreferences(db, target.id);
+    const prefUpdate: Record<string, unknown> = { updatedAt: new Date() };
+    if (body.emailPreferences.allEmail !== undefined) prefUpdate.allEmail = body.emailPreferences.allEmail;
+    if (body.emailPreferences.replyEmail !== undefined) prefUpdate.replyEmail = body.emailPreferences.replyEmail;
+    if (body.emailPreferences.likeEmail !== undefined) prefUpdate.likeEmail = body.emailPreferences.likeEmail;
+    if (body.emailPreferences.marketingEmail !== undefined) prefUpdate.marketingEmail = body.emailPreferences.marketingEmail;
+    await db
+      .update(schema.notificationPreferences)
+      .set(prefUpdate)
+      .where(eq(schema.notificationPreferences.userId, target.id));
+  }
+
+  const updated = await db.query.users.findFirst({ where: eq(schema.users.id, target.id) });
+  if (!updated) return c.json({ error: "Member not found" }, 404);
+
+  return c.json({ user: await toMemberProfile(db, updated, me) });
 });
 
 export default app;

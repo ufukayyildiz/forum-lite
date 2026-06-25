@@ -8,7 +8,7 @@ import { safeISO } from "../lib/auth";
 import { toPublicUser, type AppEnv } from "../types";
 import { loadEmailSettings, sendManagedEmail, weAreBackEmail } from "../lib/notifications";
 import { cloudflareEmailApiConfigured } from "../lib/email";
-import { recordEmailSuppression } from "../lib/email-suppression";
+import { isEmailSuppressed, recordEmailSuppression } from "../lib/email-suppression";
 import { syncCloudflareEmailSuppressions } from "../lib/email-sync";
 
 const app = new Hono<AppEnv>();
@@ -163,9 +163,22 @@ app.patch("/users/:id",
     const db = c.get("db");
     const id = Number(c.req.param("id"));
     const body = c.req.valid("json");
+    const target = await db.query.users.findFirst({ where: eq(schema.users.id, id) });
+    if (!target) return c.json({ error: "Not found" }, 404);
     const update: Record<string, unknown> = {};
     if (body.displayName !== undefined) update.displayName = body.displayName;
-    if (body.email !== undefined) update.email = body.email;
+    if (body.email !== undefined) {
+      const email = body.email.trim().toLowerCase();
+      if (email !== target.email.toLowerCase()) {
+        const existing = await db.query.users.findFirst({ where: eq(schema.users.email, email) });
+        if (existing && existing.id !== target.id) return c.json({ error: "Email is already used by another account" }, 409);
+        if (await isEmailSuppressed(db, email)) return c.json({ error: "This email is suppressed and cannot receive mail" }, 409);
+        update.email = email;
+        update.emailVerifiedAt = null;
+        update.emailSuppressedAt = null;
+        update.emailSuppressionReason = null;
+      }
+    }
     if (body.bio !== undefined) update.bio = body.bio;
     if (body.avatarUrl !== undefined) update.avatarUrl = body.avatarUrl || null;
     if (!Object.keys(update).length) return c.json({ ok: true });
@@ -630,6 +643,7 @@ app.post("/marketing/send", zValidator("json", z.object({
       siteUrl,
       from,
       campaignKey: body.campaignKey,
+      ignorePreferences: mode === "test",
       waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),
     });
 

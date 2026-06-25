@@ -26,6 +26,17 @@ export type PublicUser = {
   id: number; publicId: string; username: string; displayName: string; avatarUrl: string | null;
   bio: string | null; role: "admin" | "moderator" | "member"; banned: boolean;
   postCount: number; threadCount: number; createdAt: string;
+  email?: string;
+  emailVerifiedAt?: string | null;
+  emailSuppressedAt?: string | null;
+  emailSuppressionReason?: string | null;
+  emailPreferences?: EmailPreferences | null;
+};
+export type EmailPreferences = {
+  allEmail: boolean;
+  replyEmail: boolean;
+  likeEmail: boolean;
+  marketingEmail: boolean;
 };
 export type AdminUser = PublicUser & {
   email: string;
@@ -202,7 +213,13 @@ export const api = {
     get<MemberActivityResponse>(
       "/members/" + username + (params ? "?" + new URLSearchParams(params as any).toString() : "")
     ),
-  updateMember: (username: string, b: object) => patch<{ user: PublicUser }>(`/members/${username}`, b),
+  updateMember: (username: string, b: {
+    displayName?: string;
+    email?: string;
+    bio?: string;
+    avatarUrl?: string;
+    emailPreferences?: Partial<EmailPreferences>;
+  }) => patch<{ user: PublicUser }>(`/members/${username}`, b),
 
   // tags
   tags: () => get<Tag[]>("/tags"),

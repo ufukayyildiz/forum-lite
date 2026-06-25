@@ -2,7 +2,7 @@ import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Edit2 } from "lucide-react";
-import { api } from "../lib/api";
+import { api, type EmailPreferences } from "../lib/api";
 import { DAvatar } from "../components/DAvatar";
 import { useMe } from "../lib/useAuth";
 import { relativeTime, formatDate } from "../lib/utils";
@@ -15,6 +15,12 @@ import { ThreadLink } from "../components/ThreadLink";
 const ROLE_LABEL: Record<string, string> = { admin: "[admin]", moderator: "[mod]", member: "[member]" };
 const ROLE_COLOR: Record<string, string> = { admin: "var(--gb-red)", moderator: "var(--gb-blue)", member: "var(--gb-gray)" };
 const VISIBLE_ROWS = 15;
+const DEFAULT_EMAIL_PREFERENCES: EmailPreferences = {
+  allEmail: true,
+  replyEmail: true,
+  likeEmail: true,
+  marketingEmail: true,
+};
 type ActivityTab = "threads" | "replies" | "about";
 
 function previewText(input: string | null | undefined): string {
@@ -35,8 +41,10 @@ export default function MemberPage() {
   const [tab, setTab] = useState<ActivityTab>("threads");
   const [editing, setEditing] = useState(false);
   const [displayName, setDisplayName] = useState("");
+  const [email, setEmail] = useState("");
   const [bio, setBio] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
+  const [emailPreferences, setEmailPreferences] = useState<EmailPreferences>(DEFAULT_EMAIL_PREFERENCES);
 
   const activityTab = tab === "replies" ? "replies" : "threads";
   const { data, isLoading } = useQuery({
@@ -47,7 +55,14 @@ export default function MemberPage() {
   });
 
   const update = useMutation({
-    mutationFn: () => api.updateMember(username!, { displayName, bio, avatarUrl }),
+    mutationFn: () => {
+      const payload: Parameters<typeof api.updateMember>[1] = { displayName, bio, avatarUrl };
+      if (data?.user.email !== undefined) {
+        payload.email = email;
+        payload.emailPreferences = emailPreferences;
+      }
+      return api.updateMember(username!, payload);
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["member", username] });
       qc.invalidateQueries({ queryKey: ["me"] });
@@ -60,10 +75,16 @@ export default function MemberPage() {
   function startEdit() {
     if (!data) return;
     setDisplayName(data.user.displayName);
+    setEmail(data.user.email ?? "");
     setBio(data.user.bio ?? "");
     setAvatarUrl(data.user.avatarUrl ?? "");
+    setEmailPreferences(data.user.emailPreferences ?? DEFAULT_EMAIL_PREFERENCES);
     setEditing(true);
     setTab("about");
+  }
+
+  function setEmailPreference(key: keyof EmailPreferences) {
+    setEmailPreferences((prev) => ({ ...prev, [key]: !prev[key] }));
   }
 
   function selectTab(next: ActivityTab) {
@@ -97,6 +118,27 @@ export default function MemberPage() {
   const replies = data?.replies ?? [];
   const activeRows = tab === "replies" ? replies : threads;
   const emptyCount = Math.max(0, VISIBLE_ROWS - activeRows.length);
+  const hasPrivateEmail = u.email !== undefined;
+  const emailStatus = u.emailSuppressedAt ? "suppressed" : u.emailVerifiedAt ? "verified" : "unverified";
+  const emailStatusColor =
+    emailStatus === "suppressed" ? "var(--gb-red)" : emailStatus === "verified" ? "var(--gb-green)" : "var(--gb-yellow)";
+  const aboutRows = [
+    { key: "display-name", val: u.displayName, color: "var(--gb-fg)" },
+    { key: "username", val: "@" + u.username, color: "var(--gb-green)" },
+    ...(hasPrivateEmail ? [
+      { key: "email", val: `${u.email} [${emailStatus}]`, color: emailStatusColor },
+      { key: "email-all", val: u.emailPreferences?.allEmail ? "on" : "off", color: u.emailPreferences?.allEmail ? "var(--gb-green)" : "var(--gb-red)" },
+      { key: "email-replies", val: u.emailPreferences?.replyEmail ? "on" : "off", color: u.emailPreferences?.replyEmail ? "var(--gb-green)" : "var(--gb-red)" },
+      { key: "email-likes", val: u.emailPreferences?.likeEmail ? "on" : "off", color: u.emailPreferences?.likeEmail ? "var(--gb-green)" : "var(--gb-red)" },
+      { key: "email-marketing", val: u.emailPreferences?.marketingEmail ? "on" : "off", color: u.emailPreferences?.marketingEmail ? "var(--gb-green)" : "var(--gb-red)" },
+    ] : []),
+    { key: "role", val: ROLE_LABEL[u.role], color: ROLE_COLOR[u.role] },
+    { key: "threads", val: String(u.threadCount), color: "var(--gb-aqua)" },
+    { key: "replies", val: String(u.postCount), color: "var(--gb-green)" },
+    { key: "joined", val: formatDate(u.createdAt), color: "var(--gb-fg4)" },
+    { key: "bio", val: u.bio ?? "-", color: "var(--gb-fg4)" },
+    { key: "public-id", val: u.publicId, color: "var(--gb-bg3)" },
+  ];
 
   return (
     <>
@@ -318,8 +360,48 @@ export default function MemberPage() {
                     </td>
                   </tr>
                 ))}
+                {hasPrivateEmail && (
+                  <>
+                    <tr>
+                      <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>3</td>
+                      <td style={{ color: "var(--gb-gray)", fontSize: 12, paddingRight: 16 }}>--email</td>
+                      <td>
+                        <input
+                          className="gb-input"
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          maxLength={160}
+                          placeholder="you@example.com"
+                          style={{ width: "100%", maxWidth: 400 }}
+                        />
+                      </td>
+                    </tr>
+                    {([
+                      ["allEmail", "--email-all"],
+                      ["replyEmail", "--email-replies"],
+                      ["likeEmail", "--email-likes"],
+                      ["marketingEmail", "--email-marketing"],
+                    ] as Array<[keyof EmailPreferences, string]>).map(([key, label], i) => (
+                      <tr key={key}>
+                        <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>{i + 4}</td>
+                        <td style={{ color: "var(--gb-gray)", fontSize: 12, paddingRight: 16 }}>{label}</td>
+                        <td>
+                          <label style={{ display: "inline-flex", alignItems: "center", gap: 8, color: "var(--gb-fg4)", fontSize: 13 }}>
+                            <input
+                              type="checkbox"
+                              checked={emailPreferences[key]}
+                              onChange={() => setEmailPreference(key)}
+                              style={{ accentColor: "var(--gb-yellow)" }}
+                            />
+                            {emailPreferences[key] ? "on" : "off"}
+                          </label>
+                        </td>
+                      </tr>
+                    ))}
+                  </>
+                )}
                 <tr>
-                  <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>3</td>
+                  <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>{hasPrivateEmail ? 8 : 3}</td>
                   <td style={{ color: "var(--gb-gray)", fontSize: 12, paddingRight: 16 }}>--bio</td>
                   <td>
                     <textarea
@@ -358,16 +440,7 @@ export default function MemberPage() {
                 </tr>
               </thead>
               <tbody>
-                {[
-                  { key: "display-name", val: u.displayName, color: "var(--gb-fg)" },
-                  { key: "username",     val: "@" + u.username, color: "var(--gb-green)" },
-                  { key: "role",         val: ROLE_LABEL[u.role], color: ROLE_COLOR[u.role] },
-                  { key: "threads",      val: String(u.threadCount), color: "var(--gb-aqua)" },
-                  { key: "replies",      val: String(u.postCount), color: "var(--gb-green)" },
-                  { key: "joined",       val: formatDate(u.createdAt), color: "var(--gb-fg4)" },
-                  { key: "bio",          val: u.bio ?? "—", color: "var(--gb-fg4)" },
-                  { key: "public-id",    val: u.publicId, color: "var(--gb-bg3)" },
-                ].map(({ key, val, color }, i) => (
+                {aboutRows.map(({ key, val, color }, i) => (
                   <tr key={key}>
                     <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>{i + 1}</td>
                     <td style={{ color: "var(--gb-gray)", fontSize: 12, paddingRight: 16 }}>{key}</td>

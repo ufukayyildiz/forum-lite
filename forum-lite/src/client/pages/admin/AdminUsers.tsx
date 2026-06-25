@@ -146,7 +146,7 @@ export default function AdminUsers() {
                   )}
                 </td>
                 <td>
-                  {me?.role === "admin" && me.id !== u.id && (
+                  {me?.role === "admin" && (
                     <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                       <button
                         className="gb-btn"
@@ -155,14 +155,16 @@ export default function AdminUsers() {
                       >
                         {editId === u.id ? "close" : "edit"}
                       </button>
-                      <button
-                        className="gb-btn gb-btn-danger"
-                        style={{ fontSize: 11, padding: "2px 10px" }}
-                        onClick={() => ban.mutate(u.id)}
-                        disabled={ban.isPending}
-                      >
-                        {u.banned ? "unban" : "ban"}
-                      </button>
+                      {me.id !== u.id && (
+                        <button
+                          className="gb-btn gb-btn-danger"
+                          style={{ fontSize: 11, padding: "2px 10px" }}
+                          onClick={() => ban.mutate(u.id)}
+                          disabled={ban.isPending}
+                        >
+                          {u.banned ? "unban" : "ban"}
+                        </button>
+                      )}
                     </div>
                   )}
                 </td>
