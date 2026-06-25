@@ -887,10 +887,11 @@ textarea.gb-input {
   height: 100%;
   min-width: 0;
   min-height: 0;
-  display: grid;
-  grid-template-rows: auto minmax(240px, 1fr) auto;
+  display: flex;
+  flex-direction: column;
   gap: 14px;
   overflow: hidden;
+  overflow-anchor: none;
 }
 .gb-admin-marketing-panel,
 .gb-admin-marketing-section {
@@ -899,12 +900,21 @@ textarea.gb-input {
   border: 1px solid var(--gb-bg2);
   padding: 12px;
 }
+.gb-admin-marketing-panel {
+  flex: 0 0 auto;
+}
 .gb-admin-marketing-users-section {
+  flex: 1 1 0;
   display: flex;
   flex-direction: column;
+  min-height: 0;
   overflow: hidden;
 }
 .gb-admin-marketing-send-section {
+  flex: 0 0 auto;
+  max-height: min(220px, 28dvh);
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 .gb-admin-marketing-head {
@@ -950,7 +960,8 @@ textarea.gb-input {
   max-height: none;
 }
 .gb-admin-marketing-logwrap {
-  max-height: min(220px, 28dvh);
+  flex: 1 1 auto;
+  max-height: none;
 }
 .gb-admin-marketing-page .gb-table {
   min-width: 760px;
@@ -986,6 +997,32 @@ textarea.gb-input {
 }
 .gb-admin-marketing-checked-summary.is-empty {
   visibility: hidden;
+}
+.gb-check-toggle {
+  width: 13px;
+  height: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--gb-bg3);
+  background: var(--gb-bg1);
+  color: var(--gb-bg);
+  font-size: 11px;
+  line-height: 1;
+  vertical-align: middle;
+}
+.gb-check-toggle.is-checked {
+  border-color: var(--gb-yellow);
+  background: var(--gb-yellow);
+  color: var(--gb-bg);
+}
+.gb-check-toggle.is-checked::after {
+  content: "✓";
+  font-weight: 700;
+}
+.gb-check-toggle.is-disabled {
+  cursor: not-allowed;
+  opacity: .38;
 }
 .gb-preview-overlay {
   position: fixed;

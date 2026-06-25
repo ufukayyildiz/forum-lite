@@ -69,17 +69,16 @@ const MarketingUserRow = memo(function MarketingUserRow({
   return (
     <tr>
       <td style={{ textAlign: "center" }}>
-        <label className={`gb-check${disabled ? " is-disabled" : ""}`}>
-          <input
-            type="checkbox"
-            checked={checked}
-            disabled={disabled}
-            onMouseDown={(event) => event.preventDefault()}
-            onChange={() => onToggle(user)}
-            aria-label={`Select ${user.displayName || user.username}`}
-          />
-          <span />
-        </label>
+        <button
+          className={`gb-check-toggle${checked ? " is-checked" : ""}${disabled ? " is-disabled" : ""}`}
+          type="button"
+          role="checkbox"
+          aria-checked={checked}
+          aria-label={`Select ${user.displayName || user.username}`}
+          disabled={disabled}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => onToggle(user)}
+        />
       </td>
       <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>{index + 1}</td>
       <td>
