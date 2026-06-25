@@ -302,18 +302,36 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
   border-top: 1px solid var(--gb-bg2);
   border-bottom: 1px solid var(--gb-bg2);
   background: color-mix(in srgb, var(--gb-bg1) 70%, var(--gb-bg) 30%);
-  height: var(--gb-ad-height);
   min-height: var(--gb-ad-height);
-  max-height: var(--gb-ad-height) !important;
-  overflow: hidden !important;
-  contain: layout paint;
+  height: auto;
+  max-height: none;
+  overflow: visible;
+  contain: layout;
+}
+
+.gb-ad-slot[data-ad-state="waiting"],
+.gb-ad-slot[data-ad-state="loading"],
+.gb-ad-slot[data-ad-state="house"] {
+  min-height: var(--gb-ad-height);
+  overflow: hidden;
+}
+
+.gb-ad-slot[data-ad-state="house"] {
+  height: var(--gb-ad-height);
 }
 
 .gb-ad-frame {
   display: flex;
-  align-items: stretch;
+  align-items: center;
   justify-content: center;
   width: 100%;
+  min-height: var(--gb-ad-height);
+  overflow: visible;
+}
+
+.gb-ad-slot[data-ad-state="house"] .gb-ad-frame {
+  height: var(--gb-ad-height);
+  overflow: hidden;
 }
 
 .gb-ad-frame,
@@ -323,17 +341,18 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
 .gb-ad-slot .adsbygoogle,
 .gb-ad-slot iframe {
   max-width: 100% !important;
-  height: var(--gb-ad-height) !important;
-  min-height: 0 !important;
-  max-height: var(--gb-ad-height) !important;
-  overflow: hidden !important;
+  min-height: 0;
+  overflow: visible;
 }
 
 .gb-ad-slot ins.adsbygoogle,
-.gb-ad-slot .adsbygoogle,
-.gb-ad-slot iframe {
+.gb-ad-slot .adsbygoogle {
   width: 100% !important;
-  height: var(--gb-ad-height) !important;
+  min-height: var(--gb-ad-height) !important;
+}
+
+.gb-ad-slot iframe {
+  border: 0;
 }
 
 .gb-house-ad {
