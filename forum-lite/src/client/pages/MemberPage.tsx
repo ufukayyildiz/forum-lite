@@ -8,8 +8,9 @@ import { useMe } from "../lib/useAuth";
 import { relativeTime, formatDate } from "../lib/utils";
 import { GbToolbar } from "../components/layout/Header";
 import { SEOHead } from "../components/SEOHead";
-import { categoryPathFromRow, threadPath } from "../lib/routes";
+import { categoryPathFromRow } from "../lib/routes";
 import { toast } from "sonner";
+import { ThreadLink } from "../components/ThreadLink";
 
 const ROLE_LABEL: Record<string, string> = { admin: "[admin]", moderator: "[mod]", member: "[member]" };
 const ROLE_COLOR: Record<string, string> = { admin: "var(--gb-red)", moderator: "var(--gb-blue)", member: "var(--gb-gray)" };
@@ -196,7 +197,7 @@ export default function MemberPage() {
                   <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>{i + 1}</td>
                   <td style={{ width: 20 }}><span style={{ color: "var(--gb-green)", fontSize: 13 }}>#</span></td>
                   <td>
-                    <Link to={threadPath(t)} className="gb-col-name" style={{ color: "var(--gb-fg)" }}>{t.title}</Link>
+                    <ThreadLink thread={t} className="gb-col-name" style={{ color: "var(--gb-fg)" }}>{t.title}</ThreadLink>
                     {t.categoryName && (
                       <Link to={categoryPathFromRow(t)} className="gb-cat" style={{ marginLeft: 8, fontSize: 11 }}>
                         {t.categoryName.toLowerCase()}
@@ -247,7 +248,7 @@ export default function MemberPage() {
                   <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>{i + 1}</td>
                   <td style={{ width: 20 }}><span style={{ color: "var(--gb-aqua)", fontSize: 13 }}>~</span></td>
                   <td style={{ minWidth: 260 }}>
-                    <Link to={threadPath({ id: p.threadId, publicId: p.threadPublicId })} className="gb-col-name" style={{ color: "var(--gb-fg)" }}>{p.threadTitle}</Link>
+                    <ThreadLink thread={{ id: p.threadId, publicId: p.threadPublicId }} className="gb-col-name" style={{ color: "var(--gb-fg)" }}>{p.threadTitle}</ThreadLink>
                     {p.categoryName && (
                       <Link to={categoryPathFromRow(p)} className="gb-cat" style={{ marginLeft: 8, fontSize: 11 }}>
                         {p.categoryName.toLowerCase()}

@@ -1,5 +1,5 @@
 import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useState, useRef } from "react";
 import { Heart, Reply, Pin, Lock, Star, Edit, Trash2, Paperclip } from "lucide-react";
 import { api, type Post, type Thread } from "../lib/api";
@@ -19,6 +19,25 @@ const TOOLS: [string, string, string][] = [
   ["\n\n```\n", "\n```\n", "block"], ["\n> ", "\n", "quote"], ["\n- ", "", "list"],
 ];
 const ATTACH_ACCEPT = "image/jpeg,image/png,image/gif,image/webp,application/pdf";
+
+function isThreadPreview(value: any): value is Thread {
+  return !!value && typeof value === "object" && !!value.id && !!value.category && !!value.author;
+}
+
+function findCachedThreadPreview(qc: QueryClient, id: string | undefined): Thread | undefined {
+  if (!id) return undefined;
+  const queries = qc.getQueryCache().findAll();
+  for (const query of queries) {
+    const data: any = query.state.data;
+    const rows = Array.isArray(data?.threads) ? data.threads : Array.isArray(data) ? data : [];
+    const found = rows.find((thread: any) => {
+      if (!isThreadPreview(thread)) return false;
+      return String(thread.publicId) === id || String(thread.id) === id;
+    });
+    if (found) return found;
+  }
+  return undefined;
+}
 
 function markdownLabel(label: string): string {
   return label.replace(/([\\[\]])/g, "\\$1");
@@ -202,12 +221,13 @@ export default function ThreadPage() {
     threadPreview && id && (String(threadPreview.publicId) === id || String(threadPreview.id) === id)
       ? threadPreview
       : undefined;
+  const cachedPreview = matchingPreview ?? findCachedThreadPreview(qc, id);
 
   const { data: thread, isLoading, isPlaceholderData } = useQuery({
     queryKey: ["thread", id],
     queryFn: () => api.thread(id!),
     enabled: !!id,
-    placeholderData: () => matchingPreview,
+    placeholderData: () => cachedPreview,
   });
   const { data: postsData, isLoading: pLoading } = useQuery({
     queryKey: ["posts", thread?.id, "all"],
@@ -286,7 +306,7 @@ export default function ThreadPage() {
     <>
       <SEOHead title="Loading..." noindex={true} />
       <GbToolbar crumbs={[{ label: "thread" }]} />
-      <div className="gb-state-pad" style={{ color: "var(--gb-gray)" }}>$ loading...</div>
+      <div className="gb-state-pad" aria-busy="true" />
     </>
   );
   if (!thread) return (
@@ -448,7 +468,7 @@ export default function ThreadPage() {
                   </div>
                 </div>
               ) : isPlaceholderData && !thread.content ? (
-                <div style={{ color: "var(--gb-gray)", fontSize: 12 }}>$ loading thread...</div>
+                <div style={{ minHeight: 24 }} aria-busy="true" />
               ) : (
                 <MarkdownContent content={thread.content || ""} />
               )}
@@ -474,7 +494,7 @@ export default function ThreadPage() {
         {adsConfig?.enabled && adInterval === 1 && <AdSlot config={adsConfig} index={1} />}
 
         {/* Replies */}
-        {pLoading && <div style={{ padding: "24px 0", color: "var(--gb-gray)" }}>$ loading replies...</div>}
+        {pLoading && !postsData && <div style={{ minHeight: 32 }} aria-busy="true" />}
 
         {!pLoading && postsData && postsData.posts.length > 0 && (
           <div style={{ borderBottom: "1px solid var(--gb-bg2)" }}>

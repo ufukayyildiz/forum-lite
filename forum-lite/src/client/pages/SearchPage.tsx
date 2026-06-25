@@ -5,8 +5,8 @@ import { api } from "../lib/api";
 import { DAvatar } from "../components/DAvatar";
 import { GbToolbar } from "../components/layout/Header";
 import { SEOHead } from "../components/SEOHead";
-import { threadPath } from "../lib/routes";
 import { relativeTime } from "../lib/utils";
+import { ThreadLink } from "../components/ThreadLink";
 
 export default function SearchPage() {
   const [sp, setSp] = useSearchParams();
@@ -72,7 +72,7 @@ export default function SearchPage() {
                         <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, width: 48, fontSize: 12 }}>{i + 1}</td>
                         <td style={{ width: 20 }}><span style={{ color: "var(--gb-green)" }}>#</span></td>
                         <td>
-                          <Link to={threadPath(t)} className="gb-col-name" style={{ color: "var(--gb-fg)" }}>{t.title}</Link>
+                          <ThreadLink thread={t} className="gb-col-name" style={{ color: "var(--gb-fg)" }}>{t.title}</ThreadLink>
                           <div style={{ fontSize: 11, color: "var(--gb-gray)" }}>{t.categoryName} &bull; {t.replyCount} replies</div>
                         </td>
                         <td style={{ textAlign: "right", paddingRight: 12, color: "var(--gb-gray)", fontSize: 12, whiteSpace: "nowrap" }}>

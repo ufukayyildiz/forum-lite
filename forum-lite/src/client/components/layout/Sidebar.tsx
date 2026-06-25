@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, ChevronDown, Shield, LogOut, User, Settings, Plus } from "lucide-react";
 import { api } from "../../lib/api";
 import { categoryPath } from "../../lib/routes";
@@ -13,6 +13,7 @@ const CAT_COLORS = ["#b8bb26","#83a598","#fabd2f","#d3869b","#8ec07c","#fe8019",
 export function Sidebar({ onClose }: { onClose?: () => void }) {
   const { pathname } = useLocation();
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const { data: me } = useMe();
   const logout = useLogout();
   const { data: categories } = useQuery({ queryKey: ["categories"], queryFn: api.categories });
@@ -36,6 +37,28 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
 
   const active = (to: string, exact = false) => exact ? pathname === to : pathname.startsWith(to);
   const newThreadHref = me ? "/new-thread" : "/login?next=/new-thread";
+  const warmQuery = (to: string) => {
+    if (to === "/") {
+      qc.prefetchQuery({
+        queryKey: ["threads", "all", "recent", "all"],
+        queryFn: () => api.threads({ sort: "recent", all: 1 }),
+      }).catch(() => undefined);
+    } else if (to === "/members") {
+      qc.prefetchQuery({
+        queryKey: ["members", "posts", "all"],
+        queryFn: () => api.members({ sort: "posts", all: 1 }),
+      }).catch(() => undefined);
+    } else if (to === "/tags") {
+      qc.prefetchQuery({ queryKey: ["tags"], queryFn: api.tags }).catch(() => undefined);
+    }
+  };
+  const warmCategory = (id: string | number) => {
+    qc.prefetchQuery({ queryKey: ["category", String(id)], queryFn: () => api.category(id) }).catch(() => undefined);
+    qc.prefetchQuery({
+      queryKey: ["threads", "cat", String(id), "recent", "all"],
+      queryFn: () => api.threads({ category: id, sort: "recent", all: 1 }),
+    }).catch(() => undefined);
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -54,6 +77,10 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
             to={to}
             className={`gb-tree-item${active(to, exact) ? " active" : ""}`}
             onClick={onClose}
+            onFocus={() => warmQuery(to)}
+            onPointerEnter={() => warmQuery(to)}
+            onPointerDown={() => warmQuery(to)}
+            onTouchStart={() => warmQuery(to)}
           >
             <span style={{ color: active(to, exact) ? "var(--gb-yellow)" : "var(--gb-gray)", width: 16, flexShrink: 0 }}>{icon}</span>
             <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
@@ -83,6 +110,10 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
               to={href}
               className={`gb-tree-item${activeCat ? " active" : ""}`}
               onClick={onClose}
+              onFocus={() => warmCategory(cat.publicId)}
+              onPointerEnter={() => warmCategory(cat.publicId)}
+              onPointerDown={() => warmCategory(cat.publicId)}
+              onTouchStart={() => warmCategory(cat.publicId)}
             >
               <span style={{ color: CAT_COLORS[i % CAT_COLORS.length], width: 16, flexShrink: 0, fontSize: 14 }}>
                 {activeCat ? ">" : "#"}

@@ -38,7 +38,7 @@ function Statusbar() {
       <span className="gb-statusbar-mode">NORMAL &nbsp; {me ? me.username : "guest"}</span>
       <span style={{ flex: 1 }} />
       {stats && (
-        <span className="gb-statusbar-stats" style={{ fontSize: 11, color: "var(--gb-gray)", display: "flex", gap: 16, marginRight: 20 }}>
+        <span className="gb-statusbar-stats">
           <span><span style={{ color: "var(--gb-blue)" }}>{stats.users.toLocaleString()}</span> users</span>
           <span><span style={{ color: "var(--gb-green)" }}>{stats.threads.toLocaleString()}</span> threads</span>
           <span><span style={{ color: "var(--gb-aqua)" }}>{stats.posts.toLocaleString()}</span> posts</span>

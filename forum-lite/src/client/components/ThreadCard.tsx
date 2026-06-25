@@ -3,8 +3,9 @@ import { MessageSquare, Eye, Pin, Lock } from "lucide-react";
 import { Avatar } from "./ui/avatar";
 import { Badge } from "./ui/badge";
 import { relativeTime } from "../lib/utils";
-import { categoryPath, threadPath } from "../lib/routes";
+import { categoryPath } from "../lib/routes";
 import type { Thread } from "../lib/api";
+import { ThreadLink } from "./ThreadLink";
 
 export function ThreadCard({ thread }: { thread: Thread }) {
   return (
@@ -15,12 +16,12 @@ export function ThreadCard({ thread }: { thread: Thread }) {
         <div className="flex items-start gap-2 flex-wrap">
           {thread.pinned && <Pin size={13} className="text-[var(--color-primary)] mt-0.5 flex-shrink-0" />}
           {thread.locked && <Lock size={13} className="text-[var(--color-muted-foreground)] mt-0.5 flex-shrink-0" />}
-          <Link
-            to={threadPath(thread)}
+          <ThreadLink
+            thread={thread}
             className="text-sm font-medium hover:text-[var(--color-primary)] transition-colors leading-snug break-words min-w-0"
           >
             {thread.title}
-          </Link>
+          </ThreadLink>
         </div>
 
         <div className="mt-1 flex items-center gap-3 text-xs text-[var(--color-muted-foreground)] flex-wrap">

@@ -3,8 +3,8 @@ import { useNavigate, Link } from "react-router-dom";
 import { Search, X, Plus } from "lucide-react";
 import { useMe } from "../../lib/useAuth";
 import { api } from "../../lib/api";
-import { threadPath } from "../../lib/routes";
 import { DAvatar } from "../DAvatar";
+import { ThreadLink } from "../ThreadLink";
 
 interface Props {
   crumbs?: { label: string; href?: string }[];
@@ -91,14 +91,14 @@ export function GbToolbar({ crumbs = [], actions }: Props) {
                   <div style={{ padding: "12px 14px", color: "var(--gb-gray)", fontSize: 13 }}>no results</div>
                 )}
                 {results.threads.map((t: any, i: number) => (
-                  <Link key={t.id} to={threadPath(t)} className="gb-search-result" onClick={() => setShowSearch(false)}>
+                  <ThreadLink key={t.id} thread={t} className="gb-search-result" onClick={() => setShowSearch(false)}>
                     <span style={{ color: "var(--gb-gray)", width: 28, textAlign: "right", flexShrink: 0 }}>{i + 1}</span>
                     <span style={{ color: "var(--gb-green)" }}>#</span>
                     <div>
                       <div style={{ fontSize: 13 }}>{t.title}</div>
                       <div style={{ fontSize: 11, color: "var(--gb-gray)" }}>{t.categoryName} &bull; {t.replyCount} replies</div>
                     </div>
-                  </Link>
+                  </ThreadLink>
                 ))}
                 {results.users.map((u: any) => (
                   <Link key={u.id} to={`/u/${u.username}`} className="gb-search-result" onClick={() => setShowSearch(false)}>
