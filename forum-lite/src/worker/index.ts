@@ -18,6 +18,7 @@ import { serveDefaultWebp, serveThreadWebp } from "./lib/og";
 import { legacyCanonicalRedirect } from "./lib/legacy-redirects";
 import { parseBounceEmail } from "./lib/bounce";
 import { recordEmailSuppression } from "./lib/email-suppression";
+import { unsubscribeByToken } from "./lib/notifications";
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -279,6 +280,19 @@ app.get("/og/thread/:id", (c) => {
     return c.text("Gone. Thread Open Graph images are served as WebP.", 410, { "Cache-Control": "no-store" });
   }
   return serveThreadWebp(c, id);
+});
+
+app.on(["GET", "POST"], "/unsubscribe/:token", async (c) => {
+  const db = getDb(c.env);
+  const token = c.req.param("token");
+  const type = new URL(c.req.url).searchParams.get("type") || "all";
+  const result = await unsubscribeByToken(db, token, type);
+  const title = result.ok ? "Email preferences updated" : "Unsubscribe link not found";
+  const body = result.ok
+    ? `${result.disabled === "all" ? "All email notifications" : `${result.disabled} emails`} have been disabled for ${result.email ?? "this account"}.`
+    : "This unsubscribe link is invalid or expired.";
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="robots" content="noindex"><title>${title}</title></head><body style="margin:0;background:#282828;color:#ebdbb2;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace"><main style="max-width:720px;margin:0 auto;padding:42px 22px"><div style="color:#fabd2f;font-weight:700;margin-bottom:18px">FSTDESK</div><section style="border:1px solid #504945;background:#3c3836;padding:24px"><h1 style="font-size:22px;color:#fabd2f;margin:0 0 14px">${title}</h1><p style="line-height:1.7">${body}</p><p><a href="/" style="color:#95c7c0">Return to forum</a></p></section></main></body></html>`;
+  return c.html(html, result.ok ? 200 : 404);
 });
 
 app.on(["GET", "HEAD"], "*", async (c, next) => {

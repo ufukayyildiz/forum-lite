@@ -6,6 +6,7 @@ import { schema } from "../db";
 import { requireAuth } from "../lib/middleware";
 import { safeISO } from "../lib/auth";
 import { toPublicUser, type AppEnv } from "../types";
+import { likeNotificationEmail, loadEmailSettings, replyNotificationEmail, sendManagedEmail } from "../lib/notifications";
 
 const app = new Hono<AppEnv>();
 
@@ -108,6 +109,36 @@ app.post("/", requireAuth, zValidator("json", createBody), async (c) => {
     .set({ postCount: sql`${schema.users.postCount} + 1` })
     .where(eq(schema.users.id, user.id));
 
+  if (thread.userId !== user.id) {
+    const recipient = await db.query.users.findFirst({ where: eq(schema.users.id, thread.userId) });
+    if (recipient) {
+      const notify = async () => {
+        const { siteUrl, from } = await loadEmailSettings(db, c.req.url);
+        const threadUrl = new URL(`/t/${thread.publicId}`, siteUrl).toString();
+        const mail = replyNotificationEmail({
+          recipientName: recipient.displayName,
+          actorName: user.displayName,
+          threadTitle: thread.title,
+          threadUrl,
+          excerpt: body.content,
+        });
+        await sendManagedEmail({
+          db,
+          env: c.env,
+          user: recipient,
+          kind: "reply",
+          ...mail,
+          siteUrl,
+          from,
+          relatedType: "post",
+          relatedId: post.id,
+          waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),
+        });
+      };
+      c.executionCtx.waitUntil(notify().catch((error) => console.error("reply notification failed", error)));
+    }
+  }
+
   return c.json(
     {
       id: post.id,
@@ -194,6 +225,35 @@ app.post("/:id/like", requireAuth, async (c) => {
       .set({ likeCount: sql`${schema.posts.likeCount} + 1` })
       .where(eq(schema.posts.id, id))
       .returning();
+    if (post.userId !== user.id) {
+      const recipient = await db.query.users.findFirst({ where: eq(schema.users.id, post.userId) });
+      const thread = await db.query.threads.findFirst({ where: eq(schema.threads.id, post.threadId) });
+      if (recipient && thread) {
+        const notify = async () => {
+          const { siteUrl, from } = await loadEmailSettings(db, c.req.url);
+          const threadUrl = new URL(`/t/${thread.publicId}`, siteUrl).toString();
+          const mail = likeNotificationEmail({
+            recipientName: recipient.displayName,
+            actorName: user.displayName,
+            threadTitle: thread.title,
+            threadUrl,
+          });
+          await sendManagedEmail({
+            db,
+            env: c.env,
+            user: recipient,
+            kind: "like",
+            ...mail,
+            siteUrl,
+            from,
+            relatedType: "post",
+            relatedId: post.id,
+            waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),
+          });
+        };
+        c.executionCtx.waitUntil(notify().catch((error) => console.error("like notification failed", error)));
+      }
+    }
     return c.json({ liked: true, likeCount: updated.likeCount });
   }
 });

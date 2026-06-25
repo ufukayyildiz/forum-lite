@@ -232,6 +232,9 @@ export const emailSuppressions = sqliteTable(
     reason: text("reason").notNull(),
     source: text("source").notNull(),
     details: text("details"),
+    cfSuppressionStatus: text("cf_suppression_status"),
+    cfSuppressedAt: integer("cf_suppressed_at", { mode: "timestamp" }),
+    cfSuppressionError: text("cf_suppression_error"),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .$defaultFn(() => new Date()),
@@ -241,6 +244,74 @@ export const emailSuppressions = sqliteTable(
   },
   (t) => ({
     createdAtIdx: index("email_suppressions_created_at_idx").on(t.createdAt),
+  }),
+);
+
+export const notificationPreferences = sqliteTable(
+  "notification_preferences",
+  {
+    userId: integer("user_id")
+      .primaryKey()
+      .references(() => users.id, { onDelete: "cascade" }),
+    replyEmail: integer("reply_email", { mode: "boolean" }).notNull().default(true),
+    likeEmail: integer("like_email", { mode: "boolean" }).notNull().default(true),
+    marketingEmail: integer("marketing_email", { mode: "boolean" }).notNull().default(true),
+    allEmail: integer("all_email", { mode: "boolean" }).notNull().default(true),
+    unsubscribeToken: text("unsubscribe_token").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => ({
+    tokenIdx: uniqueIndex("notification_preferences_unsubscribe_token_idx").on(t.unsubscribeToken),
+  }),
+);
+
+export const emailEvents = sqliteTable(
+  "email_events",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
+    email: text("email").notNull(),
+    kind: text("kind").notNull(),
+    subject: text("subject").notNull(),
+    status: text("status").notNull(),
+    relatedType: text("related_type"),
+    relatedId: integer("related_id"),
+    campaignKey: text("campaign_key"),
+    message: text("message"),
+    errorCode: text("error_code"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => ({
+    createdAtIdx: index("email_events_created_at_idx").on(t.createdAt),
+    kindIdx: index("email_events_kind_idx").on(t.kind),
+    userIdx: index("email_events_user_idx").on(t.userId),
+  }),
+);
+
+export const marketingSends = sqliteTable(
+  "marketing_sends",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    campaignKey: text("campaign_key").notNull(),
+    userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
+    email: text("email").notNull(),
+    status: text("status").notNull(),
+    emailEventId: integer("email_event_id").references(() => emailEvents.id, { onDelete: "set null" }),
+    sentByUserId: integer("sent_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => ({
+    campaignUserIdx: index("marketing_sends_campaign_user_idx").on(t.campaignKey, t.userId),
+    createdAtIdx: index("marketing_sends_created_at_idx").on(t.createdAt),
   }),
 );
 
@@ -284,3 +355,6 @@ export type Post = typeof posts.$inferSelect;
 export type Tag = typeof tags.$inferSelect;
 export type Attachment = typeof attachments.$inferSelect;
 export type EmailSuppression = typeof emailSuppressions.$inferSelect;
+export type NotificationPreference = typeof notificationPreferences.$inferSelect;
+export type EmailEvent = typeof emailEvents.$inferSelect;
+export type MarketingSend = typeof marketingSends.$inferSelect;

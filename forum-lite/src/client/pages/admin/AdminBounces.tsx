@@ -28,6 +28,7 @@ export default function AdminBounces() {
             <th scope="col">EMAIL</th>
             <th scope="col">REASON</th>
             <th scope="col">SOURCE</th>
+            <th scope="col">CF</th>
             <th scope="col">UPDATED</th>
           </tr>
         </thead>
@@ -35,7 +36,7 @@ export default function AdminBounces() {
           {isLoading ? (
             <tr>
               <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16 }}>~</td>
-              <td colSpan={4} style={{ color: "var(--gb-gray)" }}>$ loading...</td>
+              <td colSpan={5} style={{ color: "var(--gb-gray)" }}>$ loading...</td>
             </tr>
           ) : rows.length ? rows.map((row: any, i: number) => (
             <tr key={row.email}>
@@ -48,12 +49,17 @@ export default function AdminBounces() {
               </td>
               <td style={{ color: "var(--gb-red)", fontSize: 12 }}>{row.reason}</td>
               <td style={{ color: "var(--gb-gray)", fontSize: 12 }}>{row.source}</td>
+              <td style={{ color: row.cfSuppressionStatus === "synced" ? "var(--gb-green)" : row.cfSuppressionStatus === "error" ? "var(--gb-red)" : "var(--gb-yellow)", fontSize: 12 }}>
+                {row.cfSuppressionStatus ?? "unknown"}
+                {row.cfSuppressedAt && <div style={{ color: "var(--gb-gray)", fontSize: 10 }}>{relativeTime(row.cfSuppressedAt)}</div>}
+                {row.cfSuppressionError && <div style={{ color: "var(--gb-red)", fontSize: 10, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.cfSuppressionError}</div>}
+              </td>
               <td style={{ color: "var(--gb-gray)", fontSize: 12 }}>{relativeTime(row.updatedAt)}</td>
             </tr>
           )) : (
             <tr>
               <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16 }}>~</td>
-              <td colSpan={4} style={{ color: "var(--gb-gray)" }}>no bounces yet</td>
+              <td colSpan={5} style={{ color: "var(--gb-gray)" }}>no bounces yet</td>
             </tr>
           )}
         </tbody>

@@ -918,7 +918,8 @@ textarea.gb-input {
   .gb-tabline-right { display: none; }
 
   /* Admin forms: single column on mobile */
-  .gb-admin-grid-2 { grid-template-columns: 1fr !important; }
+  .gb-admin-grid-2,
+  .gb-admin-marketing-grid { grid-template-columns: 1fr !important; }
 
   /* Content area padding reduce */
   .gb-content { }

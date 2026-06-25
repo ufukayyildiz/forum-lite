@@ -16,8 +16,9 @@ import {
 import { requireAuth } from "../lib/middleware";
 import { toPublicUser, type AppEnv } from "../types";
 import type { DB } from "../db";
-import { accountCreatedPasswordEmail, newPasswordEmail, sendEmail } from "../lib/email";
-import { isEmailSuppressed, normalizeEmailAddress, recordEmailSuppression } from "../lib/email-suppression";
+import { accountCreatedPasswordEmail, newPasswordEmail } from "../lib/email";
+import { isEmailSuppressed, normalizeEmailAddress } from "../lib/email-suppression";
+import { loadEmailSettings, sendManagedEmail } from "../lib/notifications";
 
 const app = new Hono<AppEnv>();
 
@@ -187,26 +188,25 @@ app.post("/register", zValidator("json", registerSchema), async (c) => {
     })
     .returning();
 
-  const settings = await loadSettingsMap(db);
-  const siteUrl = settings["site_url"] || new URL(c.req.url).origin;
-  const from = settings["email_from"] || "noreply@devfox.net";
+  const { siteUrl, from } = await loadEmailSettings(db, c.req.url);
   const mail = accountCreatedPasswordEmail(user.username, temporaryPassword, siteUrl);
-  const sent = await sendEmail(c.env, {
-    to: user.email,
+  const sent = await sendManagedEmail({
+    db,
+    env: c.env,
+    user,
+    kind: "account",
     ...mail,
+    siteUrl,
     from,
-    headers: { "X-FSTDESK-Mail-Type": "account-password" },
+    relatedType: "user",
+    relatedId: user.id,
+    ignorePreferences: true,
+    waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),
   });
 
-  if (!sent.ok) {
+  if (sent.status !== "sent") {
     await db.delete(schema.users).where(eq(schema.users.id, user.id));
-    if (sent.suppressed) {
-      await recordEmailSuppression(db, c.env, email, {
-        reason: "recipient_suppressed",
-        source: "register_send",
-        details: sent.code,
-        waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),
-      });
+    if (sent.status === "suppressed") {
       return c.json({ error: "That email is suppressed and cannot receive forum emails." }, 409);
     }
     return c.json({ error: "Could not send the account password email. Please try again later." }, 502);
@@ -281,31 +281,29 @@ app.post("/reset-password", zValidator("json", resetPasswordSchema), async (c) =
       return c.json({ ok: true, message: "If that email exists, a new password has been sent." });
     }
 
-    const s = await loadSettingsMap(db);
-    const siteUrl = s["site_url"] || new URL(c.req.url).origin;
-    const from = s["email_from"] || "noreply@devfox.net";
+    const { siteUrl, from } = await loadEmailSettings(db, c.req.url);
     const nextPassword = generateTemporaryPassword();
     const mail = newPasswordEmail(user.username, nextPassword, siteUrl);
-    const sent = await sendEmail(c.env, {
-      to: user.email,
+    const sent = await sendManagedEmail({
+      db,
+      env: c.env,
+      user,
+      kind: "account",
       ...mail,
+      siteUrl,
       from,
-      headers: { "X-FSTDESK-Mail-Type": "password-reset" },
+      relatedType: "user",
+      relatedId: user.id,
+      ignorePreferences: true,
+      waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),
     });
 
-    if (sent.ok) {
+    if (sent.status === "sent") {
       await db
         .update(schema.users)
         .set({ passwordHash: await hashPassword(nextPassword) })
         .where(eq(schema.users.id, user.id));
       await db.delete(schema.sessions).where(eq(schema.sessions.userId, user.id));
-    } else if (sent.suppressed) {
-      await recordEmailSuppression(db, c.env, user.email, {
-        reason: "recipient_suppressed",
-        source: "password_reset_send",
-        details: sent.code,
-        waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),
-      });
     }
   }
 

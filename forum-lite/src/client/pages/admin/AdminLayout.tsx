@@ -9,6 +9,8 @@ const ALL_TABS = [
   { path: "/admin/categories", label: "CATEGORIES",             adminOnly: false },
   { path: "/admin/tags",       label: "TAGS",                   adminOnly: false },
   { path: "/admin/ads",        label: "ADS",                    adminOnly: true },
+  { path: "/admin/notifications", label: "NOTIFY",               adminOnly: true },
+  { path: "/admin/marketing",  label: "MARKETING",              adminOnly: true },
   { path: "/admin/bounces",    label: "BOUNCES",                adminOnly: true },
   { path: "/admin/logs",       label: "LOGS",                   adminOnly: true },
   { path: "/admin/settings",   label: "SETTINGS",               adminOnly: true },

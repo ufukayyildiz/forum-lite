@@ -32,6 +32,7 @@ export async function recordEmailSuppression(
 
   const now = new Date();
   const details = opts.details ? opts.details.slice(0, 2000) : null;
+  const initialCfStatus = env.CF_ACCOUNT_ID && env.CF_EMAIL_API_TOKEN ? "pending" : "skipped";
 
   await db
     .insert(schema.emailSuppressions)
@@ -40,6 +41,9 @@ export async function recordEmailSuppression(
       reason: opts.reason,
       source: opts.source,
       details,
+      cfSuppressionStatus: initialCfStatus,
+      cfSuppressedAt: null,
+      cfSuppressionError: null,
       createdAt: now,
       updatedAt: now,
     })
@@ -49,6 +53,8 @@ export async function recordEmailSuppression(
         reason: opts.reason,
         source: opts.source,
         details,
+        cfSuppressionStatus: initialCfStatus,
+        cfSuppressionError: null,
         updatedAt: now,
       },
     });
@@ -64,7 +70,30 @@ export async function recordEmailSuppression(
     createdAt: now,
   });
 
-  const promise = addCloudflareSuppression(env, normalized).catch(() => ({ ok: false }));
+  const promise = addCloudflareSuppression(env, normalized)
+    .then(async (result) => {
+      const doneAt = new Date();
+      await db
+        .update(schema.emailSuppressions)
+        .set({
+          cfSuppressionStatus: result.ok ? "synced" : result.skipped ? "skipped" : "error",
+          cfSuppressedAt: result.ok ? doneAt : null,
+          cfSuppressionError: result.error?.slice(0, 1000) ?? null,
+          updatedAt: doneAt,
+        })
+        .where(eq(schema.emailSuppressions.email, normalized));
+    })
+    .catch(async (error) => {
+      const doneAt = new Date();
+      await db
+        .update(schema.emailSuppressions)
+        .set({
+          cfSuppressionStatus: "error",
+          cfSuppressionError: error instanceof Error ? error.message.slice(0, 1000) : "Cloudflare suppression sync failed",
+          updatedAt: doneAt,
+        })
+        .where(eq(schema.emailSuppressions.email, normalized));
+    });
   if (opts.waitUntil) opts.waitUntil(promise);
   else await promise;
 }

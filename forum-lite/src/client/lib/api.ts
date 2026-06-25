@@ -161,6 +161,24 @@ export const api = {
   adminDeleteUser: (id: number) => del<{ ok: boolean }>(`/admin/users/${id}`),
   adminLogs: (page = 1) => get<{ logs: any[]; total: number; page: number; perPage: number }>(`/admin/logs?page=${page}`),
   adminEmailSuppressions: (page = 1) => get<{ suppressions: any[]; total: number; page: number; perPage: number }>(`/admin/email-suppressions?page=${page}`),
+  adminEmailEvents: (page = 1, kind = "") =>
+    get<{ events: any[]; total: number; page: number; perPage: number }>(
+      `/admin/email-events?page=${page}${kind ? `&kind=${encodeURIComponent(kind)}` : ""}`
+    ),
+  adminNotifications: () => get<{
+    eventCount: number;
+    suppressionCount: number;
+    preferenceCount: number;
+    byStatus: { status: string; count: number }[];
+    byKind: { kind: string; count: number }[];
+    cfSuppressionStatus: { status: string; count: number }[];
+  }>("/admin/notifications"),
+  adminMarketingTemplate: () => get<{ campaignKey: string; name: string; subject: string; text: string; html: string }>("/admin/marketing/template"),
+  adminMarketingUsers: (q = "", campaign = "we-are-back") =>
+    get<{ users: any[] }>(`/admin/marketing/users?campaign=${encodeURIComponent(campaign)}&q=${encodeURIComponent(q)}`),
+  adminMarketingSends: (page = 1) => get<{ sends: any[]; total: number; page: number; perPage: number }>(`/admin/marketing/sends?page=${page}`),
+  adminSendMarketing: (b: { campaignKey: string; userId?: number; test?: boolean }) =>
+    post<{ ok: boolean; status: string; previousSentAt: string | null }>("/admin/marketing/send", b),
   adminSettings: () => get<Record<string, string>>("/admin/settings"),
   adminSaveSettings: (b: Record<string, string>) => post<{ ok: boolean }>("/admin/settings", b),
 
