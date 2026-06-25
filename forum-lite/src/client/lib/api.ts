@@ -72,6 +72,48 @@ export type MemberActivityResponse = {
   tab: "threads" | "replies";
 };
 
+export type AdminAnalyticsResponse = {
+  days: number;
+  summary: {
+    pageviews: number;
+    visitors: number;
+    userViews: number;
+    anonymousViews: number;
+    repeatViews: number;
+    botViews: number;
+    avgDurationMs: number;
+    lastSeenAt: string | null;
+  };
+  sources: Array<{ source: string; medium: string; views: number; visitors: number; avgDurationMs: number }>;
+  countries: Array<{ country: string; views: number; visitors: number }>;
+  routes: Array<{ routeType: string; views: number; visitors: number; avgDurationMs: number }>;
+  devices: Array<{ deviceType: string; browser: string; os: string; views: number; visitors: number }>;
+  paths: Array<{ path: string; routeType: string; views: number; visitors: number; userViews: number; avgDurationMs: number }>;
+  users: Array<{ username: string; displayName: string; views: number; visitors: number; avgDurationMs: number; lastSeenAt: string | null }>;
+  referrers: Array<{ referrerHost: string; views: number; visitors: number }>;
+  timeline: Array<{ bucket: string; views: number; visitors: number }>;
+  recent: Array<{
+    id: number;
+    path: string;
+    routeType: string;
+    source: string;
+    medium: string;
+    country: string | null;
+    city: string | null;
+    colo: string | null;
+    deviceType: string;
+    browser: string;
+    os: string;
+    isRepeat: boolean;
+    isBot: boolean;
+    durationMs: number;
+    createdAt: string;
+    lastSeenAt: string;
+    username: string | null;
+    displayName: string | null;
+  }>;
+};
+
 export const api = {
   // auth
   me: () => get<{ user: PublicUser | null }>("/auth/me"),
@@ -153,6 +195,7 @@ export const api = {
 
   // admin
   adminStats: () => get<{ userCount: number; threadCount: number; postCount: number; recentActivity: any[] }>("/admin/stats"),
+  adminAnalytics: (days = 7) => get<AdminAnalyticsResponse>(`/admin/analytics?days=${days}`),
   adminUsers: (page = 1) => get<{ users: AdminUser[]; total: number }>(`/admin/users?page=${page}`),
   adminSetRole: (id: number, role: string) => patch<{ user: PublicUser }>(`/admin/users/${id}/role`, { role }),
   adminBanUser: (id: number) => post<{ user: PublicUser }>(`/admin/users/${id}/ban`),

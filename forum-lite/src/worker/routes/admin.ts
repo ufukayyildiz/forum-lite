@@ -198,6 +198,148 @@ app.get("/notifications", async (c) => {
   });
 });
 
+app.get("/analytics", async (c) => {
+  const days = Math.max(1, Math.min(90, Number(c.req.query("days") ?? 7) || 7));
+  const since = Math.floor(Date.now() / 1000) - days * 86400;
+  const bindSince = (sqlText: string) => c.env.DB.prepare(sqlText).bind(since);
+
+  const [
+    summary,
+    sourceRows,
+    countryRows,
+    routeRows,
+    deviceRows,
+    pathRows,
+    userRows,
+    referrerRows,
+    timelineRows,
+    recentRows,
+  ] = await Promise.all([
+    bindSince(
+      `SELECT
+        COUNT(*) AS pageviews,
+        COUNT(DISTINCT visitor_id) AS visitors,
+        SUM(CASE WHEN user_id IS NOT NULL THEN 1 ELSE 0 END) AS userViews,
+        SUM(CASE WHEN user_id IS NULL THEN 1 ELSE 0 END) AS anonymousViews,
+        SUM(CASE WHEN is_repeat = 1 THEN 1 ELSE 0 END) AS repeatViews,
+        SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) AS botViews,
+        AVG(NULLIF(duration_ms, 0)) AS avgDurationMs,
+        MAX(created_at) AS lastSeenAt
+       FROM analytics_pageviews
+       WHERE created_at >= ?`,
+    ).first<Record<string, unknown>>(),
+    bindSince(
+      `SELECT source, medium, COUNT(*) AS views, COUNT(DISTINCT visitor_id) AS visitors, AVG(NULLIF(duration_ms, 0)) AS avgDurationMs
+       FROM analytics_pageviews
+       WHERE created_at >= ?
+       GROUP BY source, medium
+       ORDER BY views DESC
+       LIMIT 12`,
+    ).all<Record<string, unknown>>(),
+    bindSince(
+      `SELECT COALESCE(NULLIF(country, ''), 'unknown') AS country, COUNT(*) AS views, COUNT(DISTINCT visitor_id) AS visitors
+       FROM analytics_pageviews
+       WHERE created_at >= ?
+       GROUP BY COALESCE(NULLIF(country, ''), 'unknown')
+       ORDER BY views DESC
+       LIMIT 16`,
+    ).all<Record<string, unknown>>(),
+    bindSince(
+      `SELECT route_type AS routeType, COUNT(*) AS views, COUNT(DISTINCT visitor_id) AS visitors, AVG(NULLIF(duration_ms, 0)) AS avgDurationMs
+       FROM analytics_pageviews
+       WHERE created_at >= ?
+       GROUP BY route_type
+       ORDER BY views DESC`,
+    ).all<Record<string, unknown>>(),
+    bindSince(
+      `SELECT device_type AS deviceType, browser, os, COUNT(*) AS views, COUNT(DISTINCT visitor_id) AS visitors
+       FROM analytics_pageviews
+       WHERE created_at >= ?
+       GROUP BY device_type, browser, os
+       ORDER BY views DESC
+       LIMIT 16`,
+    ).all<Record<string, unknown>>(),
+    bindSince(
+      `SELECT path, route_type AS routeType, COUNT(*) AS views, COUNT(DISTINCT visitor_id) AS visitors,
+        SUM(CASE WHEN user_id IS NOT NULL THEN 1 ELSE 0 END) AS userViews,
+        AVG(NULLIF(duration_ms, 0)) AS avgDurationMs
+       FROM analytics_pageviews
+       WHERE created_at >= ?
+       GROUP BY path, route_type
+       ORDER BY views DESC
+       LIMIT 30`,
+    ).all<Record<string, unknown>>(),
+    bindSince(
+      `SELECT u.username, u.display_name AS displayName, COUNT(*) AS views, COUNT(DISTINCT ap.visitor_id) AS visitors,
+        MAX(ap.created_at) AS lastSeenAt, AVG(NULLIF(ap.duration_ms, 0)) AS avgDurationMs
+       FROM analytics_pageviews ap
+       INNER JOIN users u ON u.id = ap.user_id
+       WHERE ap.created_at >= ?
+       GROUP BY ap.user_id
+       ORDER BY views DESC
+       LIMIT 20`,
+    ).all<Record<string, unknown>>(),
+    bindSince(
+      `SELECT COALESCE(NULLIF(referrer_host, ''), 'direct') AS referrerHost, COUNT(*) AS views, COUNT(DISTINCT visitor_id) AS visitors
+       FROM analytics_pageviews
+       WHERE created_at >= ?
+       GROUP BY COALESCE(NULLIF(referrer_host, ''), 'direct')
+       ORDER BY views DESC
+       LIMIT 16`,
+    ).all<Record<string, unknown>>(),
+    bindSince(
+      `SELECT strftime('%Y-%m-%d %H:00', created_at, 'unixepoch') AS bucket, COUNT(*) AS views, COUNT(DISTINCT visitor_id) AS visitors
+       FROM analytics_pageviews
+       WHERE created_at >= ?
+       GROUP BY bucket
+       ORDER BY bucket ASC`,
+    ).all<Record<string, unknown>>(),
+    bindSince(
+      `SELECT ap.id, ap.path, ap.route_type AS routeType, ap.source, ap.medium, ap.country, ap.city, ap.colo,
+        ap.device_type AS deviceType, ap.browser, ap.os, ap.is_repeat AS isRepeat, ap.is_bot AS isBot,
+        ap.duration_ms AS durationMs, ap.created_at AS createdAt, ap.last_seen_at AS lastSeenAt,
+        u.username, u.display_name AS displayName
+       FROM analytics_pageviews ap
+       LEFT JOIN users u ON u.id = ap.user_id
+       WHERE ap.created_at >= ?
+       ORDER BY ap.created_at DESC
+       LIMIT 60`,
+    ).all<Record<string, unknown>>(),
+  ]);
+
+  const asNumber = (value: unknown) => Number(value ?? 0);
+  const rows = (result: D1Result<Record<string, unknown>>) => result.results ?? [];
+  return c.json({
+    days,
+    summary: {
+      pageviews: asNumber(summary?.pageviews),
+      visitors: asNumber(summary?.visitors),
+      userViews: asNumber(summary?.userViews),
+      anonymousViews: asNumber(summary?.anonymousViews),
+      repeatViews: asNumber(summary?.repeatViews),
+      botViews: asNumber(summary?.botViews),
+      avgDurationMs: Math.round(asNumber(summary?.avgDurationMs)),
+      lastSeenAt: summary?.lastSeenAt ? safeISO(asNumber(summary.lastSeenAt)) : null,
+    },
+    sources: rows(sourceRows).map((row) => ({ ...row, views: asNumber(row.views), visitors: asNumber(row.visitors), avgDurationMs: Math.round(asNumber(row.avgDurationMs)) })),
+    countries: rows(countryRows).map((row) => ({ ...row, views: asNumber(row.views), visitors: asNumber(row.visitors) })),
+    routes: rows(routeRows).map((row) => ({ ...row, views: asNumber(row.views), visitors: asNumber(row.visitors), avgDurationMs: Math.round(asNumber(row.avgDurationMs)) })),
+    devices: rows(deviceRows).map((row) => ({ ...row, views: asNumber(row.views), visitors: asNumber(row.visitors) })),
+    paths: rows(pathRows).map((row) => ({ ...row, views: asNumber(row.views), visitors: asNumber(row.visitors), userViews: asNumber(row.userViews), avgDurationMs: Math.round(asNumber(row.avgDurationMs)) })),
+    users: rows(userRows).map((row) => ({ ...row, views: asNumber(row.views), visitors: asNumber(row.visitors), avgDurationMs: Math.round(asNumber(row.avgDurationMs)), lastSeenAt: row.lastSeenAt ? safeISO(asNumber(row.lastSeenAt)) : null })),
+    referrers: rows(referrerRows).map((row) => ({ ...row, views: asNumber(row.views), visitors: asNumber(row.visitors) })),
+    timeline: rows(timelineRows).map((row) => ({ ...row, views: asNumber(row.views), visitors: asNumber(row.visitors) })),
+    recent: rows(recentRows).map((row) => ({
+      ...row,
+      isRepeat: Boolean(row.isRepeat),
+      isBot: Boolean(row.isBot),
+      durationMs: asNumber(row.durationMs),
+      createdAt: safeISO(asNumber(row.createdAt)),
+      lastSeenAt: safeISO(asNumber(row.lastSeenAt)),
+    })),
+  });
+});
+
 app.get("/marketing/template", async (c) => {
   const db = c.get("db");
   const { siteUrl } = await loadEmailSettings(db, c.req.url);

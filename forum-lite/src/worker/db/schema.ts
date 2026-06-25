@@ -323,6 +323,42 @@ export const marketingSends = sqliteTable(
   }),
 );
 
+export const analyticsPageviews = sqliteTable(
+  "analytics_pageviews",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    visitorId: text("visitor_id").notNull(),
+    userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
+    path: text("path").notNull(),
+    routeType: text("route_type").notNull(),
+    referrer: text("referrer"),
+    referrerHost: text("referrer_host"),
+    source: text("source").notNull().default("direct"),
+    medium: text("medium").notNull().default("none"),
+    campaign: text("campaign"),
+    country: text("country"),
+    city: text("city"),
+    colo: text("colo"),
+    timezone: text("timezone"),
+    deviceType: text("device_type").notNull().default("desktop"),
+    browser: text("browser").notNull().default("unknown"),
+    os: text("os").notNull().default("unknown"),
+    isRepeat: integer("is_repeat", { mode: "boolean" }).notNull().default(false),
+    isBot: integer("is_bot", { mode: "boolean" }).notNull().default(false),
+    durationMs: integer("duration_ms").notNull().default(0),
+    createdAt: integer("created_at").notNull(),
+    lastSeenAt: integer("last_seen_at").notNull(),
+  },
+  (t) => ({
+    createdAtIdx: index("analytics_pageviews_created_at_idx").on(t.createdAt),
+    visitorCreatedAtIdx: index("analytics_pageviews_visitor_created_at_idx").on(t.visitorId, t.createdAt),
+    pathCreatedAtIdx: index("analytics_pageviews_path_created_at_idx").on(t.path, t.createdAt),
+    userCreatedAtIdx: index("analytics_pageviews_user_created_at_idx").on(t.userId, t.createdAt),
+    sourceCreatedAtIdx: index("analytics_pageviews_source_created_at_idx").on(t.source, t.createdAt),
+    countryCreatedAtIdx: index("analytics_pageviews_country_created_at_idx").on(t.country, t.createdAt),
+  }),
+);
+
 export const usersRelations = relations(users, ({ many }) => ({
   threads: many(threads),
   posts: many(posts),
@@ -366,3 +402,4 @@ export type EmailSuppression = typeof emailSuppressions.$inferSelect;
 export type NotificationPreference = typeof notificationPreferences.$inferSelect;
 export type EmailEvent = typeof emailEvents.$inferSelect;
 export type MarketingSend = typeof marketingSends.$inferSelect;
+export type AnalyticsPageview = typeof analyticsPageviews.$inferSelect;

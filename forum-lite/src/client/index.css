@@ -931,6 +931,96 @@ textarea.gb-input {
   top: 0;
 }
 
+/* ── Admin analytics ─────────────────────────────────────── */
+.gb-analytics-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.gb-analytics-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 12px;
+  border: 1px solid var(--gb-bg2);
+  background: var(--gb-bg);
+}
+.gb-analytics-range {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.gb-analytics-metrics {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(120px, 1fr));
+  gap: 8px;
+}
+.gb-analytics-metric,
+.gb-analytics-panel {
+  min-width: 0;
+  border: 1px solid var(--gb-bg2);
+  background: var(--gb-bg);
+}
+.gb-analytics-metric {
+  padding: 10px 12px;
+}
+.gb-analytics-label,
+.gb-analytics-panel-title {
+  color: var(--gb-gray);
+  font-size: 10px;
+  letter-spacing: .08em;
+}
+.gb-analytics-value {
+  margin-top: 8px;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+.gb-analytics-sub {
+  margin-top: 4px;
+  color: var(--gb-gray);
+  font-size: 11px;
+}
+.gb-analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.gb-analytics-panel {
+  padding: 10px 12px 12px;
+  overflow: auto;
+}
+.gb-analytics-panel-title {
+  margin-bottom: 8px;
+}
+.gb-analytics-path {
+  position: relative;
+  min-width: 0;
+  padding: 2px 0;
+}
+.gb-analytics-path span,
+.gb-analytics-ellipsis {
+  position: relative;
+  z-index: 1;
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gb-analytics-path i {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 0;
+  display: block;
+  background: rgba(184, 187, 38, .13);
+}
+
 /* ── Search bar ──────────────────────────────────────────── */
 .gb-search {
   display: flex;
@@ -1353,6 +1443,19 @@ textarea.gb-input {
   }
   .gb-admin-marketing-tablewrap {
     max-height: min(420px, 58dvh);
+  }
+  .gb-analytics-head,
+  .gb-analytics-grid {
+    grid-template-columns: 1fr;
+  }
+  .gb-analytics-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .gb-analytics-range {
+    justify-content: flex-start;
+  }
+  .gb-analytics-panel {
+    padding: 8px;
   }
   .gb-preview-overlay {
     padding: 8px;

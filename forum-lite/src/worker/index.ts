@@ -19,6 +19,7 @@ import { legacyCanonicalRedirect } from "./lib/legacy-redirects";
 import { parseBounceEmail } from "./lib/bounce";
 import { recordEmailSuppression } from "./lib/email-suppression";
 import { unsubscribeByToken } from "./lib/notifications";
+import { createAnalyticsPageview, updateAnalyticsDuration } from "./lib/analytics";
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -53,6 +54,18 @@ app.route("/api/admin", adminRoutes);
 app.route("/api/attachments", attachmentRoutes);
 
 app.get("/api/healthz", (c) => c.json({ ok: true, ts: Date.now() }));
+
+app.post("/api/analytics/view", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const result = await createAnalyticsPageview(c, body && typeof body === "object" ? body as Record<string, unknown> : {});
+  return c.json(result);
+});
+
+app.post("/api/analytics/duration", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const result = await updateAnalyticsDuration(c, body && typeof body === "object" ? body as Record<string, unknown> : {});
+  return c.json(result);
+});
 
 function originFromRequest(url: string): string {
   const reqUrl = new URL(url);

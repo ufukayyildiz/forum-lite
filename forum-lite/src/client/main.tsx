@@ -32,6 +32,8 @@ import AdminAds from "./pages/admin/AdminAds";
 import AdminBounces from "./pages/admin/AdminBounces";
 import AdminNotifications from "./pages/admin/AdminNotifications";
 import AdminMarketing from "./pages/admin/AdminMarketing";
+import AdminAnalytics from "./pages/admin/AdminAnalytics";
+import { AnalyticsTracker } from "./components/AnalyticsTracker";
 
 primeQueryClientFromBootstrap(queryClient);
 
@@ -40,6 +42,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <HelmetProvider>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
+        <AnalyticsTracker />
         <Routes>
           <Route path="/" element={<Layout><HomePage /></Layout>} />
           <Route path="/c/:id" element={<Layout><CategoryPage /></Layout>} />
@@ -58,6 +61,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <Route path="categories" element={<AdminCategories />} />
             <Route path="tags" element={<AdminTags />} />
             <Route path="ads" element={<AdminAds />} />
+            <Route path="analytics" element={<AdminAnalytics />} />
             <Route path="notifications" element={<AdminNotifications />} />
             <Route path="marketing" element={<AdminMarketing />} />
             <Route path="bounces" element={<AdminBounces />} />
