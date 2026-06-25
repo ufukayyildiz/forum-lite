@@ -533,7 +533,12 @@ app.get("/marketing/users", async (c) => {
   const q = (c.req.query("q") ?? "").trim().toLowerCase();
   const campaign = c.req.query("campaign") || WE_ARE_BACK_CAMPAIGN;
   const like = `%${q}%`;
-  const statusOrder = "CASE WHEN es.email IS NOT NULL OR u.email_suppressed_at IS NOT NULL THEN 2 WHEN np.all_email = 0 OR np.marketing_email = 0 THEN 1 ELSE 0 END";
+  const marketingOrder = `CASE
+    WHEN COALESCE(ms.sendCount, 0) > 0 THEN 2
+    WHEN es.email IS NOT NULL OR u.email_suppressed_at IS NOT NULL THEN 1
+    WHEN np.all_email = 0 OR np.marketing_email = 0 THEN 1
+    ELSE 0
+  END`;
   const query = q
     ? `SELECT u.id, u.username, u.display_name AS displayName, u.email, u.email_suppressed_at AS emailSuppressedAt,
         np.all_email AS allEmail, np.marketing_email AS marketingEmail,
@@ -550,7 +555,7 @@ app.get("/marketing/users", async (c) => {
         GROUP BY user_id
        ) ms ON ms.user_id = u.id
        WHERE u.banned = 0 AND (LOWER(u.username) LIKE ? OR LOWER(u.display_name) LIKE ? OR LOWER(u.email) LIKE ?)
-       ORDER BY ${statusOrder} ASC, u.username COLLATE NOCASE ASC`
+       ORDER BY ${marketingOrder} ASC, COALESCE(ms.lastSentAt, 0) DESC, u.username COLLATE NOCASE ASC`
     : `SELECT u.id, u.username, u.display_name AS displayName, u.email, u.email_suppressed_at AS emailSuppressedAt,
         np.all_email AS allEmail, np.marketing_email AS marketingEmail,
         es.email AS suppressedEmail, es.reason AS suppressionReason, es.updated_at AS suppressionUpdatedAt,
@@ -566,7 +571,7 @@ app.get("/marketing/users", async (c) => {
         GROUP BY user_id
        ) ms ON ms.user_id = u.id
        WHERE u.banned = 0
-       ORDER BY ${statusOrder} ASC, u.created_at DESC`;
+       ORDER BY ${marketingOrder} ASC, COALESCE(ms.lastSentAt, 0) DESC, u.created_at DESC`;
   const stmt = c.env.DB.prepare(query).bind(...(q ? [campaign, like, like, like] : [campaign]));
   const rows = await stmt.all<{
     id: number;

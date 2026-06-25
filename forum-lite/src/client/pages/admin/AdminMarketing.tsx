@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api } from "../../lib/api";
@@ -43,6 +43,10 @@ function marketingStatusColor(status?: string) {
   if (status === "subscribed") return "var(--gb-green)";
   if (status === "unsubscribed") return "var(--gb-yellow)";
   return "var(--gb-red)";
+}
+
+function userSortName(user: MarketingUser) {
+  return (user.displayName || user.username || user.email || "").toLocaleLowerCase();
 }
 
 const MarketingUserRow = memo(function MarketingUserRow({
@@ -121,39 +125,64 @@ export default function AdminMarketing() {
     () => users.data?.users.find((u: any) => u.id === selectedId),
     [users.data?.users, selectedId],
   );
-  const audience = users.data?.users ?? [];
+  const audience = useMemo(() => (users.data?.users ?? []) as MarketingUser[], [users.data?.users]);
   const canSelectForBulk = useCallback(
     (user: MarketingUser) => user.canReceiveMarketing && (!duplicateBlockEnabled || !user.sendCount),
     [duplicateBlockEnabled],
   );
+  const marketingUsers = useMemo(() => {
+    const group = (user: MarketingUser) => {
+      if (canSelectForBulk(user)) return 0;
+      if (user.sendCount || user.lastSentAt) return 2;
+      return 1;
+    };
+    return [...audience].sort((a, b) => {
+      const byGroup = group(a) - group(b);
+      if (byGroup) return byGroup;
+      if (a.lastSentAt && b.lastSentAt) return new Date(b.lastSentAt).getTime() - new Date(a.lastSentAt).getTime();
+      return userSortName(a).localeCompare(userSortName(b));
+    });
+  }, [audience, canSelectForBulk]);
+  const selectableIds = useMemo(
+    () => new Set(marketingUsers.filter(canSelectForBulk).map((user) => user.id)),
+    [marketingUsers, canSelectForBulk],
+  );
+  const activeCheckedIds = useMemo(
+    () => checkedIds.filter((id) => selectableIds.has(id)),
+    [checkedIds, selectableIds],
+  );
+  useEffect(() => {
+    if (activeCheckedIds.length !== checkedIds.length) setCheckedIds(activeCheckedIds);
+  }, [activeCheckedIds, checkedIds]);
   const audienceCounts = useMemo(() => ({
     subscribed: users.data?.summary?.subscribed ?? audience.filter((u: any) => u.marketingStatus === "subscribed").length,
     unsubscribed: users.data?.summary?.unsubscribed ?? audience.filter((u: any) => u.marketingStatus === "unsubscribed").length,
     suppressed: users.data?.summary?.suppressed ?? audience.filter((u: any) => u.marketingStatus === "suppressed").length,
   }), [audience, users.data?.summary]);
-  const checkedUsers = useMemo(
-    () => checkedIds
-      .map((id) => audience.find((u: MarketingUser) => u.id === id))
-      .filter(Boolean) as MarketingUser[],
-    [audience, checkedIds],
+  const audienceById = useMemo(
+    () => new Map(audience.map((user) => [user.id, user])),
+    [audience],
   );
-  const checkedSet = useMemo(() => new Set(checkedIds), [checkedIds]);
+  const checkedUsers = useMemo(
+    () => activeCheckedIds
+      .map((id) => audienceById.get(id))
+      .filter(Boolean) as MarketingUser[],
+    [activeCheckedIds, audienceById],
+  );
+  const checkedSet = useMemo(() => new Set(activeCheckedIds), [activeCheckedIds]);
   const eligibleAudience = useMemo(
-    () => audience.filter(canSelectForBulk),
-    [audience, canSelectForBulk],
+    () => marketingUsers.filter(canSelectForBulk),
+    [marketingUsers, canSelectForBulk],
   );
   const recipientUsers = useMemo(() => {
-    const group = (user: MarketingUser) => {
-      if (!user.canReceiveMarketing) return 2;
-      if (user.sendCount || user.lastSentAt) return 1;
-      return 0;
-    };
+    const group = (user: MarketingUser) => canSelectForBulk(user) ? 0 : (user.sendCount || user.lastSentAt) ? 2 : 1;
     return [...audience].sort((a: MarketingUser, b: MarketingUser) => {
       const byGroup = group(a) - group(b);
       if (byGroup) return byGroup;
-      return (a.displayName || a.username).localeCompare(b.displayName || b.username);
+      if (a.lastSentAt && b.lastSentAt) return new Date(b.lastSentAt).getTime() - new Date(a.lastSentAt).getTime();
+      return userSortName(a).localeCompare(userSortName(b));
     });
-  }, [audience]);
+  }, [audience, canSelectForBulk]);
   const recipientOptions: GbSelectOption[] = useMemo(() => recipientUsers.map((u: MarketingUser) => ({
     value: u.id,
     label: `@${u.username} - ${u.email} - ${u.marketingStatus}${u.sendCount ? ` - sent ${u.sendCount}x` : ""}`,
@@ -205,7 +234,7 @@ export default function AdminMarketing() {
   });
 
   function sendChecked() {
-    if (!checkedIds.length || send.isPending) return;
+    if (!activeCheckedIds.length || send.isPending) return;
     const recipients = checkedUsers;
     if (recipients.length > 2) {
       setBulkLog({
@@ -215,26 +244,27 @@ export default function AdminMarketing() {
         results: recipients.map((user) => ({ userId: user.id, username: user.username, email: user.email, status: "sending" })),
       });
     }
-    send.mutate({ userIds: checkedIds });
+    send.mutate({ userIds: activeCheckedIds });
   }
 
   const toggleChecked = useCallback((user: MarketingUser) => {
     if (!canSelectForBulk(user)) return;
     setCheckedIds((current) => {
-      if (current.includes(user.id)) return current.filter((id) => id !== user.id);
-      if (current.length >= MAX_BULK_RECIPIENTS) {
+      const currentActive = current.filter((id) => selectableIds.has(id));
+      if (currentActive.includes(user.id)) return currentActive.filter((id) => id !== user.id);
+      if (currentActive.length >= MAX_BULK_RECIPIENTS) {
         toast.error(`Max ${MAX_BULK_RECIPIENTS} users`);
-        return current;
+        return currentActive;
       }
-      return [...current, user.id];
+      return [...currentActive, user.id];
     });
-  }, [canSelectForBulk]);
+  }, [canSelectForBulk, selectableIds]);
 
   function toggleFirstVisible() {
     setCheckedIds((current) => {
-      if (current.length) return [];
+      if (activeCheckedIds.length) return [];
       const visibleIds = eligibleAudience.map((u: MarketingUser) => u.id);
-      const next = [...current];
+      const next: number[] = [];
       for (const id of visibleIds) {
         if (next.length >= MAX_BULK_RECIPIENTS) break;
         if (!next.includes(id)) next.push(id);
@@ -275,10 +305,10 @@ export default function AdminMarketing() {
             <button className="gb-btn" disabled={send.isPending} onClick={() => send.mutate({ test: true })}>$ send test to me</button>
             <button
               className="gb-btn gb-btn-primary"
-              disabled={!checkedIds.length || send.isPending}
+              disabled={!activeCheckedIds.length || send.isPending}
               onClick={sendChecked}
             >
-              $ send checked ({checkedIds.length})
+              $ send checked ({activeCheckedIds.length})
             </button>
             <button
               className="gb-btn gb-btn-primary"
@@ -343,8 +373,8 @@ export default function AdminMarketing() {
             <span style={{ color: "var(--gb-green)", marginLeft: 10 }}>{audienceCounts.subscribed} subscribed total</span>
             <span style={{ color: "var(--gb-yellow)", marginLeft: 10 }}>{audienceCounts.unsubscribed} unsubscribed total</span>
             <span style={{ color: "var(--gb-red)", marginLeft: 10 }}>{audienceCounts.suppressed} suppressed total</span>
-            <span style={{ color: checkedIds.length ? "var(--gb-yellow)" : "var(--gb-gray)", marginLeft: 10 }}>
-              {checkedIds.length}/{MAX_BULK_RECIPIENTS} checked
+            <span style={{ color: activeCheckedIds.length ? "var(--gb-yellow)" : "var(--gb-gray)", marginLeft: 10 }}>
+              {activeCheckedIds.length}/{MAX_BULK_RECIPIENTS} checked
             </span>
         </div>
         {checkedUsers.length > 0 && (
@@ -369,7 +399,7 @@ export default function AdminMarketing() {
               </tr>
             </thead>
             <tbody>
-              {audience.map((u: MarketingUser, i: number) => (
+              {marketingUsers.map((u: MarketingUser, i: number) => (
                 <MarketingUserRow
                   key={u.id}
                   user={u}
