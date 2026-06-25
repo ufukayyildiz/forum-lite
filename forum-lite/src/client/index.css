@@ -861,10 +861,11 @@ textarea.gb-input {
 .gb-admin-marketing-tablewrap {
   max-height: min(420px, 44dvh);
   overflow: auto;
+  overscroll-behavior: contain;
   border-top: 1px solid var(--gb-bg2);
 }
 .gb-admin-marketing-logwrap {
-  max-height: min(300px, 34dvh);
+  max-height: min(220px, 28dvh);
 }
 .gb-preview-overlay {
   position: fixed;

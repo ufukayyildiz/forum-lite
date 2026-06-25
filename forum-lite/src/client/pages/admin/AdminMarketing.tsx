@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api } from "../../lib/api";
@@ -37,6 +37,56 @@ type MarketingUser = {
   sendCount: number;
   lastSentAt?: string | null;
 };
+
+function marketingStatusColor(status?: string) {
+  if (status === "subscribed") return "var(--gb-green)";
+  if (status === "unsubscribed") return "var(--gb-yellow)";
+  return "var(--gb-red)";
+}
+
+const MarketingUserRow = memo(function MarketingUserRow({
+  user,
+  index,
+  checked,
+  disabled,
+  onToggle,
+}: {
+  user: MarketingUser;
+  index: number;
+  checked: boolean;
+  disabled: boolean;
+  onToggle: (user: MarketingUser) => void;
+}) {
+  return (
+    <tr>
+      <td style={{ textAlign: "center" }}>
+        <label className={`gb-check${disabled ? " is-disabled" : ""}`}>
+          <input
+            type="checkbox"
+            checked={checked}
+            disabled={disabled}
+            onChange={() => onToggle(user)}
+            aria-label={`Select ${user.displayName || user.username}`}
+          />
+          <span />
+        </label>
+      </td>
+      <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>{index + 1}</td>
+      <td>
+        <div style={{ color: "var(--gb-fg)", fontSize: 12 }}>{user.displayName}</div>
+        <div style={{ color: "var(--gb-gray)", fontSize: 11 }}>@{user.username}</div>
+      </td>
+      <td style={{ color: user.canReceiveMarketing ? "var(--gb-gray)" : "var(--gb-red)", fontSize: 11 }}>{user.email}</td>
+      <td>
+        <div style={{ color: marketingStatusColor(user.marketingStatus), fontSize: 12 }}>{user.marketingStatus}</div>
+        {user.suppressionReason && <div style={{ color: "var(--gb-gray)", fontSize: 10 }}>{user.suppressionReason}</div>}
+      </td>
+      <td className="gb-col-modified" style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 12, fontSize: 11 }}>
+        {user.sendCount ? `${user.sendCount}x${user.lastSentAt ? ` ${relativeTime(user.lastSentAt)}` : ""}` : "-"}
+      </td>
+    </tr>
+  );
+});
 
 export default function AdminMarketing() {
   const qc = useQueryClient();
@@ -80,6 +130,7 @@ export default function AdminMarketing() {
       .filter(Boolean) as MarketingUser[],
     [audience, checkedIds],
   );
+  const checkedSet = useMemo(() => new Set(checkedIds), [checkedIds]);
   const eligibleAudience = useMemo(
     () => audience.filter((u: MarketingUser) => u.canReceiveMarketing),
     [audience],
@@ -148,7 +199,7 @@ export default function AdminMarketing() {
     send.mutate({ userIds: checkedIds });
   }
 
-  function toggleChecked(user: MarketingUser) {
+  const toggleChecked = useCallback((user: MarketingUser) => {
     if (!user.canReceiveMarketing) return;
     setCheckedIds((current) => {
       if (current.includes(user.id)) return current.filter((id) => id !== user.id);
@@ -158,13 +209,12 @@ export default function AdminMarketing() {
       }
       return [...current, user.id];
     });
-  }
+  }, []);
 
   function toggleFirstVisible() {
     setCheckedIds((current) => {
+      if (current.length) return [];
       const visibleIds = eligibleAudience.map((u: MarketingUser) => u.id);
-      const allVisibleSelected = visibleIds.length > 0 && visibleIds.slice(0, MAX_BULK_RECIPIENTS).every((id) => current.includes(id));
-      if (allVisibleSelected) return current.filter((id) => !visibleIds.includes(id));
       const next = [...current];
       for (const id of visibleIds) {
         if (next.length >= MAX_BULK_RECIPIENTS) break;
@@ -181,11 +231,6 @@ export default function AdminMarketing() {
       {count ? `${count}x ${at ? relativeTime(at) : ""}` : "-"}
     </span>
   );
-  const statusColor = (status?: string) => {
-    if (status === "subscribed") return "var(--gb-green)";
-    if (status === "unsubscribed") return "var(--gb-yellow)";
-    return "var(--gb-red)";
-  };
 
   return (
     <div className="gb-admin-marketing-page">
@@ -247,7 +292,7 @@ export default function AdminMarketing() {
               <div style={{ color: "var(--gb-fg)" }}>{selectedUser.displayName} <span style={{ color: "var(--gb-gray)" }}>@{selectedUser.username}</span></div>
               <div style={{ color: selectedUser.emailSuppressedAt ? "var(--gb-red)" : "var(--gb-gray)", overflow: "hidden", textOverflow: "ellipsis" }}>{selectedUser.email}</div>
             </div>
-            <div style={{ color: statusColor(selectedUser.marketingStatus), whiteSpace: "nowrap" }}>{selectedUser.marketingStatus}</div>
+            <div style={{ color: marketingStatusColor(selectedUser.marketingStatus), whiteSpace: "nowrap" }}>{selectedUser.marketingStatus}</div>
             {selectedUser.lastSentAt && (
               <div style={{ color: "var(--gb-yellow)", marginTop: 5 }}>
                 previously sent {relativeTime(selectedUser.lastSentAt)}; sending again is allowed
@@ -285,7 +330,7 @@ export default function AdminMarketing() {
               <tr>
                 <th style={{ width: 34, textAlign: "center" }}>
                   <button className="gb-check-all" type="button" onClick={toggleFirstVisible} title={`select up to ${MAX_BULK_RECIPIENTS}`}>
-                    ✓
+                    {checkedIds.length ? "−" : "✓"}
                   </button>
                 </th>
                 <th style={{ textAlign: "right", paddingRight: 16 }}>#</th>
@@ -296,38 +341,16 @@ export default function AdminMarketing() {
               </tr>
             </thead>
             <tbody>
-              {audience.map((u: MarketingUser, i: number) => {
-                const checked = checkedIds.includes(u.id);
-                const disabled = !u.canReceiveMarketing || (!checked && checkedIds.length >= MAX_BULK_RECIPIENTS);
-                return (
-                <tr key={u.id}>
-                  <td style={{ textAlign: "center" }}>
-                    <label className={`gb-check${disabled ? " is-disabled" : ""}`}>
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        disabled={disabled}
-                        onChange={() => toggleChecked(u)}
-                      />
-                      <span />
-                    </label>
-                  </td>
-                  <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>{i + 1}</td>
-                  <td>
-                    <div style={{ color: "var(--gb-fg)", fontSize: 12 }}>{u.displayName}</div>
-                    <div style={{ color: "var(--gb-gray)", fontSize: 11 }}>@{u.username}</div>
-                  </td>
-                  <td style={{ color: u.canReceiveMarketing ? "var(--gb-gray)" : "var(--gb-red)", fontSize: 11 }}>{u.email}</td>
-                  <td>
-                    <div style={{ color: statusColor(u.marketingStatus), fontSize: 12 }}>{u.marketingStatus}</div>
-                    {u.suppressionReason && <div style={{ color: "var(--gb-gray)", fontSize: 10 }}>{u.suppressionReason}</div>}
-                  </td>
-                  <td className="gb-col-modified" style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 12, fontSize: 11 }}>
-                    {u.sendCount ? `${u.sendCount}x${u.lastSentAt ? ` ${relativeTime(u.lastSentAt)}` : ""}` : "-"}
-                  </td>
-                </tr>
-                );
-              })}
+              {audience.map((u: MarketingUser, i: number) => (
+                <MarketingUserRow
+                  key={u.id}
+                  user={u}
+                  index={i}
+                  checked={checkedSet.has(u.id)}
+                  disabled={!u.canReceiveMarketing}
+                  onToggle={toggleChecked}
+                />
+              ))}
               {!users.isLoading && !audience.length && (
                 <tr><td style={{ color: "var(--gb-gray)", textAlign: "center" }}>~</td><td colSpan={5} style={{ color: "var(--gb-gray)" }}>no users found</td></tr>
               )}
