@@ -4,7 +4,7 @@
 
 forum-lite is a compact open-source forum engine that runs as a single Cloudflare Worker: React frontend, Hono API, D1 database, optional R2 uploads, optional Cloudflare Email, admin tools, ads, sitemaps and structured data included.
 
-![forum-lite Open Graph preview](forum-lite/public/og-default.webp)
+![forum-lite Open Graph preview](forum-lite/public/og-default.png)
 
 [![MIT License](https://img.shields.io/badge/license-MIT-green.svg)](#license)
 [![Cloudflare Workers](https://img.shields.io/badge/runtime-Cloudflare%20Workers-f38020)](https://workers.cloudflare.com/)
