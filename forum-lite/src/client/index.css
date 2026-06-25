@@ -183,23 +183,35 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
   overflow: auto;
   color: var(--gb-fg);
 }
-#seo-content h1 {
+.seo-content__header {
+  margin-bottom: 14px;
+}
+.seo-content__header h1 {
   color: var(--gb-yellow);
   font-size: 18px;
   line-height: 1.25;
   margin-bottom: 10px;
 }
-#seo-content p {
+.seo-content__header p,
+.seo-content__item p {
   max-width: 900px;
   color: var(--gb-fg4);
   margin-bottom: 12px;
 }
-#seo-content ol {
+.seo-content__list ol {
   margin-left: 24px;
   padding-bottom: 24px;
 }
-#seo-content li {
+.seo-content__row {
   margin: 6px 0;
+}
+.seo-content__item h2 {
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 600;
+}
+.seo-content__item p {
+  margin: 3px 0 10px;
 }
 
 /* ── Toolbar (breadcrumb + actions) ─────────────────────── */

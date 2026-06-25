@@ -18,6 +18,12 @@ type SeoPayload = {
   contentHtml?: string;
 };
 
+type SeoContentRow = {
+  title: string;
+  path: string;
+  text?: string;
+};
+
 type BootstrapQuery = {
   key: unknown[];
   data: unknown;
@@ -592,20 +598,43 @@ function itemListSchema(base: string, items: Array<{ name: string; path: string 
   };
 }
 
-function seoBlock(title: string, body: string, rows: Array<{ title: string; path: string; text?: string }> = []): string {
+function seoBlock(title: string, body: string, rows: SeoContentRow[] = []): string {
+  const descriptionAttr = body ? ' aria-describedby="seo-content-description"' : "";
   const items = rows
-    .map((row) => {
-      const text = row.text ? `<p>${escapeHtml(row.text)}</p>` : "";
-      return `<li><a href="${escapeHtml(row.path)}">${escapeHtml(row.title)}</a>${text}</li>`;
+    .map((row, index) => {
+      const text = row.text ? `          <p>${escapeHtml(row.text)}</p>` : "";
+      return [
+        `      <li class="seo-content__row" value="${index + 1}">`,
+        "        <article class=\"seo-content__item\">",
+        `          <h2><a href="${escapeHtml(row.path)}">${escapeHtml(row.title)}</a></h2>`,
+        text,
+        "        </article>",
+        "      </li>",
+      ]
+        .filter(Boolean)
+        .join("\n");
     })
-    .join("");
+    .join("\n");
+
   return [
-    '<main id="seo-content" data-server-rendered="seo">',
-    `<h1>${escapeHtml(title)}</h1>`,
-    body ? `<p>${escapeHtml(body)}</p>` : "",
-    items ? `<ol>${items}</ol>` : "",
+    `<main id="seo-content" class="seo-content" data-server-rendered="seo" data-count="${rows.length}" aria-labelledby="seo-content-title"${descriptionAttr}>`,
+    '  <header class="seo-content__header">',
+    `    <h1 id="seo-content-title">${escapeHtml(title)}</h1>`,
+    body ? `    <p id="seo-content-description">${escapeHtml(body)}</p>` : "",
+    "  </header>",
+    items
+      ? [
+          '  <section class="seo-content__list" aria-label="Server-rendered forum content">',
+          "    <ol>",
+          items,
+          "    </ol>",
+          "  </section>",
+        ].join("\n")
+      : "",
     "</main>",
-  ].join("");
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function noindexPayload(pathname: string): SeoPayload {
@@ -1289,12 +1318,15 @@ function staticShellHtml(contentHtml: string, pathname: string, categories: ApiC
 function injectHtml(indexHtml: string, payload: SeoPayload, base: string, url: URL, bootstrap: BootstrapBuild): string {
   const withCleanHead = stripFallbackHead(indexHtml);
   const seoMeta = metaHtml(payload, base);
-  const bootstrapScript = `<script>window.__FSTDESK_BOOTSTRAP__=${escapeJsonScript(bootstrap.payload)};</script>`;
+  const bootstrapScript = `<script id="__FSTDESK_BOOTSTRAP__" type="application/json">${escapeJsonScript(bootstrap.payload)}</script>`;
   const withMeta = /<meta\s+name="theme-color"[^>]*>\s*/i.test(withCleanHead)
-    ? withCleanHead.replace(/(<meta\s+name="theme-color"[^>]*>\s*)/i, `$1\n    ${seoMeta}\n    ${bootstrapScript}\n`)
-    : withCleanHead.replace("<head>", `<head>\n    ${seoMeta}\n    ${bootstrapScript}`);
+    ? withCleanHead.replace(/(<meta\s+name="theme-color"[^>]*>\s*)/i, `$1\n    ${seoMeta}\n`)
+    : withCleanHead.replace("<head>", `<head>\n    ${seoMeta}`);
   const content = payload.contentHtml ?? seoBlock(SITE_NAME, payload.description);
-  return withMeta.replace(/<div id="root"><\/div>/, `<div id="root">${staticShellHtml(content, url.pathname, bootstrap.categories)}</div>`);
+  return withMeta.replace(
+    /<div id="root"><\/div>/,
+    `<div id="root">${staticShellHtml(content, url.pathname, bootstrap.categories)}</div>\n    ${bootstrapScript}`,
+  );
 }
 
 export async function renderSeoHtml(c: AppContext): Promise<Response> {
