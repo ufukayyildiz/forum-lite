@@ -309,6 +309,13 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
   contain: layout paint;
 }
 
+.gb-ad-frame {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  width: 100%;
+}
+
 .gb-ad-frame,
 .gb-ad-frame > *,
 .gb-ad-slot > div:last-child,
@@ -317,7 +324,7 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
 .gb-ad-slot iframe {
   max-width: 100% !important;
   height: var(--gb-ad-height) !important;
-  min-height: var(--gb-ad-height) !important;
+  min-height: 0 !important;
   max-height: var(--gb-ad-height) !important;
   overflow: hidden !important;
 }
@@ -327,6 +334,96 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
 .gb-ad-slot iframe {
   width: 100% !important;
   height: var(--gb-ad-height) !important;
+}
+
+.gb-house-ad {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  height: 100%;
+  max-height: var(--gb-ad-height);
+  padding: 14px 18px;
+  border: 1px solid var(--gb-bg2);
+  background:
+    linear-gradient(135deg, rgba(184, 187, 38, .12), rgba(142, 192, 124, .04)),
+    var(--gb-bg);
+  color: var(--gb-fg);
+  text-decoration: none;
+}
+.gb-house-ad:hover {
+  border-color: var(--gb-green);
+  color: var(--gb-fg);
+  text-decoration: none;
+}
+.gb-house-ad-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.gb-house-ad-brand {
+  color: var(--gb-green);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+.gb-house-ad strong {
+  overflow: hidden;
+  color: var(--gb-yellow);
+  font-size: 20px;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gb-house-ad-main span:last-child {
+  overflow: hidden;
+  color: var(--gb-fg4);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gb-house-ad-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 104px;
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--gb-green);
+  background: var(--gb-green);
+  color: var(--gb-bg);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.gb-house-ad-aqua .gb-house-ad-brand { color: var(--gb-aqua); }
+.gb-house-ad-aqua .gb-house-ad-cta { border-color: var(--gb-aqua); background: var(--gb-aqua); }
+.gb-house-ad-yellow .gb-house-ad-brand { color: var(--gb-yellow); }
+.gb-house-ad-yellow .gb-house-ad-cta { border-color: var(--gb-yellow); background: var(--gb-yellow); }
+
+@media (max-width: 640px) {
+  .gb-ad-slot {
+    padding: 0 8px;
+  }
+  .gb-house-ad {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    padding: 10px 12px;
+  }
+  .gb-house-ad strong {
+    font-size: 16px;
+  }
+  .gb-house-ad-main span:last-child {
+    display: -webkit-box;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+  .gb-house-ad-cta {
+    justify-self: start;
+    min-width: 0;
+    height: 28px;
+  }
 }
 
 .gb-post-content blockquote {
