@@ -249,6 +249,25 @@ app.get("/og/thread/:id", (c) => {
   return serveThreadWebp(c, id);
 });
 
+const LEGACY_CONTENT_SECTIONS = new Set(["articles", "categories", "about"]);
+
+function isLegacyContentPath(pathname: string): boolean {
+  const parts = pathname.split("/").filter(Boolean);
+  if (!parts.length) return false;
+  const [first, second] = parts;
+  if (/^[a-z]{2}$/.test(first)) {
+    return parts.length === 1 || LEGACY_CONTENT_SECTIONS.has(second ?? "");
+  }
+  return LEGACY_CONTENT_SECTIONS.has(first);
+}
+
+app.on(["GET", "HEAD"], "*", (c, next) => {
+  const url = new URL(c.req.url);
+  if (!isLegacyContentPath(url.pathname)) return next();
+  const target = new URL("/", url.origin);
+  return c.redirect(target.toString(), 301);
+});
+
 app.all("*", (c) => renderSeoHtml(c));
 
 export default app;
