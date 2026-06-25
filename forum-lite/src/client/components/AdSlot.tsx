@@ -7,7 +7,7 @@ declare global {
   }
 }
 
-const FALLBACK_DELAY_MS = 2000;
+const FALLBACK_DELAY_MS = 3000;
 const VIEWABLE_THRESHOLD = 1;
 const VIEWPORT_TOLERANCE_PX = 1;
 const RESERVED_AD_HEIGHT = 160;
@@ -77,9 +77,11 @@ export function AdSlot({ config, index }: { config?: AdsConfig; index: number })
     const slot = mount.closest<HTMLElement>(".gb-ad-slot");
     let fallbackApplied = false;
     let adRequested = false;
+    let visibleWindowStartedAt = 0;
     let mutationObserver: MutationObserver | null = null;
     let viewObserver: IntersectionObserver | null = null;
     let resizeObserver: ResizeObserver | null = null;
+    let fallbackTimer: number | null = null;
     const timers: number[] = [];
 
     const setCss = (el: HTMLElement, prop: string, value: string, priority = "") => {
@@ -160,7 +162,7 @@ export function AdSlot({ config, index }: { config?: AdsConfig; index: number })
       }
     };
 
-    const applyFallback = (reason: string) => {
+    const commitFallback = (reason: string) => {
       if (fallbackApplied || adsenseState() === "filled") return;
       fallbackApplied = true;
       mutationObserver?.disconnect();
@@ -173,9 +175,41 @@ export function AdSlot({ config, index }: { config?: AdsConfig; index: number })
       normalizeAdMarkup();
     };
 
+    const scheduleFallback = (reason: string) => {
+      if (fallbackApplied || adsenseState() === "filled" || !slotFullyVisible()) return;
+      if (!visibleWindowStartedAt) visibleWindowStartedAt = Date.now();
+      if (fallbackTimer !== null) return;
+      const remainingMs = Math.max(FALLBACK_DELAY_MS - (Date.now() - visibleWindowStartedAt), 0);
+      fallbackTimer = window.setTimeout(() => {
+        fallbackTimer = null;
+        if (!slotFullyVisible()) {
+          visibleWindowStartedAt = 0;
+          waitUntilFullyVisible(() => scheduleFallback(reason));
+          return;
+        }
+        const state = adsenseState();
+        if (state === "filled") {
+          adaptToCreative();
+        } else {
+          commitFallback(state === "pending" ? reason : state);
+        }
+      }, remainingMs);
+      timers.push(fallbackTimer);
+    };
+
+    const waitUntilFullyVisible = (onVisible: () => void) => {
+      if (!slotFullyVisible()) {
+        timers.push(window.setTimeout(() => waitUntilFullyVisible(onVisible), 250));
+        return;
+      }
+      if (!visibleWindowStartedAt) visibleWindowStartedAt = Date.now();
+      onVisible();
+    };
+
     const requestAdsense = () => {
-      if (adRequested || fallbackApplied) return;
+      if (adRequested || fallbackApplied || !slotFullyVisible()) return;
       adRequested = true;
+      if (!visibleWindowStartedAt) visibleWindowStartedAt = Date.now();
       slot?.setAttribute("data-ad-state", "loading");
       mount.setAttribute("data-ad-requested", "true");
       normalizeAdMarkup();
@@ -192,14 +226,7 @@ export function AdSlot({ config, index }: { config?: AdsConfig; index: number })
         });
       }
 
-      timers.push(window.setTimeout(() => {
-        const state = adsenseState();
-        if (state === "filled") {
-          adaptToCreative();
-        } else {
-          applyFallback(state);
-        }
-      }, FALLBACK_DELAY_MS));
+      scheduleFallback("pending");
     };
 
     setSlotHeight();
@@ -208,8 +235,9 @@ export function AdSlot({ config, index }: { config?: AdsConfig; index: number })
     mount.removeAttribute("data-ad-requested");
 
     if (!html) {
-      applyFallback("missing-code");
+      waitUntilFullyVisible(() => scheduleFallback("missing-code"));
       return () => {
+        for (const timer of timers) window.clearTimeout(timer);
         mount.innerHTML = "";
         slot?.removeAttribute("data-ad-state");
       };
@@ -220,7 +248,7 @@ export function AdSlot({ config, index }: { config?: AdsConfig; index: number })
 
     mutationObserver = new MutationObserver(() => {
       adaptToCreative();
-      if (adsenseState() === "unfilled") applyFallback("unfilled");
+      if (adsenseState() === "unfilled") scheduleFallback("unfilled");
     });
     mutationObserver.observe(mount, { attributeFilter: ["data-ad-status"], attributes: true, childList: true, subtree: true });
 
@@ -260,9 +288,7 @@ export function AdSlot({ config, index }: { config?: AdsConfig; index: number })
     }
 
     if (!mount.querySelector(".adsbygoogle")) {
-      timers.push(window.setTimeout(() => {
-        if (adsenseState() !== "filled") applyFallback(adsenseState());
-      }, FALLBACK_DELAY_MS));
+      waitUntilFullyVisible(() => scheduleFallback("missing-adsense"));
     } else if ("IntersectionObserver" in window && slot) {
       viewObserver = new IntersectionObserver(
         (entries) => {
@@ -276,14 +302,7 @@ export function AdSlot({ config, index }: { config?: AdsConfig; index: number })
       );
       viewObserver.observe(slot);
     } else {
-      const waitUntilFullyVisible = () => {
-        if (!slotFullyVisible()) {
-          timers.push(window.setTimeout(waitUntilFullyVisible, 250));
-          return;
-        }
-        requestAdsense();
-      };
-      timers.push(window.setTimeout(waitUntilFullyVisible, 250));
+      waitUntilFullyVisible(requestAdsense);
     }
 
     timers.push(window.setTimeout(() => {
