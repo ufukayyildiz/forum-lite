@@ -13,7 +13,7 @@ type NotificationKind = "reply" | "like" | "marketing" | "account";
 type ManagedEmailInput = {
   db: DB;
   env: Bindings;
-  user: Pick<User, "id" | "email" | "username" | "displayName" | "banned">;
+  user: Pick<User, "id" | "email" | "username" | "displayName" | "banned" | "emailSuppressedAt">;
   kind: NotificationKind;
   subject: string;
   text: string;
@@ -189,6 +189,11 @@ export async function sendManagedEmail(input: ManagedEmailInput): Promise<{ stat
   if (input.user.banned) {
     const eventId = await logEmailEvent(input.db, { ...input, userId: input.user.id, email, status: "skipped", message: "User is banned" });
     return { status: "skipped", eventId };
+  }
+
+  if (input.user.emailSuppressedAt) {
+    const eventId = await logEmailEvent(input.db, { ...input, userId: input.user.id, email, status: "suppressed", message: "User email is suppressed" });
+    return { status: "suppressed", eventId };
   }
 
   const pref = await ensureNotificationPreferences(input.db, input.user.id);

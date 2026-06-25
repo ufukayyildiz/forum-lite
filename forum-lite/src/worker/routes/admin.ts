@@ -217,26 +217,56 @@ app.get("/marketing/users", async (c) => {
   const like = `%${q}%`;
   const query = q
     ? `SELECT u.id, u.username, u.display_name AS displayName, u.email, u.email_suppressed_at AS emailSuppressedAt,
+        np.all_email AS allEmail, np.marketing_email AS marketingEmail,
+        es.email AS suppressedEmail, es.reason AS suppressionReason, es.updated_at AS suppressionUpdatedAt,
         (SELECT MAX(ms.created_at) FROM marketing_sends ms WHERE ms.user_id = u.id AND ms.campaign_key = ?) AS lastSentAt,
         (SELECT COUNT(*) FROM marketing_sends ms WHERE ms.user_id = u.id AND ms.campaign_key = ?) AS sendCount
        FROM users u
+       LEFT JOIN notification_preferences np ON np.user_id = u.id
+       LEFT JOIN email_suppressions es ON LOWER(es.email) = LOWER(u.email)
        WHERE u.banned = 0 AND (LOWER(u.username) LIKE ? OR LOWER(u.display_name) LIKE ? OR LOWER(u.email) LIKE ?)
-       ORDER BY u.username LIMIT 80`
+       ORDER BY CASE WHEN es.email IS NOT NULL OR u.email_suppressed_at IS NOT NULL THEN 2 WHEN np.all_email = 0 OR np.marketing_email = 0 THEN 1 ELSE 0 END DESC, u.username LIMIT 120`
     : `SELECT u.id, u.username, u.display_name AS displayName, u.email, u.email_suppressed_at AS emailSuppressedAt,
+        np.all_email AS allEmail, np.marketing_email AS marketingEmail,
+        es.email AS suppressedEmail, es.reason AS suppressionReason, es.updated_at AS suppressionUpdatedAt,
         (SELECT MAX(ms.created_at) FROM marketing_sends ms WHERE ms.user_id = u.id AND ms.campaign_key = ?) AS lastSentAt,
         (SELECT COUNT(*) FROM marketing_sends ms WHERE ms.user_id = u.id AND ms.campaign_key = ?) AS sendCount
        FROM users u
+       LEFT JOIN notification_preferences np ON np.user_id = u.id
+       LEFT JOIN email_suppressions es ON LOWER(es.email) = LOWER(u.email)
        WHERE u.banned = 0
-       ORDER BY u.created_at DESC LIMIT 80`;
+       ORDER BY CASE WHEN es.email IS NOT NULL OR u.email_suppressed_at IS NOT NULL THEN 2 WHEN np.all_email = 0 OR np.marketing_email = 0 THEN 1 ELSE 0 END DESC, u.created_at DESC LIMIT 120`;
   const stmt = c.env.DB.prepare(query).bind(...(q ? [campaign, campaign, like, like, like] : [campaign, campaign]));
-  const rows = await stmt.all<{ id: number; username: string; displayName: string; email: string; emailSuppressedAt: number | null; lastSentAt: number | null; sendCount: number }>();
+  const rows = await stmt.all<{
+    id: number;
+    username: string;
+    displayName: string;
+    email: string;
+    emailSuppressedAt: number | null;
+    allEmail: number | null;
+    marketingEmail: number | null;
+    suppressedEmail: string | null;
+    suppressionReason: string | null;
+    suppressionUpdatedAt: number | null;
+    lastSentAt: number | null;
+    sendCount: number;
+  }>();
   return c.json({
-    users: (rows.results ?? []).map((row) => ({
-      ...row,
-      emailSuppressedAt: row.emailSuppressedAt ? safeISO(row.emailSuppressedAt) : null,
-      lastSentAt: row.lastSentAt ? safeISO(row.lastSentAt) : null,
-      sendCount: Number(row.sendCount ?? 0),
-    })),
+    users: (rows.results ?? []).map((row) => {
+      const suppressed = Boolean(row.emailSuppressedAt || row.suppressedEmail);
+      const marketingUnsubscribed = row.allEmail === 0 || row.marketingEmail === 0;
+      return {
+        ...row,
+        allEmail: row.allEmail !== 0,
+        marketingEmail: row.marketingEmail !== 0,
+        marketingUnsubscribed,
+        canReceiveMarketing: !suppressed && !marketingUnsubscribed,
+        marketingStatus: suppressed ? "suppressed" : marketingUnsubscribed ? "unsubscribed" : "subscribed",
+        emailSuppressedAt: row.emailSuppressedAt ? safeISO(row.emailSuppressedAt) : row.suppressionUpdatedAt ? safeISO(row.suppressionUpdatedAt) : null,
+        lastSentAt: row.lastSentAt ? safeISO(row.lastSentAt) : null,
+        sendCount: Number(row.sendCount ?? 0),
+      };
+    }),
   });
 });
 
@@ -303,7 +333,6 @@ app.post("/marketing/send", zValidator("json", z.object({
     siteUrl,
     from,
     campaignKey: body.campaignKey,
-    ignorePreferences: !!body.test,
     waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),
   });
 

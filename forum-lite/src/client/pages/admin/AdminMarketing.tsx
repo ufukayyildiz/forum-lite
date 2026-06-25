@@ -26,6 +26,12 @@ export default function AdminMarketing() {
     () => users.data?.users.find((u: any) => u.id === selectedId),
     [users.data?.users, selectedId],
   );
+  const audience = users.data?.users ?? [];
+  const audienceCounts = useMemo(() => ({
+    subscribed: audience.filter((u: any) => u.marketingStatus === "subscribed").length,
+    unsubscribed: audience.filter((u: any) => u.marketingStatus === "unsubscribed").length,
+    suppressed: audience.filter((u: any) => u.marketingStatus === "suppressed").length,
+  }), [audience]);
 
   const send = useMutation({
     mutationFn: (body: { test?: boolean; userId?: number }) =>
@@ -46,6 +52,11 @@ export default function AdminMarketing() {
       {count ? `${count}x ${at ? relativeTime(at) : ""}` : "-"}
     </span>
   );
+  const statusColor = (status?: string) => {
+    if (status === "subscribed") return "var(--gb-green)";
+    if (status === "unsubscribed") return "var(--gb-yellow)";
+    return "var(--gb-red)";
+  };
 
   return (
     <div className="gb-admin-marketing-grid" style={{ display: "grid", gridTemplateColumns: "minmax(320px, 520px) 1fr", gap: 18, alignItems: "start" }}>
@@ -72,8 +83,8 @@ export default function AdminMarketing() {
           >
             <option value="">select user...</option>
             {(users.data?.users ?? []).map((u: any) => (
-              <option key={u.id} value={u.id}>
-                @{u.username} — {u.email}{u.sendCount ? ` — sent ${u.sendCount}x` : ""}
+              <option key={u.id} value={u.id} disabled={!u.canReceiveMarketing}>
+                @{u.username} — {u.email} — {u.marketingStatus}{u.sendCount ? ` — sent ${u.sendCount}x` : ""}
               </option>
             ))}
           </select>
@@ -83,13 +94,19 @@ export default function AdminMarketing() {
           <div style={{ border: "1px solid var(--gb-bg2)", padding: 10, fontSize: 12 }}>
             <div style={{ color: "var(--gb-fg)" }}>{selectedUser.displayName} <span style={{ color: "var(--gb-gray)" }}>@{selectedUser.username}</span></div>
             <div style={{ color: selectedUser.emailSuppressedAt ? "var(--gb-red)" : "var(--gb-gray)" }}>{selectedUser.email}</div>
+            <div style={{ color: statusColor(selectedUser.marketingStatus), marginTop: 5 }}>
+              marketing status: {selectedUser.marketingStatus}
+            </div>
             {selectedUser.lastSentAt && (
               <div style={{ color: "var(--gb-yellow)", marginTop: 5 }}>
                 previously sent {relativeTime(selectedUser.lastSentAt)}; sending again is allowed
               </div>
             )}
             {selectedUser.emailSuppressedAt && (
-              <div style={{ color: "var(--gb-red)", marginTop: 5 }}>email is suppressed; send will be skipped</div>
+              <div style={{ color: "var(--gb-red)", marginTop: 5 }}>email is suppressed; send is blocked</div>
+            )}
+            {selectedUser.marketingUnsubscribed && (
+              <div style={{ color: "var(--gb-yellow)", marginTop: 5 }}>user unsubscribed from marketing; send is blocked</div>
             )}
           </div>
         )}
@@ -98,13 +115,56 @@ export default function AdminMarketing() {
           <button className="gb-btn" disabled={send.isPending} onClick={() => send.mutate({ test: true })}>$ send test to me</button>
           <button
             className="gb-btn gb-btn-primary"
-            disabled={!selectedUser || send.isPending}
+            disabled={!selectedUser || !selectedUser.canReceiveMarketing || send.isPending}
             onClick={() => selectedUser && send.mutate({ userId: selectedUser.id })}
           >
             $ send selected
           </button>
         </div>
 
+        <div style={{ borderTop: "1px solid var(--gb-bg2)", paddingTop: 10 }}>
+          <div style={{ color: "var(--gb-gray)", fontSize: 10, letterSpacing: ".08em", marginBottom: 6 }}>
+            MARKETING USERS
+            <span style={{ color: "var(--gb-green)", marginLeft: 10 }}>{audienceCounts.subscribed} subscribed</span>
+            <span style={{ color: "var(--gb-yellow)", marginLeft: 10 }}>{audienceCounts.unsubscribed} unsubscribed</span>
+            <span style={{ color: "var(--gb-red)", marginLeft: 10 }}>{audienceCounts.suppressed} suppressed</span>
+          </div>
+          <table className="gb-table">
+            <thead>
+              <tr>
+                <th style={{ textAlign: "right", paddingRight: 16 }}>#</th>
+                <th>USER</th>
+                <th>EMAIL</th>
+                <th>MARKETING</th>
+                <th className="gb-col-modified" style={{ textAlign: "right", paddingRight: 12 }}>SENT</th>
+              </tr>
+            </thead>
+            <tbody>
+              {audience.map((u: any, i: number) => (
+                <tr key={u.id}>
+                  <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>{i + 1}</td>
+                  <td>
+                    <div style={{ color: "var(--gb-fg)", fontSize: 12 }}>{u.displayName}</div>
+                    <div style={{ color: "var(--gb-gray)", fontSize: 11 }}>@{u.username}</div>
+                  </td>
+                  <td style={{ color: u.canReceiveMarketing ? "var(--gb-gray)" : "var(--gb-red)", fontSize: 11 }}>{u.email}</td>
+                  <td>
+                    <div style={{ color: statusColor(u.marketingStatus), fontSize: 12 }}>{u.marketingStatus}</div>
+                    {u.suppressionReason && <div style={{ color: "var(--gb-gray)", fontSize: 10 }}>{u.suppressionReason}</div>}
+                  </td>
+                  <td className="gb-col-modified" style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 12, fontSize: 11 }}>
+                    {u.sendCount ? `${u.sendCount}x${u.lastSentAt ? ` ${relativeTime(u.lastSentAt)}` : ""}` : "-"}
+                  </td>
+                </tr>
+              ))}
+              {!users.isLoading && !audience.length && (
+                <tr><td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16 }}>~</td><td colSpan={4} style={{ color: "var(--gb-gray)" }}>no users found</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div style={{ color: "var(--gb-gray)", fontSize: 10, letterSpacing: ".08em", marginTop: 4 }}>SEND LOG</div>
         <table className="gb-table">
           <thead>
             <tr>

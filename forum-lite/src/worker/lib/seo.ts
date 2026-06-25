@@ -1371,7 +1371,7 @@ export async function renderSeoHtml(c: AppContext): Promise<Response> {
   const html = injectHtml(await assetResponse.text(), payload, base, url, bootstrap);
   const headers = new Headers(assetResponse.headers);
   headers.set("content-type", "text/html; charset=utf-8");
-  headers.set("cache-control", payload.robots?.startsWith("noindex") ? "public, max-age=0, must-revalidate" : "public, max-age=60");
+  headers.set("cache-control", payload.robots?.startsWith("noindex") ? "no-store, max-age=0" : "public, max-age=60");
   headers.set("vary", "Accept");
   return new Response(html, { status: payload.status ?? assetResponse.status, headers });
 }

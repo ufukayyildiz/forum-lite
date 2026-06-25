@@ -175,7 +175,7 @@ export const api = {
   }>("/admin/notifications"),
   adminMarketingTemplate: () => get<{ campaignKey: string; name: string; subject: string; text: string; html: string }>("/admin/marketing/template"),
   adminMarketingUsers: (q = "", campaign = "we-are-back") =>
-    get<{ users: any[] }>(`/admin/marketing/users?campaign=${encodeURIComponent(campaign)}&q=${encodeURIComponent(q)}`),
+    get<{ users: Array<any & { marketingStatus: "subscribed" | "unsubscribed" | "suppressed"; canReceiveMarketing: boolean; marketingUnsubscribed: boolean; suppressionReason?: string | null; sendCount: number; lastSentAt?: string | null }> }>(`/admin/marketing/users?campaign=${encodeURIComponent(campaign)}&q=${encodeURIComponent(q)}`),
   adminMarketingSends: (page = 1) => get<{ sends: Array<any & { openCount: number; clickCount: number; openedAt: string | null; clickedAt: string | null; lastOpenedAt: string | null; lastClickedAt: string | null }>; total: number; page: number; perPage: number }>(`/admin/marketing/sends?page=${page}`),
   adminSendMarketing: (b: { campaignKey: string; userId?: number; test?: boolean }) =>
     post<{ ok: boolean; status: string; previousSentAt: string | null }>("/admin/marketing/send", b),
