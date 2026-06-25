@@ -401,18 +401,16 @@ export default function AdminMarketing() {
               {activeCheckedIds.length}/{MAX_BULK_RECIPIENTS} checked
             </span>
         </div>
-        {checkedUsers.length > 0 && (
-          <div style={{ color: "var(--gb-gray)", fontSize: 11, marginBottom: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            checked: {checkedUsers.map((u) => `@${u.username}`).join(", ")}
-          </div>
-        )}
+        <div className={`gb-admin-marketing-checked-summary${checkedUsers.length ? "" : " is-empty"}`}>
+          {checkedUsers.length ? `checked: ${checkedUsers.map((u) => `@${u.username}`).join(", ")}` : "checked:"}
+        </div>
         <div className="gb-admin-marketing-tablewrap" onScroll={loadMoreMarketingUsers}>
           <table className="gb-table">
             <thead>
               <tr>
                 <th style={{ width: 34, textAlign: "center" }}>
                   <button className="gb-check-all" type="button" onClick={toggleFirstVisible} title={`select up to ${MAX_BULK_RECIPIENTS}`}>
-                    {checkedIds.length ? "−" : "✓"}
+                    {activeCheckedIds.length ? "−" : "✓"}
                   </button>
                 </th>
                 <th style={{ textAlign: "right", paddingRight: 16 }}>#</th>
