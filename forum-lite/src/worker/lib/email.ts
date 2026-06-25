@@ -9,6 +9,26 @@ export type EmailSendResult = {
   suppressed?: boolean;
 };
 
+export type CloudflareSuppression = {
+  email: string;
+  reason?: string;
+  created_at?: string;
+  expires_at?: string | null;
+};
+
+export type CloudflareEmailFailure = {
+  datetime?: string;
+  from?: string;
+  to?: string;
+  subject?: string;
+  status?: string;
+  eventType?: string;
+  sendingDomain?: string;
+  messageId?: string;
+  errorCause?: string;
+  errorDetail?: string;
+};
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -155,7 +175,99 @@ export async function addCloudflareSuppression(
     body: JSON.stringify({ email }),
   });
 
-  if (res.ok) return { ok: true };
+  if (res.ok || res.status === 409) return { ok: true };
   const body = await res.text().catch(() => "");
+  if (/already|exists|duplicate/i.test(body)) return { ok: true };
   return { ok: false, error: body.slice(0, 500) };
+}
+
+function cloudflareAuth(env: Bindings): { accountId: string; token: string } | null {
+  if (!env.CF_ACCOUNT_ID || !env.CF_EMAIL_API_TOKEN) return null;
+  return { accountId: env.CF_ACCOUNT_ID, token: env.CF_EMAIL_API_TOKEN };
+}
+
+async function cfJson<T>(url: string, token: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(url, {
+    ...init,
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+  });
+  const body = await res.json().catch(async () => ({ success: false, errors: [{ message: await res.text().catch(() => res.statusText) }] }));
+  if (!res.ok || (body as any)?.success === false) {
+    const message = JSON.stringify((body as any)?.errors ?? body).slice(0, 700);
+    throw new Error(message || res.statusText);
+  }
+  return body as T;
+}
+
+export async function listCloudflareSuppressions(env: Bindings): Promise<CloudflareSuppression[]> {
+  const auth = cloudflareAuth(env);
+  if (!auth) throw new Error("CF_ACCOUNT_ID / CF_EMAIL_API_TOKEN missing");
+  const url = `https://api.cloudflare.com/client/v4/accounts/${auth.accountId}/email/sending/suppression?per_page=1000&order=created_at&direction=desc`;
+  const body = await cfJson<{ result?: CloudflareSuppression[] }>(url, auth.token);
+  return body.result ?? [];
+}
+
+async function findZoneId(env: Bindings, sendingDomain: string): Promise<string> {
+  if (env.CF_ZONE_ID) return env.CF_ZONE_ID;
+  const auth = cloudflareAuth(env);
+  if (!auth) throw new Error("CF_ACCOUNT_ID / CF_EMAIL_API_TOKEN missing");
+  const domain = sendingDomain.replace(/^.*@/, "").toLowerCase();
+  const url = `https://api.cloudflare.com/client/v4/zones?name=${encodeURIComponent(domain)}&account.id=${encodeURIComponent(auth.accountId)}`;
+  const body = await cfJson<{ result?: Array<{ id: string; name: string }> }>(url, auth.token);
+  const zone = body.result?.[0];
+  if (!zone?.id) throw new Error(`Cloudflare zone not found for ${domain}; set CF_ZONE_ID`);
+  return zone.id;
+}
+
+export async function listCloudflareDeliveryFailures(
+  env: Bindings,
+  opts: { sendingDomain: string; hours?: number },
+): Promise<CloudflareEmailFailure[]> {
+  const auth = cloudflareAuth(env);
+  if (!auth) throw new Error("CF_ACCOUNT_ID / CF_EMAIL_API_TOKEN missing");
+  const hours = Math.max(1, Math.min(24 * 30, Math.round(opts.hours ?? 72)));
+  const zoneTag = await findZoneId(env, opts.sendingDomain);
+  const end = new Date();
+  const start = new Date(end.getTime() - hours * 60 * 60 * 1000);
+  const query = `
+    query RecentEmailFailures($zoneTag: string!, $start: Time!, $end: Time!) {
+      viewer {
+        zones(filter: { zoneTag: $zoneTag }) {
+          emailSendingAdaptive(
+            filter: { datetime_geq: $start, datetime_leq: $end, status: "deliveryFailed" }
+            limit: 1000
+            orderBy: [datetime_DESC]
+          ) {
+            datetime
+            from
+            to
+            subject
+            status
+            eventType
+            sendingDomain
+            messageId
+            errorCause
+            errorDetail
+          }
+        }
+      }
+    }
+  `;
+  const body = await cfJson<{ data?: { viewer?: { zones?: Array<{ emailSendingAdaptive?: CloudflareEmailFailure[] }> } }; errors?: unknown[] }>(
+    "https://api.cloudflare.com/client/v4/graphql",
+    auth.token,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        query,
+        variables: { zoneTag, start: start.toISOString(), end: end.toISOString() },
+      }),
+    },
+  );
+  const rows = body.data?.viewer?.zones?.[0]?.emailSendingAdaptive ?? [];
+  return rows.filter((row) => String(row.status ?? "").toLowerCase() === "deliveryfailed" && Boolean(row.to));
 }

@@ -25,6 +25,7 @@ export async function recordEmailSuppression(
     source: string;
     details?: string;
     waitUntil?: (promise: Promise<unknown>) => void;
+    skipCloudflareSync?: boolean;
   },
 ): Promise<void> {
   const normalized = normalizeEmailAddress(email);
@@ -32,7 +33,7 @@ export async function recordEmailSuppression(
 
   const now = new Date();
   const details = opts.details ? opts.details.slice(0, 2000) : null;
-  const initialCfStatus = env.CF_ACCOUNT_ID && env.CF_EMAIL_API_TOKEN ? "pending" : "skipped";
+  const initialCfStatus = opts.skipCloudflareSync ? "synced" : env.CF_ACCOUNT_ID && env.CF_EMAIL_API_TOKEN ? "pending" : "skipped";
 
   await db
     .insert(schema.emailSuppressions)
@@ -69,6 +70,8 @@ export async function recordEmailSuppression(
     summary: `Suppressed ${normalized} (${opts.reason}) via ${opts.source}`,
     createdAt: now,
   });
+
+  if (opts.skipCloudflareSync) return;
 
   const promise = addCloudflareSuppression(env, normalized)
     .then(async (result) => {

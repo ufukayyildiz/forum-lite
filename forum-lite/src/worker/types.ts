@@ -9,6 +9,7 @@ export type Bindings = {
   SEND_EMAIL: SendEmail;
   CF_ACCOUNT_ID?: string;
   CF_EMAIL_API_TOKEN?: string;
+  CF_ZONE_ID?: string;
 };
 
 export type Variables = {

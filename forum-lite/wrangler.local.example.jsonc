@@ -7,6 +7,7 @@
 // Optional suppression API secrets:
 //         npx wrangler secret put CF_ACCOUNT_ID
 //         npx wrangler secret put CF_EMAIL_API_TOKEN
+//         npx wrangler secret put CF_ZONE_ID   (zone that owns the sending domain)
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "forum-lite",

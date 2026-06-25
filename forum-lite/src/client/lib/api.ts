@@ -204,6 +204,13 @@ export const api = {
   adminDeleteUser: (id: number) => del<{ ok: boolean }>(`/admin/users/${id}`),
   adminLogs: (page = 1) => get<{ logs: any[]; total: number; page: number; perPage: number }>(`/admin/logs?page=${page}`),
   adminEmailSuppressions: (page = 1) => get<{ suppressions: any[]; total: number; page: number; perPage: number }>(`/admin/email-suppressions?page=${page}`),
+  adminAddEmailSuppression: (email: string, reason = "manual_admin_suppression") =>
+    post<{ ok: boolean; email: string }>("/admin/email-suppressions", { email, reason }),
+  adminSyncEmailSuppressions: (hours = 72) =>
+    post<{ ok: boolean; hours: number; cfSuppressions: number; deliveryFailures: number; localUpdates: number; errors: string[] }>(
+      "/admin/email-suppressions/sync",
+      { hours },
+    ),
   adminEmailEvents: (page = 1, kind = "") =>
     get<{ events: Array<any & { openCount?: number; clickCount?: number; openedAt?: string | null; clickedAt?: string | null; lastOpenedAt?: string | null; lastClickedAt?: string | null }>; total: number; page: number; perPage: number }>(
       `/admin/email-events?page=${page}${kind ? `&kind=${encodeURIComponent(kind)}` : ""}`

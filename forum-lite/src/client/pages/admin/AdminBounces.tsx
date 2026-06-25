@@ -1,13 +1,39 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { api } from "../../lib/api";
 import { relativeTime } from "../../lib/utils";
 
 export default function AdminBounces() {
   const [page, setPage] = useState(1);
+  const [manualEmail, setManualEmail] = useState("");
+  const qc = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: ["admin-email-suppressions", page],
     queryFn: () => api.adminEmailSuppressions(page),
+  });
+  const sync = useMutation({
+    mutationFn: () => api.adminSyncEmailSuppressions(72),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ["admin-email-suppressions"] });
+      qc.invalidateQueries({ queryKey: ["admin-marketing-users"] });
+      qc.invalidateQueries({ queryKey: ["admin-marketing-sends"] });
+      const message = `CF sync: ${result.localUpdates} updated, ${result.deliveryFailures} failures`;
+      if (result.errors.length) toast.warning(`${message}; ${result.errors[0]}`);
+      else toast.success(message);
+    },
+    onError: (error: any) => toast.error(error.message || "CF sync failed"),
+  });
+  const manualSuppress = useMutation({
+    mutationFn: () => api.adminAddEmailSuppression(manualEmail),
+    onSuccess: (result) => {
+      setManualEmail("");
+      qc.invalidateQueries({ queryKey: ["admin-email-suppressions"] });
+      qc.invalidateQueries({ queryKey: ["admin-marketing-users"] });
+      qc.invalidateQueries({ queryKey: ["admin-marketing-sends"] });
+      toast.success(`Suppressed ${result.email}`);
+    },
+    onError: (error: any) => toast.error(error.message || "Suppression failed"),
   });
 
   const totalPages = data ? Math.ceil(data.total / data.perPage) : 1;
@@ -16,10 +42,43 @@ export default function AdminBounces() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {data && (
-        <div style={{ fontSize: 11, color: "var(--gb-gray)", letterSpacing: ".06em" }}>
-          " {data.total} suppressed emails
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 11, color: "var(--gb-gray)", letterSpacing: ".06em" }}>
+            " {data.total} suppressed emails
+          </div>
+          <button
+            className="gb-btn gb-btn-primary"
+            type="button"
+            disabled={sync.isPending}
+            onClick={() => sync.mutate()}
+          >
+            {sync.isPending ? "$ syncing cf..." : "$ sync cf failures"}
+          </button>
+          <span style={{ color: "var(--gb-gray)", fontSize: 11 }}>
+            imports Cloudflare suppression list + last 72h deliveryFailed events
+          </span>
         </div>
       )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(220px, 420px) auto 1fr", gap: 8, alignItems: "center" }}>
+        <input
+          value={manualEmail}
+          onChange={(event) => setManualEmail(event.target.value)}
+          placeholder="email@domain.com"
+          style={{ background: "var(--gb-bg1)", border: "1px solid var(--gb-bg3)", color: "var(--gb-fg)", font: "inherit", padding: "6px 8px" }}
+        />
+        <button
+          className="gb-btn"
+          type="button"
+          disabled={!manualEmail.trim() || manualSuppress.isPending}
+          onClick={() => manualSuppress.mutate()}
+        >
+          $ suppress
+        </button>
+        <span style={{ color: "var(--gb-gray)", fontSize: 11 }}>
+          manual suppression also blocks future marketing sends
+        </span>
+      </div>
 
       <table className="gb-table">
         <thead>
