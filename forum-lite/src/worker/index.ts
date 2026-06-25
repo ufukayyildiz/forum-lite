@@ -15,6 +15,7 @@ import { schema, getDb } from "./db";
 import type { Bindings, Variables } from "./types";
 import { renderSeoHtml } from "./lib/seo";
 import { serveDefaultWebp, serveThreadWebp } from "./lib/og";
+import { legacyCanonicalRedirect } from "./lib/legacy-redirects";
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -247,6 +248,13 @@ app.get("/og/thread/:id", (c) => {
     return c.text("Gone. Thread Open Graph images are served as WebP.", 410, { "Cache-Control": "no-store" });
   }
   return serveThreadWebp(c, id);
+});
+
+app.on(["GET", "HEAD"], "*", async (c, next) => {
+  const redirect = await legacyCanonicalRedirect(c);
+  if (!redirect) return next();
+  redirect.headers.set("Cache-Control", "public, max-age=3600");
+  return redirect;
 });
 
 const LEGACY_CONTENT_SECTIONS = new Set(["articles", "categories", "about"]);
