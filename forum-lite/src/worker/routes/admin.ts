@@ -264,7 +264,24 @@ app.get("/marketing/users", async (c) => {
     lastSentAt: number | null;
     sendCount: number;
   }>();
+  const totalRows = await c.env.DB.prepare(
+    `SELECT
+      COUNT(*) AS total,
+      SUM(CASE WHEN es.email IS NULL AND u.email_suppressed_at IS NULL AND COALESCE(np.all_email, 1) != 0 AND COALESCE(np.marketing_email, 1) != 0 THEN 1 ELSE 0 END) AS subscribed,
+      SUM(CASE WHEN es.email IS NULL AND u.email_suppressed_at IS NULL AND (np.all_email = 0 OR np.marketing_email = 0) THEN 1 ELSE 0 END) AS unsubscribed,
+      SUM(CASE WHEN es.email IS NOT NULL OR u.email_suppressed_at IS NOT NULL THEN 1 ELSE 0 END) AS suppressed
+     FROM users u
+     LEFT JOIN notification_preferences np ON np.user_id = u.id
+     LEFT JOIN email_suppressions es ON LOWER(es.email) = LOWER(u.email)
+     WHERE u.banned = 0`,
+  ).first<{ total: number; subscribed: number | null; unsubscribed: number | null; suppressed: number | null }>();
   return c.json({
+    total: Number(totalRows?.total ?? 0),
+    summary: {
+      subscribed: Number(totalRows?.subscribed ?? 0),
+      unsubscribed: Number(totalRows?.unsubscribed ?? 0),
+      suppressed: Number(totalRows?.suppressed ?? 0),
+    },
     users: (rows.results ?? []).map((row) => {
       const suppressed = Boolean(row.emailSuppressedAt || row.suppressedEmail);
       const marketingUnsubscribed = row.allEmail === 0 || row.marketingEmail === 0;

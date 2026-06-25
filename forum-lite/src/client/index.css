@@ -917,6 +917,19 @@ textarea.gb-input {
   padding: 16px;
   background: #282828;
 }
+.gb-send-dialog {
+  width: min(760px, 100%);
+}
+.gb-send-log {
+  min-height: 0;
+  max-height: min(520px, 68dvh);
+  overflow: auto;
+  padding: 0 12px 12px;
+  background: var(--gb-bg);
+}
+.gb-send-log .gb-table th {
+  top: 0;
+}
 
 /* ── Search bar ──────────────────────────────────────────── */
 .gb-search {

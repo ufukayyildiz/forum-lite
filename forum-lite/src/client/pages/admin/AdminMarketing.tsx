@@ -7,6 +7,23 @@ import { GbSelect, type GbSelectOption } from "../../components/GbSelect";
 
 const MAX_BULK_RECIPIENTS = 20;
 
+type BulkResult = {
+  userId?: number;
+  username?: string;
+  email?: string;
+  status: string;
+  previousSentAt?: string | null;
+  error?: string;
+};
+
+type BulkSendLog = {
+  open: boolean;
+  phase: "sending" | "done" | "error";
+  recipients: MarketingUser[];
+  results: BulkResult[];
+  message?: string;
+};
+
 type MarketingUser = {
   id: number;
   username: string;
@@ -28,6 +45,12 @@ export default function AdminMarketing() {
   const [checkedIds, setCheckedIds] = useState<number[]>([]);
   const [page, setPage] = useState(1);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [bulkLog, setBulkLog] = useState<BulkSendLog>({
+    open: false,
+    phase: "sending",
+    recipients: [],
+    results: [],
+  });
 
   const template = useQuery({ queryKey: ["admin-marketing-template"], queryFn: api.adminMarketingTemplate });
   const users = useQuery({
@@ -47,10 +70,10 @@ export default function AdminMarketing() {
   );
   const audience = users.data?.users ?? [];
   const audienceCounts = useMemo(() => ({
-    subscribed: audience.filter((u: any) => u.marketingStatus === "subscribed").length,
-    unsubscribed: audience.filter((u: any) => u.marketingStatus === "unsubscribed").length,
-    suppressed: audience.filter((u: any) => u.marketingStatus === "suppressed").length,
-  }), [audience]);
+    subscribed: users.data?.summary?.subscribed ?? audience.filter((u: any) => u.marketingStatus === "subscribed").length,
+    unsubscribed: users.data?.summary?.unsubscribed ?? audience.filter((u: any) => u.marketingStatus === "unsubscribed").length,
+    suppressed: users.data?.summary?.suppressed ?? audience.filter((u: any) => u.marketingStatus === "suppressed").length,
+  }), [audience, users.data?.summary]);
   const checkedUsers = useMemo(
     () => checkedIds
       .map((id) => audience.find((u: MarketingUser) => u.id === id))
@@ -90,13 +113,40 @@ export default function AdminMarketing() {
       qc.invalidateQueries({ queryKey: ["admin-marketing-sends"] });
       qc.invalidateQueries({ queryKey: ["admin-email-events"] });
       if (vars.userIds?.length) {
-        toast.success(`Bulk sent: ${res.sent ?? 0}/${res.total ?? vars.userIds.length}`);
+        const userIds = vars.userIds;
+        toast.success(`Bulk sent: ${res.sent ?? 0}/${res.total ?? userIds.length}`);
+        if (userIds.length > 2) {
+          setBulkLog((current) => ({
+            ...current,
+            open: true,
+            phase: "done",
+            results: (res.results ?? []) as BulkResult[],
+            message: `Done: ${res.sent ?? 0} sent / ${res.total ?? userIds.length} total`,
+          }));
+        }
         setCheckedIds([]);
       } else if (res.status === "sent") toast.success(vars.test ? "Test email sent" : "Campaign email sent");
       else toast.warning(`Email ${res.status}`);
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: any) => {
+      toast.error(e.message);
+      setBulkLog((current) => current.open ? { ...current, phase: "error", message: e.message } : current);
+    },
   });
+
+  function sendChecked() {
+    if (!checkedIds.length || send.isPending) return;
+    const recipients = checkedUsers;
+    if (recipients.length > 2) {
+      setBulkLog({
+        open: true,
+        phase: "sending",
+        recipients,
+        results: recipients.map((user) => ({ userId: user.id, username: user.username, email: user.email, status: "sending" })),
+      });
+    }
+    send.mutate({ userIds: checkedIds });
+  }
 
   function toggleChecked(user: MarketingUser) {
     if (!user.canReceiveMarketing) return;
@@ -153,7 +203,7 @@ export default function AdminMarketing() {
             <button
               className="gb-btn gb-btn-primary"
               disabled={!checkedIds.length || send.isPending}
-              onClick={() => checkedIds.length && send.mutate({ userIds: checkedIds })}
+              onClick={sendChecked}
             >
               $ send checked ({checkedIds.length})
             </button>
@@ -216,9 +266,10 @@ export default function AdminMarketing() {
       <section className="gb-admin-marketing-section">
         <div style={{ color: "var(--gb-gray)", fontSize: 10, letterSpacing: ".08em", marginBottom: 6 }}>
             MARKETING USERS
-            <span style={{ color: "var(--gb-green)", marginLeft: 10 }}>{audienceCounts.subscribed} subscribed</span>
-            <span style={{ color: "var(--gb-yellow)", marginLeft: 10 }}>{audienceCounts.unsubscribed} unsubscribed</span>
-            <span style={{ color: "var(--gb-red)", marginLeft: 10 }}>{audienceCounts.suppressed} suppressed</span>
+            <span style={{ color: "var(--gb-fg4)", marginLeft: 10 }}>{audience.length} showing / {users.data?.total ?? audience.length} total</span>
+            <span style={{ color: "var(--gb-green)", marginLeft: 10 }}>{audienceCounts.subscribed} subscribed total</span>
+            <span style={{ color: "var(--gb-yellow)", marginLeft: 10 }}>{audienceCounts.unsubscribed} unsubscribed total</span>
+            <span style={{ color: "var(--gb-red)", marginLeft: 10 }}>{audienceCounts.suppressed} suppressed total</span>
             <span style={{ color: checkedIds.length ? "var(--gb-yellow)" : "var(--gb-gray)", marginLeft: 10 }}>
               {checkedIds.length}/{MAX_BULK_RECIPIENTS} checked
             </span>
@@ -338,6 +389,64 @@ export default function AdminMarketing() {
             </div>
             <div className="gb-preview-subject">{template.data?.subject ?? "$ loading..."}</div>
             <div className="gb-preview-body" dangerouslySetInnerHTML={{ __html: template.data?.html ?? "" }} />
+          </section>
+        </div>
+      )}
+
+      {bulkLog.open && (
+        <div className="gb-preview-overlay" role="presentation" onClick={(event) => {
+          if (event.target === event.currentTarget && bulkLog.phase !== "sending") setBulkLog((current) => ({ ...current, open: false }));
+        }}>
+          <section className="gb-preview-dialog gb-send-dialog" role="dialog" aria-modal="true" aria-labelledby="bulk-send-title">
+            <div className="gb-preview-titlebar">
+              <div id="bulk-send-title" className="gb-preview-title">
+                {bulkLog.phase === "sending" ? "$ sending marketing emails" : "$ marketing send log"}
+              </div>
+              <button
+                className="gb-btn"
+                type="button"
+                disabled={bulkLog.phase === "sending"}
+                onClick={() => setBulkLog((current) => ({ ...current, open: false }))}
+              >
+                $ close
+              </button>
+            </div>
+            <div className="gb-preview-subject">
+              {bulkLog.message ?? `${bulkLog.recipients.length} recipients queued`}
+            </div>
+            <div className="gb-send-log">
+              <table className="gb-table">
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: "right", paddingRight: 16 }}>#</th>
+                    <th>USER</th>
+                    <th>EMAIL</th>
+                    <th>STATUS</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(bulkLog.results.length ? bulkLog.results : bulkLog.recipients.map((user): BulkResult => ({
+                    userId: user.id,
+                    username: user.username,
+                    email: user.email,
+                    status: "sending",
+                  }))).map((row, index) => (
+                    <tr key={`${row.userId ?? row.email}-${index}`}>
+                      <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>{index + 1}</td>
+                      <td style={{ color: "var(--gb-fg)", fontSize: 12 }}>@{row.username ?? "unknown"}</td>
+                      <td style={{ color: "var(--gb-gray)", fontSize: 11 }}>{row.email ?? "-"}</td>
+                      <td style={{
+                        color: row.status === "sent" ? "var(--gb-green)" : row.status === "sending" ? "var(--gb-yellow)" : "var(--gb-red)",
+                        fontSize: 12,
+                      }}>
+                        {row.status}
+                        {row.error ? ` / ${row.error}` : ""}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </section>
         </div>
       )}
