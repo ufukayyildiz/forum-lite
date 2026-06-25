@@ -66,7 +66,7 @@ function cleanText(input: unknown, max = 160): string {
     .replace(/<[^>]*>/g, " ")
     .replace(/!\[[^\]]*]\([^)]*\)/g, " ")
     .replace(/\[([^\]]+)]\([^)]*\)/g, "$1")
-    .replace(/[`*_>#|~=-]/g, " ")
+    .replace(/[`*_>#|~=]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
   if (!text) return "";
@@ -108,6 +108,30 @@ function isoDate(value: unknown): string {
     return Number.isNaN(d.getTime()) ? new Date(0).toISOString() : d.toISOString();
   }
   return new Date(0).toISOString();
+}
+
+function dateMs(value: unknown): number {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "number") return value > 1e10 ? value : value * 1000;
+  if (typeof value === "string") {
+    const n = Number(value);
+    if (Number.isFinite(n) && value.trim() !== "") return dateMs(n);
+    return Date.parse(value);
+  }
+  return NaN;
+}
+
+function newestIsoDate(...values: unknown[]): string {
+  let newest: unknown = values[0];
+  let newestMs = dateMs(newest);
+  for (const value of values.slice(1)) {
+    const ms = dateMs(value);
+    if (!Number.isNaN(ms) && (Number.isNaN(newestMs) || ms > newestMs)) {
+      newest = value;
+      newestMs = ms;
+    }
+  }
+  return isoDate(newest);
 }
 
 function numericId(value: string): number {
@@ -208,6 +232,7 @@ function mapThreadApi(row: Record<string, unknown>) {
     views: Number(row.views ?? 0),
     replyCount: Number(row.replyCount ?? 0),
     createdAt: apiDate(row.createdAt),
+    updatedAt: apiDate(row.updatedAt),
     lastPostAt: apiDate(row.lastPostAt),
     category: {
       id: Number(row.categoryId),
@@ -246,7 +271,7 @@ async function loadThreadsApi(c: AppContext, opts: { categoryId?: number; sort?:
   const offset = opts.all ? 0 : (page - 1) * perPage;
   const rows = await c.env.DB.prepare(
     `SELECT t.id, t.public_id AS publicId, t.title, t.slug, t.pinned, t.locked, t.featured,
-      t.views, t.reply_count AS replyCount, t.created_at AS createdAt, t.last_post_at AS lastPostAt,
+      t.views, t.reply_count AS replyCount, t.created_at AS createdAt, t.updated_at AS updatedAt, t.last_post_at AS lastPostAt,
       c.id AS categoryId, c.public_id AS categoryPublicId, c.name AS categoryName, c.slug AS categorySlug, c.color AS categoryColor,
       u.id AS authorId, u.public_id AS authorPublicId, u.username AS authorUsername, u.display_name AS authorDisplayName,
       u.avatar_url AS authorAvatar, u.role AS authorRole
@@ -271,7 +296,7 @@ async function loadThreadsApi(c: AppContext, opts: { categoryId?: number; sort?:
 async function loadThreadApi(c: AppContext, id: string) {
   const thread = await c.env.DB.prepare(
     `SELECT t.id, t.public_id AS publicId, t.title, t.slug, t.content, t.pinned, t.locked, t.featured,
-      t.views, t.reply_count AS replyCount, t.created_at AS createdAt, t.last_post_at AS lastPostAt,
+      t.views, t.reply_count AS replyCount, t.created_at AS createdAt, t.updated_at AS updatedAt, t.last_post_at AS lastPostAt,
       c.id AS categoryId, c.public_id AS categoryPublicId, c.name AS categoryName, c.slug AS categorySlug, c.color AS categoryColor,
       u.id AS authorId, u.public_id AS authorPublicId, u.username AS authorUsername, u.display_name AS authorDisplayName,
       u.avatar_url AS authorAvatar, u.role AS authorRole
@@ -434,7 +459,7 @@ async function loadMemberActivityApi(c: AppContext, username: string, tab = "thr
             FROM activity
             GROUP BY threadId
           )
-          SELECT t.id, t.public_id AS publicId, t.title, t.slug, t.created_at AS createdAt,
+          SELECT t.id, t.public_id AS publicId, t.title, t.slug, t.created_at AS createdAt, t.updated_at AS updatedAt,
             t.last_post_at AS lastPostAt, t.reply_count AS replyCount,
             c.id AS categoryId, c.name AS categoryName, c.slug AS categorySlug, c.public_id AS categoryPublicId,
             ranked.activityAt AS activityAt, ranked.authored AS authored
@@ -480,6 +505,7 @@ async function loadMemberActivityApi(c: AppContext, username: string, tab = "thr
       ...thread,
       authored: !!thread.authored,
       createdAt: apiDate(thread.createdAt),
+      updatedAt: apiDate(thread.updatedAt),
       lastPostAt: apiDate(thread.lastPostAt),
       activityAt: apiDate(thread.activityAt),
     })),
@@ -782,7 +808,7 @@ async function threadPayload(c: AppContext, base: string, id: string): Promise<S
       articleSection: String(thread.categoryName),
       keywords: tags.map((tag) => String(tag.name)).join(", ") || undefined,
       datePublished: isoDate(thread.createdAt),
-      dateModified: isoDate(thread.lastPostAt ?? thread.updatedAt ?? thread.createdAt),
+      dateModified: newestIsoDate(thread.updatedAt, thread.lastPostAt, thread.createdAt),
       inLanguage: CONTENT_LANGUAGE,
       author: {
         "@type": "Person",

@@ -70,6 +70,17 @@ function safeDate(v: number | string | Date | null | undefined): string {
   return Number.isNaN(d.getTime()) ? new Date().toISOString().slice(0, 10) : d.toISOString().slice(0, 10);
 }
 
+function newestDate(...values: Array<number | string | Date | null | undefined>): number | string | Date | null {
+  let newest: { value: number | string | Date; time: number } | null = null;
+  for (const value of values) {
+    if (!value) continue;
+    const time = value instanceof Date ? value.getTime() : typeof value === "number" ? (value > 1e10 ? value : value * 1000) : Date.parse(value);
+    if (Number.isNaN(time)) continue;
+    if (!newest || time > newest.time) newest = { value, time };
+  }
+  return newest?.value ?? null;
+}
+
 function sitemapUrl(
   base: string,
   path: string,
@@ -180,11 +191,15 @@ app.get("/sitemap-general.xml", async (c) => {
 app.get("/sitemap-categories.xml", async (c) => {
   const db = getDb(c.env);
   const base = originFromRequest(c.req.url);
-  const categories = await db
-    .select({ publicId: schema.categories.publicId, updatedAt: schema.categories.createdAt })
-    .from(schema.categories)
-    .orderBy(schema.categories.position, schema.categories.id);
-  const urls = categories.map((cat) =>
+  const categoryRows = await c.env.DB.prepare(
+    `SELECT c.public_id AS publicId,
+      COALESCE(NULLIF(MAX(max(COALESCE(t.updated_at, 0), COALESCE(t.last_post_at, 0), COALESCE(t.created_at, 0))), 0), c.created_at) AS updatedAt
+     FROM categories c
+     LEFT JOIN threads t ON t.category_id = c.id
+     GROUP BY c.id
+     ORDER BY c.position, c.id`,
+  ).all<{ publicId: string; updatedAt: number | string | Date | null }>();
+  const urls = (categoryRows.results ?? []).map((cat) =>
     sitemapUrl(base, `/c/${cat.publicId}`, { lastmod: cat.updatedAt, changefreq: "daily", priority: "0.8" }),
   );
   return c.text(urlset(urls), 200, { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=3600" });
@@ -194,36 +209,50 @@ app.get("/sitemap-threads.xml", async (c) => {
   const db = getDb(c.env);
   const base = originFromRequest(c.req.url);
   const threads = await db
-    .select({ publicId: schema.threads.publicId, updatedAt: schema.threads.lastPostAt, createdAt: schema.threads.createdAt })
+    .select({
+      publicId: schema.threads.publicId,
+      updatedAt: schema.threads.updatedAt,
+      lastPostAt: schema.threads.lastPostAt,
+      createdAt: schema.threads.createdAt,
+    })
     .from(schema.threads)
     .orderBy(schema.threads.id);
   const urls = threads.map((t) =>
-    sitemapUrl(base, `/t/${t.publicId}`, { lastmod: t.updatedAt ?? t.createdAt, changefreq: "weekly", priority: "0.7" }),
+    sitemapUrl(base, `/t/${t.publicId}`, { lastmod: newestDate(t.updatedAt, t.lastPostAt, t.createdAt), changefreq: "weekly", priority: "0.7" }),
   );
   return c.text(urlset(urls), 200, { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=3600" });
 });
 
 app.get("/sitemap-users.xml", async (c) => {
-  const db = getDb(c.env);
   const base = originFromRequest(c.req.url);
-  const users = await db
-    .select({ username: schema.users.username, updatedAt: schema.users.createdAt })
-    .from(schema.users)
-    .orderBy(schema.users.id);
-  const urls = users.map((u) =>
+  const userRows = await c.env.DB.prepare(
+    `SELECT u.username,
+      max(
+        COALESCE(u.created_at, 0),
+        COALESCE((SELECT MAX(max(COALESCE(t.updated_at, 0), COALESCE(t.last_post_at, 0), COALESCE(t.created_at, 0))) FROM threads t WHERE t.user_id = u.id), 0),
+        COALESCE((SELECT MAX(max(COALESCE(p.edited_at, 0), COALESCE(p.created_at, 0))) FROM posts p WHERE p.user_id = u.id), 0)
+      ) AS updatedAt
+     FROM users u
+     ORDER BY u.id`,
+  ).all<{ username: string; updatedAt: number | string | Date | null }>();
+  const urls = (userRows.results ?? []).map((u) =>
     sitemapUrl(base, `/u/${encodeURIComponent(u.username)}`, { lastmod: u.updatedAt, changefreq: "monthly", priority: "0.4" }),
   );
   return c.text(urlset(urls), 200, { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=3600" });
 });
 
 app.get("/sitemap-tags.xml", async (c) => {
-  const db = getDb(c.env);
   const base = originFromRequest(c.req.url);
-  const tags = await db
-    .select({ slug: schema.tags.slug, updatedAt: schema.tags.createdAt })
-    .from(schema.tags)
-    .orderBy(schema.tags.id);
-  const urls = tags.map((tag) =>
+  const tagRows = await c.env.DB.prepare(
+    `SELECT tags.slug,
+      COALESCE(NULLIF(MAX(max(COALESCE(t.updated_at, 0), COALESCE(t.last_post_at, 0), COALESCE(t.created_at, 0))), 0), tags.created_at) AS updatedAt
+     FROM tags
+     LEFT JOIN thread_tags tt ON tt.tag_id = tags.id
+     LEFT JOIN threads t ON t.id = tt.thread_id
+     GROUP BY tags.id
+     ORDER BY tags.id`,
+  ).all<{ slug: string; updatedAt: number | string | Date | null }>();
+  const urls = (tagRows.results ?? []).map((tag) =>
     sitemapUrl(base, `/tag/${encodeURIComponent(tag.slug)}`, { lastmod: tag.updatedAt, changefreq: "weekly", priority: "0.5" }),
   );
   return c.text(urlset(urls), 200, { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=3600" });

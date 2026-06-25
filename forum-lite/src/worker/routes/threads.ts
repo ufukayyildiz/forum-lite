@@ -22,6 +22,7 @@ const threadAuthorSelect = {
   views: schema.threads.views,
   replyCount: schema.threads.replyCount,
   createdAt: schema.threads.createdAt,
+  updatedAt: schema.threads.updatedAt,
   lastPostAt: schema.threads.lastPostAt,
   categoryId: schema.threads.categoryId,
   categoryName: schema.categories.name,
@@ -47,6 +48,7 @@ function mapThread(t: any) {
     views: t.views,
     replyCount: t.replyCount,
     createdAt: safeISO(t.createdAt),
+    updatedAt: safeISO(t.updatedAt),
     lastPostAt: safeISO(t.lastPostAt),
     category: { id: t.categoryId, name: t.categoryName, slug: t.categorySlug, publicId: t.categoryPublicId, color: t.categoryColor },
     author: {
@@ -255,7 +257,8 @@ app.patch("/:id", requireRole("admin", "moderator"), zValidator("json", updateBo
   const thread = await db.query.threads.findFirst({ where: threadIdentifierWhere(c.req.param("id")) });
   if (!thread) return c.json({ error: "Thread not found" }, 404);
 
-  const update: Record<string, unknown> = { updatedAt: new Date() };
+  const now = new Date();
+  const update: Record<string, unknown> = { updatedAt: now };
   if (body.title !== undefined) {
     update.title = body.title;
     update.slug = slugify(body.title);

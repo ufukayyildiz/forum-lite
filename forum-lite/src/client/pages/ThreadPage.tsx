@@ -43,6 +43,31 @@ function markdownLabel(label: string): string {
   return label.replace(/([\\[\]])/g, "\\$1");
 }
 
+function dateMs(value: string | number | null | undefined): number {
+  if (!value) return NaN;
+  if (typeof value === "number") return value > 1e10 ? value : value * 1000;
+  return Date.parse(value);
+}
+
+function newestIso(...values: Array<string | number | null | undefined>): string {
+  let newest = "";
+  let newestMs = NaN;
+  for (const value of values) {
+    const ms = dateMs(value);
+    if (!Number.isNaN(ms) && (Number.isNaN(newestMs) || ms > newestMs)) {
+      newest = typeof value === "number" ? new Date(ms).toISOString() : String(value);
+      newestMs = ms;
+    }
+  }
+  return new Date(newestMs).toISOString();
+}
+
+function isMeaningfullyEdited(createdAt: string, updatedAt?: string | null): boolean {
+  const createdMs = dateMs(createdAt);
+  const updatedMs = dateMs(updatedAt);
+  return !Number.isNaN(createdMs) && !Number.isNaN(updatedMs) && updatedMs - createdMs > 1000;
+}
+
 function useAttachmentUploader(
   taRef: React.RefObject<HTMLTextAreaElement | null>,
   getValue: () => string,
@@ -142,7 +167,11 @@ function PostItem({ post, threadId, onQuote }: {
           <span style={{ fontSize: 11, color: "var(--gb-gray)", fontFamily: "inherit" }}>{post.author.postCount} posts</span>
           <span className="gb-post-time" title={formatDate(post.createdAt)}>
             {relativeTime(post.createdAt)}
-            {post.editedAt && <span style={{ color: "var(--gb-gray)", marginLeft: 4 }}>(edited)</span>}
+            {post.editedAt && (
+              <span style={{ color: "var(--gb-gray)", marginLeft: 4 }} title={`edited ${formatDate(post.editedAt)}`}>
+                (edited {relativeTime(post.editedAt)})
+              </span>
+            )}
           </span>
         </div>
 
@@ -320,7 +349,8 @@ export default function ThreadPage() {
   const currentThreadPath = threadPath(thread);
   const currentCategoryPath = categoryPath(thread.category);
   const threadUrl = `${origin}${currentThreadPath}`;
-  const threadDesc = (thread.content ?? "").replace(/[#*`>\-_]/g, "").slice(0, 160).trim();
+  const threadDesc = (thread.content ?? "").replace(/[#*`>_]/g, "").slice(0, 160).trim();
+  const threadEdited = isMeaningfullyEdited(thread.createdAt, thread.updatedAt) ? thread.updatedAt : null;
 
   return (
     <>
@@ -345,7 +375,7 @@ export default function ThreadPage() {
             headline: thread.title,
             text: threadDesc || thread.title,
             datePublished: new Date(typeof thread.createdAt === "number" ? thread.createdAt * 1000 : thread.createdAt).toISOString(),
-            dateModified: new Date(typeof thread.lastPostAt === "number" ? thread.lastPostAt * 1000 : (thread.lastPostAt ?? thread.createdAt)).toISOString(),
+            dateModified: newestIso(thread.updatedAt, thread.lastPostAt, thread.createdAt),
             inLanguage: "en-US",
             articleSection: thread.category.name,
             interactionStatistic: [
@@ -410,6 +440,7 @@ export default function ThreadPage() {
         <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "8px 0", borderBottom: "1px solid var(--gb-bg2)", fontSize: 12, color: "var(--gb-gray)", flexWrap: "wrap" }}>
           <span>by <Link to={`/u/${thread.author.username}`} style={{ color: "var(--gb-green)" }}>{thread.author.displayName}</Link></span>
           <span>{formatDate(thread.createdAt)}</span>
+          {threadEdited && <span title={formatDate(threadEdited)}>edited {relativeTime(threadEdited)}</span>}
           <span style={{ color: "var(--gb-aqua)" }}>{thread.replyCount} replies</span>
           <span>{thread.views} views</span>
           {thread.locked && <span style={{ color: "var(--gb-orange)", fontWeight: 700 }}>[LOCKED]</span>}
@@ -437,7 +468,14 @@ export default function ThreadPage() {
                     [{thread.author.role}]
                   </span>
                 )}
-                <span className="gb-post-time">{formatDate(thread.createdAt)}</span>
+                <span className="gb-post-time">
+                  {formatDate(thread.createdAt)}
+                  {threadEdited && (
+                    <span style={{ color: "var(--gb-gray)", marginLeft: 4 }} title={`edited ${formatDate(threadEdited)}`}>
+                      (edited {relativeTime(threadEdited)})
+                    </span>
+                  )}
+                </span>
               </div>
               {threadEditing ? (
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

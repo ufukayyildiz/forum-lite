@@ -140,11 +140,16 @@ app.patch("/:id", requireAuth, zValidator("json", z.object({ content: z.string()
   if (!post) return c.json({ error: "Post not found" }, 404);
   if (post.userId !== user.id && user.role === "member") return c.json({ error: "You do not have permission" }, 403);
   const { content } = c.req.valid("json");
+  const now = new Date();
   const [updated] = await db
     .update(schema.posts)
-    .set({ content, editedAt: new Date() })
+    .set({ content, editedAt: now })
     .where(eq(schema.posts.id, id))
     .returning();
+  await db
+    .update(schema.threads)
+    .set({ updatedAt: now })
+    .where(eq(schema.threads.id, post.threadId));
   return c.json({ id: updated.id, content: updated.content, editedAt: updated.editedAt ? safeISO(updated.editedAt) : null });
 });
 
