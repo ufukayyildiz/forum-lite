@@ -5,6 +5,8 @@ import { api } from "../../lib/api";
 import { relativeTime } from "../../lib/utils";
 import { GbSelect, type GbSelectOption } from "../../components/GbSelect";
 
+const MAX_BULK_RECIPIENTS = 20;
+
 type MarketingUser = {
   id: number;
   username: string;
@@ -23,6 +25,7 @@ export default function AdminMarketing() {
   const qc = useQueryClient();
   const [q, setQ] = useState("");
   const [selectedId, setSelectedId] = useState<number | "">("");
+  const [checkedIds, setCheckedIds] = useState<number[]>([]);
   const [page, setPage] = useState(1);
   const [previewOpen, setPreviewOpen] = useState(false);
 
@@ -48,6 +51,16 @@ export default function AdminMarketing() {
     unsubscribed: audience.filter((u: any) => u.marketingStatus === "unsubscribed").length,
     suppressed: audience.filter((u: any) => u.marketingStatus === "suppressed").length,
   }), [audience]);
+  const checkedUsers = useMemo(
+    () => checkedIds
+      .map((id) => audience.find((u: MarketingUser) => u.id === id))
+      .filter(Boolean) as MarketingUser[],
+    [audience, checkedIds],
+  );
+  const eligibleAudience = useMemo(
+    () => audience.filter((u: MarketingUser) => u.canReceiveMarketing),
+    [audience],
+  );
   const recipientUsers = useMemo(() => {
     const group = (user: MarketingUser) => {
       if (!user.canReceiveMarketing) return 2;
@@ -70,17 +83,47 @@ export default function AdminMarketing() {
   })), [recipientUsers]);
 
   const send = useMutation({
-    mutationFn: (body: { test?: boolean; userId?: number }) =>
+    mutationFn: (body: { test?: boolean; userId?: number; userIds?: number[] }) =>
       api.adminSendMarketing({ campaignKey: template.data?.campaignKey ?? "we-are-back", ...body }),
     onSuccess: (res, vars) => {
       qc.invalidateQueries({ queryKey: ["admin-marketing-users"] });
       qc.invalidateQueries({ queryKey: ["admin-marketing-sends"] });
       qc.invalidateQueries({ queryKey: ["admin-email-events"] });
-      if (res.status === "sent") toast.success(vars.test ? "Test email sent" : "Campaign email sent");
+      if (vars.userIds?.length) {
+        toast.success(`Bulk sent: ${res.sent ?? 0}/${res.total ?? vars.userIds.length}`);
+        setCheckedIds([]);
+      } else if (res.status === "sent") toast.success(vars.test ? "Test email sent" : "Campaign email sent");
       else toast.warning(`Email ${res.status}`);
     },
     onError: (e: any) => toast.error(e.message),
   });
+
+  function toggleChecked(user: MarketingUser) {
+    if (!user.canReceiveMarketing) return;
+    setCheckedIds((current) => {
+      if (current.includes(user.id)) return current.filter((id) => id !== user.id);
+      if (current.length >= MAX_BULK_RECIPIENTS) {
+        toast.error(`Max ${MAX_BULK_RECIPIENTS} users`);
+        return current;
+      }
+      return [...current, user.id];
+    });
+  }
+
+  function toggleFirstVisible() {
+    setCheckedIds((current) => {
+      const visibleIds = eligibleAudience.map((u: MarketingUser) => u.id);
+      const allVisibleSelected = visibleIds.length > 0 && visibleIds.slice(0, MAX_BULK_RECIPIENTS).every((id) => current.includes(id));
+      if (allVisibleSelected) return current.filter((id) => !visibleIds.includes(id));
+      const next = [...current];
+      for (const id of visibleIds) {
+        if (next.length >= MAX_BULK_RECIPIENTS) break;
+        if (!next.includes(id)) next.push(id);
+      }
+      if (visibleIds.length > MAX_BULK_RECIPIENTS || next.length >= MAX_BULK_RECIPIENTS) toast.message(`Selected first ${MAX_BULK_RECIPIENTS} eligible users`);
+      return next;
+    });
+  }
 
   const totalPages = sends.data ? Math.max(1, Math.ceil(sends.data.total / sends.data.perPage)) : 1;
   const engagement = (count: number, at?: string | null) => (
@@ -107,6 +150,13 @@ export default function AdminMarketing() {
           <div className="gb-admin-marketing-actions">
             <button className="gb-btn" type="button" onClick={() => setPreviewOpen(true)}>$ preview template</button>
             <button className="gb-btn" disabled={send.isPending} onClick={() => send.mutate({ test: true })}>$ send test to me</button>
+            <button
+              className="gb-btn gb-btn-primary"
+              disabled={!checkedIds.length || send.isPending}
+              onClick={() => checkedIds.length && send.mutate({ userIds: checkedIds })}
+            >
+              $ send checked ({checkedIds.length})
+            </button>
             <button
               className="gb-btn gb-btn-primary"
               disabled={!selectedUser || !selectedUser.canReceiveMarketing || send.isPending}
@@ -169,11 +219,24 @@ export default function AdminMarketing() {
             <span style={{ color: "var(--gb-green)", marginLeft: 10 }}>{audienceCounts.subscribed} subscribed</span>
             <span style={{ color: "var(--gb-yellow)", marginLeft: 10 }}>{audienceCounts.unsubscribed} unsubscribed</span>
             <span style={{ color: "var(--gb-red)", marginLeft: 10 }}>{audienceCounts.suppressed} suppressed</span>
+            <span style={{ color: checkedIds.length ? "var(--gb-yellow)" : "var(--gb-gray)", marginLeft: 10 }}>
+              {checkedIds.length}/{MAX_BULK_RECIPIENTS} checked
+            </span>
         </div>
+        {checkedUsers.length > 0 && (
+          <div style={{ color: "var(--gb-gray)", fontSize: 11, marginBottom: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            checked: {checkedUsers.map((u) => `@${u.username}`).join(", ")}
+          </div>
+        )}
         <div className="gb-admin-marketing-tablewrap">
           <table className="gb-table">
             <thead>
               <tr>
+                <th style={{ width: 34, textAlign: "center" }}>
+                  <button className="gb-check-all" type="button" onClick={toggleFirstVisible} title={`select up to ${MAX_BULK_RECIPIENTS}`}>
+                    ✓
+                  </button>
+                </th>
                 <th style={{ textAlign: "right", paddingRight: 16 }}>#</th>
                 <th>USER</th>
                 <th>EMAIL</th>
@@ -182,8 +245,22 @@ export default function AdminMarketing() {
               </tr>
             </thead>
             <tbody>
-              {audience.map((u: any, i: number) => (
+              {audience.map((u: MarketingUser, i: number) => {
+                const checked = checkedIds.includes(u.id);
+                const disabled = !u.canReceiveMarketing || (!checked && checkedIds.length >= MAX_BULK_RECIPIENTS);
+                return (
                 <tr key={u.id}>
+                  <td style={{ textAlign: "center" }}>
+                    <label className={`gb-check${disabled ? " is-disabled" : ""}`}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={disabled}
+                        onChange={() => toggleChecked(u)}
+                      />
+                      <span />
+                    </label>
+                  </td>
                   <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>{i + 1}</td>
                   <td>
                     <div style={{ color: "var(--gb-fg)", fontSize: 12 }}>{u.displayName}</div>
@@ -198,9 +275,10 @@ export default function AdminMarketing() {
                     {u.sendCount ? `${u.sendCount}x${u.lastSentAt ? ` ${relativeTime(u.lastSentAt)}` : ""}` : "-"}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
               {!users.isLoading && !audience.length && (
-                <tr><td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16 }}>~</td><td colSpan={4} style={{ color: "var(--gb-gray)" }}>no users found</td></tr>
+                <tr><td style={{ color: "var(--gb-gray)", textAlign: "center" }}>~</td><td colSpan={5} style={{ color: "var(--gb-gray)" }}>no users found</td></tr>
               )}
             </tbody>
           </table>

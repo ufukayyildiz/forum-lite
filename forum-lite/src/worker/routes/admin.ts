@@ -215,28 +215,41 @@ app.get("/marketing/users", async (c) => {
   const q = (c.req.query("q") ?? "").trim().toLowerCase();
   const campaign = c.req.query("campaign") || WE_ARE_BACK_CAMPAIGN;
   const like = `%${q}%`;
+  const statusOrder = "CASE WHEN es.email IS NOT NULL OR u.email_suppressed_at IS NOT NULL THEN 2 WHEN np.all_email = 0 OR np.marketing_email = 0 THEN 1 ELSE 0 END";
   const query = q
     ? `SELECT u.id, u.username, u.display_name AS displayName, u.email, u.email_suppressed_at AS emailSuppressedAt,
         np.all_email AS allEmail, np.marketing_email AS marketingEmail,
         es.email AS suppressedEmail, es.reason AS suppressionReason, es.updated_at AS suppressionUpdatedAt,
-        (SELECT MAX(ms.created_at) FROM marketing_sends ms WHERE ms.user_id = u.id AND ms.campaign_key = ?) AS lastSentAt,
-        (SELECT COUNT(*) FROM marketing_sends ms WHERE ms.user_id = u.id AND ms.campaign_key = ?) AS sendCount
+        ms.lastSentAt AS lastSentAt,
+        COALESCE(ms.sendCount, 0) AS sendCount
        FROM users u
        LEFT JOIN notification_preferences np ON np.user_id = u.id
        LEFT JOIN email_suppressions es ON LOWER(es.email) = LOWER(u.email)
+       LEFT JOIN (
+        SELECT user_id, MAX(created_at) AS lastSentAt, COUNT(*) AS sendCount
+        FROM marketing_sends
+        WHERE campaign_key = ?
+        GROUP BY user_id
+       ) ms ON ms.user_id = u.id
        WHERE u.banned = 0 AND (LOWER(u.username) LIKE ? OR LOWER(u.display_name) LIKE ? OR LOWER(u.email) LIKE ?)
-       ORDER BY CASE WHEN es.email IS NOT NULL OR u.email_suppressed_at IS NOT NULL THEN 2 WHEN np.all_email = 0 OR np.marketing_email = 0 THEN 1 ELSE 0 END DESC, u.username LIMIT 120`
+       ORDER BY ${statusOrder} ASC, u.username COLLATE NOCASE ASC`
     : `SELECT u.id, u.username, u.display_name AS displayName, u.email, u.email_suppressed_at AS emailSuppressedAt,
         np.all_email AS allEmail, np.marketing_email AS marketingEmail,
         es.email AS suppressedEmail, es.reason AS suppressionReason, es.updated_at AS suppressionUpdatedAt,
-        (SELECT MAX(ms.created_at) FROM marketing_sends ms WHERE ms.user_id = u.id AND ms.campaign_key = ?) AS lastSentAt,
-        (SELECT COUNT(*) FROM marketing_sends ms WHERE ms.user_id = u.id AND ms.campaign_key = ?) AS sendCount
+        ms.lastSentAt AS lastSentAt,
+        COALESCE(ms.sendCount, 0) AS sendCount
        FROM users u
        LEFT JOIN notification_preferences np ON np.user_id = u.id
        LEFT JOIN email_suppressions es ON LOWER(es.email) = LOWER(u.email)
+       LEFT JOIN (
+        SELECT user_id, MAX(created_at) AS lastSentAt, COUNT(*) AS sendCount
+        FROM marketing_sends
+        WHERE campaign_key = ?
+        GROUP BY user_id
+       ) ms ON ms.user_id = u.id
        WHERE u.banned = 0
-       ORDER BY CASE WHEN es.email IS NOT NULL OR u.email_suppressed_at IS NOT NULL THEN 2 WHEN np.all_email = 0 OR np.marketing_email = 0 THEN 1 ELSE 0 END DESC, u.created_at DESC LIMIT 120`;
-  const stmt = c.env.DB.prepare(query).bind(...(q ? [campaign, campaign, like, like, like] : [campaign, campaign]));
+       ORDER BY ${statusOrder} ASC, u.created_at DESC`;
+  const stmt = c.env.DB.prepare(query).bind(...(q ? [campaign, like, like, like] : [campaign]));
   const rows = await stmt.all<{
     id: number;
     username: string;
@@ -307,54 +320,100 @@ app.get("/marketing/sends", async (c) => {
 app.post("/marketing/send", zValidator("json", z.object({
   campaignKey: z.literal(WE_ARE_BACK_CAMPAIGN).default(WE_ARE_BACK_CAMPAIGN),
   userId: z.number().int().optional(),
+  userIds: z.array(z.number().int()).max(20).optional(),
   test: z.boolean().optional(),
 })), async (c) => {
   const db = c.get("db");
   const admin = c.get("user")!;
   const body = c.req.valid("json");
+  const emailSettings = await loadEmailSettings(db, c.req.url);
+  const sendOne = async (user: typeof schema.users.$inferSelect, mode: "test" | "single" | "bulk") => {
+    const previous = await db.query.marketingSends.findFirst({
+      where: and(eq(schema.marketingSends.campaignKey, body.campaignKey), eq(schema.marketingSends.userId, user.id)),
+      orderBy: desc(schema.marketingSends.createdAt),
+    });
+    const { siteUrl, from } = emailSettings;
+    const mail = weAreBackEmail({ recipientName: user.displayName, siteUrl });
+    const result = await sendManagedEmail({
+      db,
+      env: c.env,
+      user,
+      kind: "marketing",
+      ...mail,
+      siteUrl,
+      from,
+      campaignKey: body.campaignKey,
+      waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),
+    });
+
+    await db.insert(schema.marketingSends).values({
+      campaignKey: body.campaignKey,
+      userId: user.id,
+      email: user.email,
+      status: result.status,
+      emailEventId: result.eventId,
+      sentByUserId: admin.id,
+      createdAt: new Date(),
+    });
+    await db.insert(schema.activityLog).values({
+      userId: admin.id,
+      type: "marketing",
+      summary: `${mode === "test" ? "Tested" : "Sent"} ${body.campaignKey} to ${user.username} (${result.status})`,
+    });
+    return {
+      userId: user.id,
+      username: user.username,
+      email: user.email,
+      status: result.status,
+      previousSentAt: previous?.createdAt ? safeISO(previous.createdAt) : null,
+    };
+  };
+
+  if (!body.test && body.userIds?.length) {
+    const ids = [...new Set(body.userIds)].slice(0, 20);
+    if (!ids.length) return c.json({ error: "Select users" }, 400);
+    const results = [];
+    for (const id of ids) {
+      const user = await db.query.users.findFirst({ where: eq(schema.users.id, id) });
+      if (!user) {
+        results.push({ userId: id, status: "skipped", error: "User not found" });
+        continue;
+      }
+      results.push(await sendOne(user, "bulk"));
+    }
+    const counts = results.reduce<Record<string, number>>((acc, row) => {
+      acc[row.status] = (acc[row.status] ?? 0) + 1;
+      return acc;
+    }, {});
+    await db.insert(schema.activityLog).values({
+      userId: admin.id,
+      type: "marketing",
+      summary: `Bulk sent ${body.campaignKey} to ${ids.length} users (${counts.sent ?? 0} sent)`,
+    });
+    return c.json({
+      ok: (counts.sent ?? 0) > 0,
+      status: "bulk",
+      total: results.length,
+      sent: counts.sent ?? 0,
+      skipped: counts.skipped ?? 0,
+      suppressed: counts.suppressed ?? 0,
+      error: counts.error ?? 0,
+      results,
+    });
+  }
+
   const targetId = body.test ? admin.id : body.userId;
   if (!targetId) return c.json({ error: "Select a user" }, 400);
 
   const user = await db.query.users.findFirst({ where: eq(schema.users.id, targetId) });
   if (!user) return c.json({ error: "User not found" }, 404);
 
-  const previous = await db.query.marketingSends.findFirst({
-    where: and(eq(schema.marketingSends.campaignKey, body.campaignKey), eq(schema.marketingSends.userId, user.id)),
-    orderBy: desc(schema.marketingSends.createdAt),
-  });
-  const { siteUrl, from } = await loadEmailSettings(db, c.req.url);
-  const mail = weAreBackEmail({ recipientName: user.displayName, siteUrl });
-  const result = await sendManagedEmail({
-    db,
-    env: c.env,
-    user,
-    kind: "marketing",
-    ...mail,
-    siteUrl,
-    from,
-    campaignKey: body.campaignKey,
-    waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),
-  });
-
-  await db.insert(schema.marketingSends).values({
-    campaignKey: body.campaignKey,
-    userId: user.id,
-    email: user.email,
-    status: result.status,
-    emailEventId: result.eventId,
-    sentByUserId: admin.id,
-    createdAt: new Date(),
-  });
-  await db.insert(schema.activityLog).values({
-    userId: admin.id,
-    type: "marketing",
-    summary: `${body.test ? "Tested" : "Sent"} ${body.campaignKey} to ${user.username} (${result.status})`,
-  });
+  const result = await sendOne(user, body.test ? "test" : "single");
 
   return c.json({
     ok: result.status === "sent",
     status: result.status,
-    previousSentAt: previous?.createdAt ? safeISO(previous.createdAt) : null,
+    previousSentAt: result.previousSentAt,
   });
 });
 
