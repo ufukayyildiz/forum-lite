@@ -7,6 +7,7 @@ import { Toaster } from "sonner";
 import { queryClient } from "./lib/queryClient";
 import { primeQueryClientFromBootstrap } from "./lib/bootstrap";
 import { Layout } from "./components/layout/Layout";
+import { AppErrorBoundary } from "./components/AppErrorBoundary";
 import "./index.css";
 
 import HomePage from "./pages/HomePage";
@@ -35,10 +36,15 @@ import AdminMarketing from "./pages/admin/AdminMarketing";
 import AdminAnalytics from "./pages/admin/AdminAnalytics";
 import { AnalyticsTracker } from "./components/AnalyticsTracker";
 
-primeQueryClientFromBootstrap(queryClient);
+try {
+  primeQueryClientFromBootstrap(queryClient);
+} catch (error) {
+  console.warn("FSTDESK bootstrap skipped", error);
+}
 
 const app = (
   <React.StrictMode>
+    <AppErrorBoundary>
     <HelmetProvider>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
@@ -74,6 +80,7 @@ const app = (
       <Toaster position="bottom-right" theme="dark" richColors />
     </QueryClientProvider>
     </HelmetProvider>
+    </AppErrorBoundary>
   </React.StrictMode>
 );
 

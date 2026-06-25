@@ -32,13 +32,26 @@ function readBootstrapPayload(): BootstrapPayload | null {
 }
 
 export function primeQueryClientFromBootstrap(queryClient: QueryClient) {
-  const payload = readBootstrapPayload();
-  if (!payload?.queries?.length) return;
+  let payload: BootstrapPayload | null = null;
+  try {
+    payload = readBootstrapPayload();
+  } catch (error) {
+    console.warn("FSTDESK bootstrap read failed", error);
+  }
+  if (!payload?.queries?.length) {
+    document.getElementById("__FSTDESK_BOOTSTRAP__")?.remove();
+    delete window.__FSTDESK_BOOTSTRAP__;
+    return;
+  }
 
   const now = Date.now();
   for (const query of payload.queries) {
     if (!Array.isArray(query.key)) continue;
-    queryClient.setQueryData(query.key, query.data, { updatedAt: query.updatedAt ?? now });
+    try {
+      queryClient.setQueryData(query.key, query.data, { updatedAt: query.updatedAt ?? now });
+    } catch (error) {
+      console.warn("FSTDESK bootstrap query skipped", query.key, error);
+    }
   }
 
   document.getElementById("__FSTDESK_BOOTSTRAP__")?.remove();

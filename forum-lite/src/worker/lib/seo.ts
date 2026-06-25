@@ -1391,10 +1391,9 @@ export async function renderSeoHtml(c: AppContext): Promise<Response> {
   const html = injectHtml(await assetResponse.text(), payload, base, url, bootstrap);
   const headers = new Headers(assetResponse.headers);
   headers.set("content-type", "text/html; charset=utf-8");
-  headers.set(
-    "cache-control",
-    payload.robots?.startsWith("noindex") ? "no-store, max-age=0" : "public, max-age=0, must-revalidate",
-  );
+  headers.set("cache-control", "no-store, max-age=0, must-revalidate");
+  headers.set("cdn-cache-control", "no-store");
+  headers.set("cloudflare-cdn-cache-control", "no-store");
   headers.set("vary", "Accept");
   return new Response(html, { status: payload.status ?? assetResponse.status, headers });
 }

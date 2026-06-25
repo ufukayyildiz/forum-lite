@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "postbuild": "node scripts/compat-client-assets.mjs",
     "preview": "vite preview",
     "deploy": "npm run build && node scripts/prepare-deploy-config.mjs && wrangler deploy --config dist/*/wrangler.json",
     "cf-typegen": "wrangler types",
