@@ -19,7 +19,8 @@ export default function AdminBounces() {
       qc.invalidateQueries({ queryKey: ["admin-marketing-users"] });
       qc.invalidateQueries({ queryKey: ["admin-marketing-sends"] });
       const message = `CF sync: ${result.localUpdates} updated, ${result.deliveryFailures} failures`;
-      if (result.errors.length) toast.warning(`${message}; ${result.errors[0]}`);
+      if (!result.configured) toast.error("CF sync secrets are missing: CF_ACCOUNT_ID / CF_EMAIL_API_TOKEN");
+      else if (result.errors.length) toast.warning(`${message}; ${result.errors[0]}`);
       else toast.success(message);
     },
     onError: (error: any) => toast.error(error.message || "CF sync failed"),
@@ -55,8 +56,13 @@ export default function AdminBounces() {
             {sync.isPending ? "$ syncing cf..." : "$ sync cf failures"}
           </button>
           <span style={{ color: "var(--gb-gray)", fontSize: 11 }}>
-            imports Cloudflare suppression list + last 72h deliveryFailed events
+            imports Cloudflare suppression list + last 72h failed/rejected events
           </span>
+          {!data.syncConfigured && (
+            <span style={{ color: "var(--gb-red)", fontSize: 11 }}>
+              CF sync disabled: set CF_ACCOUNT_ID and CF_EMAIL_API_TOKEN Worker secrets
+            </span>
+          )}
         </div>
       )}
 

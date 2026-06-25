@@ -5,9 +5,10 @@
 // Usage:  npx wrangler dev --config wrangler.local.jsonc
 //         npx wrangler d1 migrations apply forum-db --local --config wrangler.local.jsonc
 // Optional suppression API secrets:
-//         npx wrangler secret put CF_ACCOUNT_ID
-//         npx wrangler secret put CF_EMAIL_API_TOKEN
-//         npx wrangler secret put CF_ZONE_ID   (zone that owns the sending domain)
+//         npx wrangler secret put CF_ACCOUNT_ID --config wrangler.local.jsonc
+//         npx wrangler secret put CF_EMAIL_API_TOKEN --config wrangler.local.jsonc
+//         npx wrangler secret put CF_ZONE_ID --config wrangler.local.jsonc
+// The token needs Email Sending suppression read/write + GraphQL Analytics read.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "forum-lite",
@@ -20,6 +21,9 @@
       "invocation_logs": true,
       "persist": true
     }
+  },
+  "triggers": {
+    "crons": ["*/10 * * * *"]
   },
   "assets": {
     "binding": "ASSETS",

@@ -230,11 +230,11 @@ export const api = {
     patch<{ ok: boolean; user: PublicUser }>(`/admin/users/${id}`, data),
   adminDeleteUser: (id: number) => del<{ ok: boolean }>(`/admin/users/${id}`),
   adminLogs: (page = 1) => get<{ logs: any[]; total: number; page: number; perPage: number }>(`/admin/logs?page=${page}`),
-  adminEmailSuppressions: (page = 1) => get<{ suppressions: any[]; total: number; page: number; perPage: number }>(`/admin/email-suppressions?page=${page}`),
+  adminEmailSuppressions: (page = 1) => get<{ suppressions: any[]; syncConfigured: boolean; total: number; page: number; perPage: number }>(`/admin/email-suppressions?page=${page}`),
   adminAddEmailSuppression: (email: string, reason = "manual_admin_suppression") =>
     post<{ ok: boolean; email: string }>("/admin/email-suppressions", { email, reason }),
   adminSyncEmailSuppressions: (hours = 72) =>
-    post<{ ok: boolean; hours: number; cfSuppressions: number; deliveryFailures: number; localUpdates: number; errors: string[] }>(
+    post<{ ok: boolean; configured: boolean; hours: number; cfSuppressions: number; deliveryFailures: number; localUpdates: number; errors: string[] }>(
       "/admin/email-suppressions/sync",
       { hours },
     ),

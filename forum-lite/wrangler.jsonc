@@ -12,6 +12,9 @@
       "persist": true
     }
   },
+  "triggers": {
+    "crons": ["*/10 * * * *"]
+  },
   "assets": {
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",

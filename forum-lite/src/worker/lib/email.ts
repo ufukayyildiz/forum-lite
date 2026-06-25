@@ -29,6 +29,10 @@ export type CloudflareEmailFailure = {
   errorDetail?: string;
 };
 
+export function cloudflareEmailApiConfigured(env: Bindings): boolean {
+  return Boolean(env.CF_ACCOUNT_ID && env.CF_EMAIL_API_TOKEN);
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -223,6 +227,25 @@ async function findZoneId(env: Bindings, sendingDomain: string): Promise<string>
   return zone.id;
 }
 
+function isDeliveryFailure(row: CloudflareEmailFailure): boolean {
+  const haystack = [
+    row.status,
+    row.eventType,
+    row.errorCause,
+    row.errorDetail,
+  ].filter(Boolean).join(" ").toLowerCase();
+  return /\b(deliveryfailed|delivery failed|failed|failure|rejected|reject|errored|error|bounce|bounced)\b/.test(haystack) ||
+    /\b(4\d\d|5\d\d|4\.\d\.\d|5\.\d\.\d|quota|overquota|out of storage|mailbox full|recipient.*storage)\b/.test(haystack);
+}
+
+function matchesSendingDomain(row: CloudflareEmailFailure, sendingDomain: string): boolean {
+  const domain = sendingDomain.replace(/^.*@/, "").toLowerCase();
+  if (!domain) return true;
+  const from = String(row.from ?? "").toLowerCase();
+  const eventDomain = String(row.sendingDomain ?? "").toLowerCase();
+  return eventDomain === domain || eventDomain.endsWith(`.${domain}`) || from.endsWith(`@${domain}`);
+}
+
 export async function listCloudflareDeliveryFailures(
   env: Bindings,
   opts: { sendingDomain: string; hours?: number },
@@ -238,7 +261,7 @@ export async function listCloudflareDeliveryFailures(
       viewer {
         zones(filter: { zoneTag: $zoneTag }) {
           emailSendingAdaptive(
-            filter: { datetime_geq: $start, datetime_leq: $end, status: "deliveryFailed" }
+            filter: { datetime_geq: $start, datetime_leq: $end }
             limit: 1000
             orderBy: [datetime_DESC]
           ) {
@@ -269,5 +292,5 @@ export async function listCloudflareDeliveryFailures(
     },
   );
   const rows = body.data?.viewer?.zones?.[0]?.emailSendingAdaptive ?? [];
-  return rows.filter((row) => String(row.status ?? "").toLowerCase() === "deliveryfailed" && Boolean(row.to));
+  return rows.filter((row) => Boolean(row.to) && matchesSendingDomain(row, opts.sendingDomain) && isDeliveryFailure(row));
 }

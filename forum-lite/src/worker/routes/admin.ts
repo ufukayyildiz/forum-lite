@@ -7,8 +7,9 @@ import { requireRole } from "../lib/middleware";
 import { safeISO } from "../lib/auth";
 import { toPublicUser, type AppEnv } from "../types";
 import { loadEmailSettings, sendManagedEmail, weAreBackEmail } from "../lib/notifications";
-import { listCloudflareDeliveryFailures, listCloudflareSuppressions } from "../lib/email";
+import { cloudflareEmailApiConfigured } from "../lib/email";
 import { recordEmailSuppression } from "../lib/email-suppression";
+import { syncCloudflareEmailSuppressions } from "../lib/email-sync";
 
 const app = new Hono<AppEnv>();
 const WE_ARE_BACK_CAMPAIGN = "we-are-back";
@@ -86,6 +87,7 @@ app.get("/email-suppressions", async (c) => {
       updatedAt: safeISO(row.updatedAt),
       cfSuppressedAt: row.cfSuppressedAt ? safeISO(row.cfSuppressedAt) : null,
     })),
+    syncConfigured: cloudflareEmailApiConfigured(c.env),
     total,
     page,
     perPage,
@@ -123,86 +125,12 @@ app.post("/email-suppressions/sync", zValidator("json", z.object({
 }).default({})), async (c) => {
   const db = c.get("db");
   const body = c.req.valid("json");
-  const hours = body.hours ?? 72;
-  const { from } = await loadEmailSettings(db, c.req.url);
-  const sendingDomain = from.replace(/^.*@/, "").toLowerCase();
-  const errors: string[] = [];
-  let cfSuppressions = 0;
-  let deliveryFailures = 0;
-  let localUpdates = 0;
-  const seen = new Set<string>();
-
-  try {
-    const suppressions = await listCloudflareSuppressions(c.env);
-    for (const row of suppressions) {
-      const email = String(row.email ?? "").trim().toLowerCase();
-      if (!email || seen.has(email)) continue;
-      seen.add(email);
-      cfSuppressions += 1;
-      await recordEmailSuppression(db, c.env, email, {
-        reason: row.reason || "cloudflare_suppression",
-        source: "cf_suppression_sync",
-        details: JSON.stringify(row).slice(0, 2000),
-        skipCloudflareSync: true,
-      });
-      localUpdates += 1;
-    }
-  } catch (error) {
-    errors.push(`suppression list: ${error instanceof Error ? error.message : "sync failed"}`);
-  }
-
-  try {
-    const failures = await listCloudflareDeliveryFailures(c.env, { sendingDomain, hours });
-    deliveryFailures = failures.length;
-    const since = Math.floor(Date.now() / 1000) - hours * 3600;
-    for (const row of failures) {
-      const email = String(row.to ?? "").trim().toLowerCase();
-      if (!email || seen.has(email)) continue;
-      seen.add(email);
-      const detail = [
-        row.datetime,
-        row.status,
-        row.errorCause,
-        row.errorDetail,
-        row.subject ? `subject=${row.subject}` : "",
-        row.messageId ? `messageId=${row.messageId}` : "",
-      ].filter(Boolean).join(" | ");
-      await recordEmailSuppression(db, c.env, email, {
-        reason: "delivery_failed",
-        source: "cf_activity_sync",
-        details: detail,
-      });
-      await c.env.DB.prepare(
-        `UPDATE email_events
-         SET status = 'suppressed', message = ?, error_code = ?
-         WHERE LOWER(email) = ? AND created_at >= ?`,
-      ).bind(detail || "Cloudflare delivery failed", row.errorCause || "deliveryFailed", email, since).run();
-      await c.env.DB.prepare(
-        `UPDATE marketing_sends
-         SET status = 'suppressed'
-         WHERE LOWER(email) = ? AND created_at >= ?`,
-      ).bind(email, since).run();
-      localUpdates += 1;
-    }
-  } catch (error) {
-    errors.push(`delivery failures: ${error instanceof Error ? error.message : "sync failed"}`);
-  }
-
-  await db.insert(schema.activityLog).values({
+  const result = await syncCloudflareEmailSuppressions(db, c.env, {
+    requestUrl: c.req.url,
+    hours: body.hours ?? 72,
     userId: c.get("user")?.id ?? null,
-    type: "email_bounce",
-    summary: `Synced CF bounces: ${localUpdates} local updates, ${deliveryFailures} failures, ${cfSuppressions} suppressions`,
-    createdAt: new Date(),
   });
-
-  return c.json({
-    ok: errors.length === 0,
-    hours,
-    cfSuppressions,
-    deliveryFailures,
-    localUpdates,
-    errors,
-  });
+  return c.json(result);
 });
 
 app.patch("/users/:id/role", requireRole("admin"), zValidator("json", z.object({ role: z.enum(["admin", "moderator", "member"]) })), async (c) => {

@@ -20,6 +20,7 @@ import { parseBounceEmail } from "./lib/bounce";
 import { recordEmailSuppression } from "./lib/email-suppression";
 import { unsubscribeByToken } from "./lib/notifications";
 import { createAnalyticsPageview, updateAnalyticsDuration } from "./lib/analytics";
+import { syncCloudflareEmailSuppressions } from "./lib/email-sync";
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -419,7 +420,18 @@ async function handleInboundEmail(message: ForwardableEmailMessage, env: Binding
   });
 }
 
+async function handleScheduled(_controller: ScheduledController, env: Bindings, ctx: ExecutionContext): Promise<void> {
+  const db = getDb(env);
+  ctx.waitUntil(syncCloudflareEmailSuppressions(db, env, {
+    requestUrl: "https://fstdesk.com/",
+    hours: 72,
+    userId: null,
+    logMissingConfig: false,
+  }));
+}
+
 export default {
   fetch: app.fetch,
   email: handleInboundEmail,
+  scheduled: handleScheduled,
 };
