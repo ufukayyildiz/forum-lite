@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
@@ -7,6 +7,7 @@ import { GbToolbar } from "../components/layout/Header";
 import { useMe } from "../lib/useAuth";
 import { SEOHead } from "../components/SEOHead";
 import { threadPath } from "../lib/routes";
+import { ListAdRow, shouldShowListAd } from "../components/ListAdRow";
 
 const THREAD_ROWS = 15;
 
@@ -19,6 +20,7 @@ export default function HomePage() {
     queryFn: () => api.threads({ sort, all: 1 }),
     placeholderData: (previous) => previous,
   });
+  const { data: adsConfig } = useQuery({ queryKey: ["ads-config"], queryFn: api.adsConfig });
 
   const list = threads?.threads ?? [];
   const emptyCount = Math.max(0, THREAD_ROWS - list.length);
@@ -79,9 +81,17 @@ export default function HomePage() {
               </tr>
             </thead>
             <tbody>
-              {list.map((t, i) => (
-                <TopicRow key={t.id} thread={t} showCategory lineNum={i + 1} />
-              ))}
+              {list.map((t, i) => {
+                const position = i + 1;
+                return (
+                  <Fragment key={t.id}>
+                    <TopicRow thread={t} showCategory lineNum={position} />
+                    {shouldShowListAd(adsConfig, position, list.length) && (
+                      <ListAdRow config={adsConfig} index={position} colSpan={6} />
+                    )}
+                  </Fragment>
+                );
+              })}
               {!list.length && (
                 <tr>
                   <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16 }}>1</td>

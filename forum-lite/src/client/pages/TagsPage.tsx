@@ -1,13 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
+import { Fragment } from "react";
 import { api } from "../lib/api";
 import { GbToolbar } from "../components/layout/Header";
 import { SEOHead } from "../components/SEOHead";
+import { ListAdRow, shouldShowListAd } from "../components/ListAdRow";
 
 const VISIBLE_ROWS = 18;
 
 export default function TagsPage() {
   const { data: tags, isLoading } = useQuery({ queryKey: ["tags"], queryFn: api.tags });
+  const { data: adsConfig } = useQuery({ queryKey: ["ads-config"], queryFn: api.adsConfig });
   const showLoading = isLoading && !tags;
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
@@ -47,19 +50,27 @@ export default function TagsPage() {
               </tr>
             </thead>
             <tbody>
-              {tags?.map((t, i) => (
-                <tr key={t.id}>
-                  <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>{i + 1}</td>
-                  <td style={{ width: 20 }}>
-                    <span style={{ color: "var(--gb-aqua)", fontSize: 13 }}>#</span>
-                  </td>
-                  <td>
-                    <Link to={`/tag/${t.slug}`} className="gb-col-name" style={{ color: "var(--gb-aqua)" }}>{t.name}</Link>
-                  </td>
-                  <td style={{ textAlign: "right", paddingRight: 16, color: "var(--gb-fg4)", fontSize: 13 }}>{t.threadCount}</td>
-                  <td colSpan={2} />
-                </tr>
-              ))}
+              {tags?.map((t, i) => {
+                const position = i + 1;
+                return (
+                  <Fragment key={t.id}>
+                    <tr>
+                      <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>{position}</td>
+                      <td style={{ width: 20 }}>
+                        <span style={{ color: "var(--gb-aqua)", fontSize: 13 }}>#</span>
+                      </td>
+                      <td>
+                        <Link to={`/tag/${t.slug}`} className="gb-col-name" style={{ color: "var(--gb-aqua)" }}>{t.name}</Link>
+                      </td>
+                      <td style={{ textAlign: "right", paddingRight: 16, color: "var(--gb-fg4)", fontSize: 13 }}>{t.threadCount}</td>
+                      <td colSpan={2} />
+                    </tr>
+                    {shouldShowListAd(adsConfig, position, tags.length) && (
+                      <ListAdRow config={adsConfig} index={position} colSpan={6} />
+                    )}
+                  </Fragment>
+                );
+              })}
               {!tags?.length && (
                 <tr>
                   <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16 }}>~</td>

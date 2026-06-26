@@ -1,11 +1,12 @@
 import { useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { api } from "../lib/api";
 import { GbToolbar } from "../components/layout/Header";
 import { SEOHead } from "../components/SEOHead";
 import { TopicRow, EmptyRows } from "../components/TopicRow";
 import { threadPath } from "../lib/routes";
+import { ListAdRow, shouldShowListAd } from "../components/ListAdRow";
 
 const VISIBLE_ROWS = 20;
 
@@ -19,6 +20,7 @@ export default function TagDetailPage() {
     enabled: !!slug,
     placeholderData: (previous) => previous,
   });
+  const { data: adsConfig } = useQuery({ queryKey: ["ads-config"], queryFn: api.adsConfig });
 
   const threads = data?.threads ?? [];
   const tag = data?.tag;
@@ -95,9 +97,17 @@ export default function TagDetailPage() {
                   </td>
                 </tr>
               )}
-              {threads.map((t, i) => (
-                <TopicRow key={t.id} thread={t} lineNum={i + 1} />
-              ))}
+              {threads.map((t, i) => {
+                const position = i + 1;
+                return (
+                  <Fragment key={t.id}>
+                    <TopicRow thread={t} lineNum={position} />
+                    {shouldShowListAd(adsConfig, position, threads.length) && (
+                      <ListAdRow config={adsConfig} index={position} colSpan={6} />
+                    )}
+                  </Fragment>
+                );
+              })}
               <EmptyRows count={emptyCount} />
             </tbody>
           </table>

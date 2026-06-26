@@ -541,6 +541,15 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
 .gb-table tr.selected td:first-child { color: var(--gb-yellow); }
 .gb-table .empty-row td { color: var(--gb-bg3); border-bottom: none; padding: 1px 0 1px 0; }
 .gb-table .empty-row td:first-child { padding-right: 16px; }
+.gb-table .gb-ad-table-row td,
+.gb-table .gb-ad-table-row:hover td {
+  padding: 0;
+  background: transparent;
+  border-bottom: none;
+}
+.gb-table .gb-ad-table-row .gb-ad-slot {
+  margin: 8px 0;
+}
 
 /* Column helpers */
 .gb-col-name {
@@ -572,8 +581,8 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
   white-space: nowrap;
 }
 .gb-topic-cat {
-  flex: 0 1 auto;
-  max-width: clamp(84px, 18vw, 190px);
+  flex: 0 0 auto;
+  max-width: min(260px, 34vw);
   margin-left: 8px;
   overflow: hidden;
   text-overflow: ellipsis;

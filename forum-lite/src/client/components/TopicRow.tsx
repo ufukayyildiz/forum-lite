@@ -39,6 +39,7 @@ export function TopicRow({ thread, showCategory = true, lineNum }: Props) {
               to={categoryPath(thread.category)}
               className="gb-cat"
               style={{ borderColor: catColor, fontSize: 11 }}
+              title={thread.category.name}
             >
               {thread.category.name.toLowerCase()}
             </Link>

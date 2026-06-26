@@ -1,5 +1,6 @@
 import { useParams, Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { Fragment } from "react";
 import { api } from "../lib/api";
 import { TopicRow, EmptyRows } from "../components/TopicRow";
 import { useMe } from "../lib/useAuth";
@@ -7,6 +8,7 @@ import { GbToolbar } from "../components/layout/Header";
 import { Plus } from "lucide-react";
 import { SEOHead } from "../components/SEOHead";
 import { categoryPath, threadPath } from "../lib/routes";
+import { ListAdRow, shouldShowListAd } from "../components/ListAdRow";
 
 const VISIBLE_ROWS = 18;
 
@@ -23,6 +25,7 @@ export default function CategoryPage() {
     enabled: !!catId,
     placeholderData: (previous) => previous,
   });
+  const { data: adsConfig } = useQuery({ queryKey: ["ads-config"], queryFn: api.adsConfig });
 
   const list = data?.threads ?? [];
   const emptyCount = Math.max(0, VISIBLE_ROWS - list.length);
@@ -93,9 +96,17 @@ export default function CategoryPage() {
               </tr>
             </thead>
             <tbody>
-              {list.map((t, i) => (
-                <TopicRow key={t.id} thread={t} showCategory={false} lineNum={i + 1} />
-              ))}
+              {list.map((t, i) => {
+                const position = i + 1;
+                return (
+                  <Fragment key={t.id}>
+                    <TopicRow thread={t} showCategory={false} lineNum={position} />
+                    {shouldShowListAd(adsConfig, position, list.length) && (
+                      <ListAdRow config={adsConfig} index={position} colSpan={6} />
+                    )}
+                  </Fragment>
+                );
+              })}
               {!list.length && (
                 <tr>
                   <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16 }}>1</td>

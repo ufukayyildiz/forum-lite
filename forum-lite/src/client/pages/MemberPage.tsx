@@ -1,6 +1,6 @@
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { Edit2 } from "lucide-react";
 import { api, type EmailPreferences } from "../lib/api";
 import { DAvatar } from "../components/DAvatar";
@@ -11,6 +11,7 @@ import { SEOHead } from "../components/SEOHead";
 import { categoryPathFromRow } from "../lib/routes";
 import { toast } from "sonner";
 import { ThreadLink } from "../components/ThreadLink";
+import { ListAdRow, shouldShowListAd } from "../components/ListAdRow";
 
 const ROLE_LABEL: Record<string, string> = { admin: "[admin]", moderator: "[mod]", member: "[member]" };
 const ROLE_COLOR: Record<string, string> = { admin: "var(--gb-red)", moderator: "var(--gb-blue)", member: "var(--gb-gray)" };
@@ -53,6 +54,7 @@ export default function MemberPage() {
     enabled: !!username,
     placeholderData: (previous) => previous,
   });
+  const { data: adsConfig } = useQuery({ queryKey: ["ads-config"], queryFn: api.adsConfig });
 
   const update = useMutation({
     mutationFn: () => {
@@ -235,28 +237,36 @@ export default function MemberPage() {
               </tr>
             </thead>
             <tbody>
-              {threads.map((t: any, i: number) => (
-                <tr key={t.id}>
-                  <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>{i + 1}</td>
-                  <td style={{ width: 20 }}><span style={{ color: "var(--gb-green)", fontSize: 13 }}>#</span></td>
-                  <td className="gb-topic-cell">
-                    <div className="gb-topic-line">
-                      <ThreadLink thread={t} className="gb-col-name gb-topic-title" style={{ color: "var(--gb-fg)" }}>{t.title}</ThreadLink>
-                      {t.categoryName && (
-                        <Link to={categoryPathFromRow(t)} className="gb-cat gb-topic-cat" style={{ fontSize: 11 }}>
-                          {t.categoryName.toLowerCase()}
-                        </Link>
-                      )}
-                    </div>
-                  </td>
-                  <td style={{ textAlign: "right", paddingRight: 16, color: "var(--gb-aqua)", fontSize: 13 }}>
-                    {t.replyCount ?? 0}
-                  </td>
-                  <td style={{ textAlign: "right", paddingRight: 12, color: "var(--gb-gray)", fontSize: 12, whiteSpace: "nowrap" }}>
-                    {relativeTime(t.activityAt ?? t.lastPostAt ?? t.createdAt)}
-                  </td>
-                </tr>
-              ))}
+              {threads.map((t: any, i: number) => {
+                const position = i + 1;
+                return (
+                  <Fragment key={t.id}>
+                    <tr>
+                      <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>{position}</td>
+                      <td style={{ width: 20 }}><span style={{ color: "var(--gb-green)", fontSize: 13 }}>#</span></td>
+                      <td className="gb-topic-cell">
+                        <div className="gb-topic-line">
+                          <ThreadLink thread={t} className="gb-col-name gb-topic-title" style={{ color: "var(--gb-fg)" }}>{t.title}</ThreadLink>
+                          {t.categoryName && (
+                            <Link to={categoryPathFromRow(t)} className="gb-cat gb-topic-cat" style={{ fontSize: 11 }} title={t.categoryName}>
+                              {t.categoryName.toLowerCase()}
+                            </Link>
+                          )}
+                        </div>
+                      </td>
+                      <td style={{ textAlign: "right", paddingRight: 16, color: "var(--gb-aqua)", fontSize: 13 }}>
+                        {t.replyCount ?? 0}
+                      </td>
+                      <td style={{ textAlign: "right", paddingRight: 12, color: "var(--gb-gray)", fontSize: 12, whiteSpace: "nowrap" }}>
+                        {relativeTime(t.activityAt ?? t.lastPostAt ?? t.createdAt)}
+                      </td>
+                    </tr>
+                    {shouldShowListAd(adsConfig, position, threads.length) && (
+                      <ListAdRow config={adsConfig} index={position} colSpan={5} />
+                    )}
+                  </Fragment>
+                );
+              })}
               {!threads.length && (
                 <tr>
                   <td style={{ color: "var(--gb-bg3)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>~</td>
@@ -288,28 +298,36 @@ export default function MemberPage() {
               </tr>
             </thead>
             <tbody>
-              {replies.map((p: any, i: number) => (
-                <tr key={p.id}>
-                  <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>{i + 1}</td>
-                  <td style={{ width: 20 }}><span style={{ color: "var(--gb-aqua)", fontSize: 13 }}>~</span></td>
-                  <td className="gb-topic-cell" style={{ minWidth: 0 }}>
-                    <div className="gb-topic-line">
-                      <ThreadLink thread={{ id: p.threadId, publicId: p.threadPublicId }} className="gb-col-name gb-topic-title" style={{ color: "var(--gb-fg)" }}>{p.threadTitle}</ThreadLink>
-                      {p.categoryName && (
-                        <Link to={categoryPathFromRow(p)} className="gb-cat gb-topic-cat" style={{ fontSize: 11 }}>
-                          {p.categoryName.toLowerCase()}
-                        </Link>
-                      )}
-                    </div>
-                  </td>
-                  <td style={{ color: "var(--gb-fg4)", fontSize: 12 }}>
-                    {previewText(p.content)}
-                  </td>
-                  <td style={{ textAlign: "right", paddingRight: 12, color: "var(--gb-gray)", fontSize: 12, whiteSpace: "nowrap" }}>
-                    {relativeTime(p.createdAt)}
-                  </td>
-                </tr>
-              ))}
+              {replies.map((p: any, i: number) => {
+                const position = i + 1;
+                return (
+                  <Fragment key={p.id}>
+                    <tr>
+                      <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>{position}</td>
+                      <td style={{ width: 20 }}><span style={{ color: "var(--gb-aqua)", fontSize: 13 }}>~</span></td>
+                      <td className="gb-topic-cell" style={{ minWidth: 0 }}>
+                        <div className="gb-topic-line">
+                          <ThreadLink thread={{ id: p.threadId, publicId: p.threadPublicId }} className="gb-col-name gb-topic-title" style={{ color: "var(--gb-fg)" }}>{p.threadTitle}</ThreadLink>
+                          {p.categoryName && (
+                            <Link to={categoryPathFromRow(p)} className="gb-cat gb-topic-cat" style={{ fontSize: 11 }} title={p.categoryName}>
+                              {p.categoryName.toLowerCase()}
+                            </Link>
+                          )}
+                        </div>
+                      </td>
+                      <td style={{ color: "var(--gb-fg4)", fontSize: 12 }}>
+                        {previewText(p.content)}
+                      </td>
+                      <td style={{ textAlign: "right", paddingRight: 12, color: "var(--gb-gray)", fontSize: 12, whiteSpace: "nowrap" }}>
+                        {relativeTime(p.createdAt)}
+                      </td>
+                    </tr>
+                    {shouldShowListAd(adsConfig, position, replies.length) && (
+                      <ListAdRow config={adsConfig} index={position} colSpan={5} />
+                    )}
+                  </Fragment>
+                );
+              })}
               {!replies.length && (
                 <tr>
                   <td style={{ color: "var(--gb-bg3)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>~</td>
