@@ -79,6 +79,9 @@ function classifyLocalEmailError(email: string, detail: string): EmailFailureCla
   if (text.includes("preflight_domain_no_mx")) {
     return local("domain_no_mx", "domain has no MX", "medium", "review", 60, "The domain has no MX record. A/AAAA fallback exists, but mail delivery may be unreliable.");
   }
+  if (text.includes("preflight_ok") || text.includes("preflight_reachable")) {
+    return local("preflight_ok", "checked ok", "low", "ignore", 5, "Preflight checks passed. No email was sent.");
+  }
   return classifyCloudflareEmailFailure({
     to: email,
     status: "local_error",
@@ -373,7 +376,7 @@ app.get("/email-verify", async (c) => {
     c.env.DB.prepare(
       `SELECT email, subject, status, message, error_code AS errorCode, created_at AS createdAt
        FROM email_events
-       WHERE kind = 'email_verify' AND status IN ('error', 'suppressed', 'preflight_risky')
+       WHERE kind = 'email_verify' AND status IN ('error', 'suppressed', 'preflight_risky', 'preflight_ok')
        ORDER BY created_at DESC
        LIMIT 500`,
     ).all<{ email: string; subject: string; status: string; message: string | null; errorCode: string | null; createdAt: number }>(),

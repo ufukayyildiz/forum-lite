@@ -1089,6 +1089,23 @@ textarea.gb-input {
   top: 0;
 }
 
+.gb-email-verify-table-wrap {
+  min-height: 0;
+  max-height: min(620px, calc(100dvh - 350px));
+  overflow: auto;
+  border: 1px solid var(--gb-bg2);
+  background: var(--gb-bg);
+}
+
+.gb-email-verify-table {
+  min-width: 920px;
+}
+
+.gb-email-verify-table th {
+  top: 0;
+  z-index: 3;
+}
+
 /* ── Admin analytics ─────────────────────────────────────── */
 .gb-analytics-page {
   display: flex;
