@@ -41,7 +41,7 @@ function preflightLabel(preflight: AdminEmailVerifyRow["preflight"] | undefined)
   if (preflight.disposable) return "disposable";
   if (!preflight.domainExists) return "no DNS";
   if (!preflight.hasMx) return "no MX, A fallback";
-  return "MX ok";
+  return "DNS/MX passed, mailbox unknown";
 }
 
 export default function AdminEmailVerify() {
@@ -101,11 +101,11 @@ export default function AdminEmailVerify() {
         ...current,
         phase: "done",
         results: result.results ?? [],
-        message: `Completed: ${result.okPreflight} ok, ${result.risky} risky, ${result.error} errors, ${result.remaining} remaining. 0 emails sent.`,
+        message: `Completed: ${result.okPreflight} DNS/MX passed, ${result.risky} risky, ${result.error} errors, ${result.remaining} remaining. 0 emails sent. Mailbox existence and inbox quota remain unknown until a real delivery failure is returned.`,
       } : current);
       setSelected(new Set());
       refreshAll();
-      toast.success(`Preflight batch: ${result.okPreflight} ok, ${result.risky} risky, ${result.error} errors, ${result.remaining} remaining, 0 emails sent`);
+      toast.success(`Preflight batch: ${result.okPreflight} DNS/MX passed, ${result.risky} risky, ${result.error} errors, ${result.remaining} remaining, 0 emails sent`);
     },
     onError: (error: any) => {
       const message = error.message || "Verify failed";
@@ -172,7 +172,7 @@ export default function AdminEmailVerify() {
               Scans Cloudflare failed/rejected events and checks never-emailed users with syntax, typo, disposable, MX and A/AAAA preflight. Mailbox/full-inbox status is classified only after Cloudflare returns a delivery failure.
             </p>
             <p style={{ margin: "6px 0 0", color: "var(--gb-yellow)", maxWidth: 920 }}>
-              No email is sent from this screen. Use Marketing or Notify for actual sending.
+              No email is sent from this screen. A green result means DNS/MX passed; it does not prove mailbox existence or inbox quota.
             </p>
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -363,7 +363,7 @@ export default function AdminEmailVerify() {
             <div className="gb-send-log">
               <div style={{ display: "flex", gap: 12, flexWrap: "wrap", padding: "10px 0", color: "var(--gb-gray)", fontSize: 12 }}>
                 <span><strong style={{ color: "var(--gb-yellow)" }}>{verifyLog.queued.length}</strong> queued</span>
-                <span><strong style={{ color: "var(--gb-green)" }}>{verifyLog.results.filter((row) => row.status === "preflight_ok").length}</strong> ok</span>
+                <span><strong style={{ color: "var(--gb-green)" }}>{verifyLog.results.filter((row) => row.status === "preflight_ok").length}</strong> DNS/MX passed</span>
                 <span><strong style={{ color: "var(--gb-red)" }}>{verifyLog.results.filter((row) => row.status === "preflight_risky").length}</strong> risky</span>
                 <span><strong style={{ color: "var(--gb-yellow)" }}>0</strong> emails sent</span>
                 <span>{verifyLog.mode === "selected" ? "selected run" : "next batch"}</span>
@@ -393,7 +393,7 @@ export default function AdminEmailVerify() {
                         color: row.status === "preflight_ok" ? "var(--gb-green)" : row.status === "checking" ? "var(--gb-yellow)" : "var(--gb-red)",
                         fontSize: 12,
                       }}>
-                        {row.status}
+                        {row.status === "preflight_ok" ? "DNS/MX passed" : row.status}
                       </td>
                       <td style={{ color: "var(--gb-gray)", fontSize: 11 }}>
                         {row.preflight

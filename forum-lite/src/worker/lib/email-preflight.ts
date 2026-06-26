@@ -316,12 +316,12 @@ export function classificationForPreflight(result: EmailPreflightResult): EmailF
   return {
     email: result.email,
     category: "domain_deliverable",
-    label: "domain deliverable",
+    label: "DNS/MX passed",
     risk: "low",
     action: "ignore",
     score: 10,
     temporary: false,
-    reason: "Syntax, domain and MX checks passed.",
+    reason: "Syntax, typo, disposable, domain and MX checks passed. Mailbox existence and inbox quota are unknown until a real delivery failure is returned.",
     evidence: result.mxRecords.length ? result.mxRecords.map((record) => `MX ${record}`) : ["MX present"],
   };
 }

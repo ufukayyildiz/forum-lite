@@ -80,7 +80,7 @@ function classifyLocalEmailError(email: string, detail: string): EmailFailureCla
     return local("domain_no_mx", "domain has no MX", "medium", "review", 60, "The domain has no MX record. A/AAAA fallback exists, but mail delivery may be unreliable.");
   }
   if (text.includes("preflight_ok") || text.includes("preflight_reachable")) {
-    return local("preflight_ok", "checked ok", "low", "ignore", 5, "Preflight checks passed. No email was sent.");
+    return local("preflight_ok", "DNS/MX passed", "low", "ignore", 5, "Syntax, typo, disposable, domain and MX checks passed. Mailbox existence and inbox quota are unknown until a real delivery failure is returned.");
   }
   return classifyCloudflareEmailFailure({
     to: email,
@@ -104,6 +104,24 @@ function preflightDetail(result: EmailPreflightResult, classification: EmailFail
     result.disposable ? "disposable=yes" : "",
     ...result.errors,
   ].filter(Boolean).join(" | ").slice(0, 2000);
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  run: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  const workerCount = Math.min(Math.max(1, concurrency), items.length);
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await run(items[index], index);
+    }
+  }));
+  return results;
 }
 
 function emailVerifyCandidateSearchSql(q: string) {
@@ -580,11 +598,18 @@ app.post("/email-verify/run", zValidator("json", z.object({
   const users = selectedEmails.length
     ? await emailVerifyCandidatesByEmails(c, selectedEmails)
     : await emailVerifyCandidates(c, limit);
+  const preflightResults = await mapWithConcurrency(users, 10, async (user) => {
+    const preflight = await preflightEmail(user.email);
+    return {
+      user,
+      preflight,
+      classification: classificationForPreflight(preflight),
+    };
+  });
+
   const results: Array<{ userId: number; username: string; email: string; status: string; eventId: number | null; preflight: EmailPreflightResult }> = [];
 
-  for (const user of users) {
-    const preflight = await preflightEmail(user.email);
-    const classification = classificationForPreflight(preflight);
+  for (const { user, preflight, classification } of preflightResults) {
     const status = classification.action === "ignore" ? "preflight_ok" : "preflight_risky";
     const [event] = await db
       .insert(schema.emailEvents)
@@ -618,7 +643,7 @@ app.post("/email-verify/run", zValidator("json", z.object({
   await db.insert(schema.activityLog).values({
     userId: admin?.id ?? null,
     type: "email_verify",
-    summary: `Email Verify preflighted ${results.length} ${selectedEmails.length ? "selected" : "batch"} users (${counts.preflight_ok ?? 0} ok, ${counts.preflight_risky ?? 0} risky, ${remaining} remaining, 0 emails sent)`,
+    summary: `Email Verify preflighted ${results.length} ${selectedEmails.length ? "selected" : "batch"} users (${counts.preflight_ok ?? 0} DNS/MX passed, ${counts.preflight_risky ?? 0} risky, ${remaining} remaining, 0 emails sent)`,
     createdAt: new Date(),
   });
 
