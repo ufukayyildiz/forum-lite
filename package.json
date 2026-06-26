@@ -6,7 +6,7 @@
   "scripts": {
     "install:app": "npm --prefix forum-lite install",
     "dev": "npm --prefix forum-lite run dev",
-    "build": "npm run install:app && npm --prefix forum-lite run build",
+    "build": "npm run install:app && npm --prefix forum-lite run build && node scripts/prepare-cloudflare-root-deploy.mjs",
     "preview": "npm --prefix forum-lite run preview",
     "deploy": "npm run install:app && npm --prefix forum-lite run deploy",
     "db:migrate:local": "npm --prefix forum-lite run db:migrate:local",

@@ -12,6 +12,7 @@ forum-lite/dist/
 forum-lite/.wrangler/
 .dev.vars
 forum-lite/.dev.vars
+wrangler.jsonc
 wrangler.local.jsonc
 forum-lite/wrangler.local.jsonc
 
