@@ -152,6 +152,47 @@ export type AdminAnalyticsResponse = {
   }>;
 };
 
+export type AdminEmailVerifyRow = {
+  email: string;
+  userId: number | null;
+  username: string | null;
+  displayName: string | null;
+  suppressed: boolean;
+  suppressionReason: string | null;
+  suppressionUpdatedAt: string | null;
+  cfSuppressionStatus: string | null;
+  category: string;
+  label: string;
+  risk: "critical" | "high" | "medium" | "low" | "system";
+  action: "suppress" | "review" | "ignore";
+  score: number;
+  temporary: boolean;
+  reason: string;
+  evidence: string[];
+  attempts: number;
+  firstSeenAt: string | null;
+  lastSeenAt: string | null;
+  statuses: string[];
+  subjects: string[];
+  details: string;
+};
+
+export type AdminEmailVerifyResponse = {
+  configured: boolean;
+  hours: number;
+  errors: string[];
+  total: number;
+  candidateTotal: number;
+  candidatePreview: Array<{ id: number; username: string; displayName: string; email: string }>;
+  summary: {
+    risk: Record<string, number>;
+    category: Record<string, number>;
+    action: Record<string, number>;
+    suppressed: number;
+  };
+  rows: AdminEmailVerifyRow[];
+};
+
 export const api = {
   // auth
   me: () => get<{ user: PublicUser | null }>("/auth/me"),
@@ -255,6 +296,18 @@ export const api = {
       "/admin/email-suppressions/sync",
       { hours },
     ),
+  adminEmailVerify: (params?: { hours?: number; q?: string; risk?: string; action?: string; includeSuppressed?: boolean }) =>
+    get<AdminEmailVerifyResponse>("/admin/email-verify?" + new URLSearchParams({
+      hours: String(params?.hours ?? 72),
+      q: params?.q ?? "",
+      risk: params?.risk ?? "all",
+      action: params?.action ?? "all",
+      includeSuppressed: params?.includeSuppressed === false ? "false" : "true",
+    }).toString()),
+  adminEmailVerifySuppress: (emails: string[], reason = "admin_email_verify_risky") =>
+    post<{ ok: boolean; total: number; suppressed: number; errors: any[]; results: any[] }>("/admin/email-verify/suppress", { emails, reason }),
+  adminEmailVerifyRun: (limit = 25) =>
+    post<{ ok: boolean; total: number; remaining: number; sent: number; skipped: number; suppressed: number; error: number; results: any[] }>("/admin/email-verify/run", { limit }),
   adminEmailEvents: (page = 1, kind = "") =>
     get<{ events: Array<any & { openCount?: number; clickCount?: number; openedAt?: string | null; clickedAt?: string | null; lastOpenedAt?: string | null; lastClickedAt?: string | null }>; total: number; page: number; perPage: number }>(
       `/admin/email-events?page=${page}${kind ? `&kind=${encodeURIComponent(kind)}` : ""}`

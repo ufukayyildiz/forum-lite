@@ -8,7 +8,7 @@ import { isEmailSuppressed, recordEmailSuppression } from "./email-suppression";
 
 const DEFAULT_FROM = "noreply@devfox.net";
 
-type NotificationKind = "reply" | "like" | "marketing" | "account";
+type NotificationKind = "reply" | "like" | "marketing" | "account" | "email_verify";
 
 type ManagedEmailInput = {
   db: DB;
@@ -326,6 +326,20 @@ export function weAreBackEmail(input: { recipientName: string; siteUrl: string }
 ${button("Reset password / sign in", loginUrl)}
 ${button("Visit FSTDESK", input.siteUrl)}
 <p style="color:#928374;font-size:12px">You are receiving this because you registered for FSTDESK Forum.</p>`,
+  );
+  return { subject, text, html };
+}
+
+export function emailVerificationProbeEmail(input: { recipientName: string; siteUrl: string }) {
+  const subject = "FSTDESK Forum email check";
+  const loginUrl = absoluteUrl(input.siteUrl, "/login");
+  const text = `Hi ${input.recipientName},\n\nThis is a short FSTDESK Forum email check. We are confirming that your forum email address can receive account messages such as password resets and reply notifications.\n\nOpen FSTDESK: ${loginUrl}\n\nFSTDESK`;
+  const html = emailShell(
+    "FSTDESK Forum email check",
+    `<p>Hi <strong>${escapeHtml(input.recipientName)}</strong>,</p>
+<p>This short message confirms that your forum email address can receive account messages such as password resets and reply notifications.</p>
+${button("Open FSTDESK", loginUrl)}
+<p style="color:#928374;font-size:12px">No action is required.</p>`,
   );
   return { subject, text, html };
 }

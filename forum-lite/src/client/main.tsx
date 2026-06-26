@@ -34,6 +34,7 @@ import AdminBounces from "./pages/admin/AdminBounces";
 import AdminNotifications from "./pages/admin/AdminNotifications";
 import AdminMarketing from "./pages/admin/AdminMarketing";
 import AdminAnalytics from "./pages/admin/AdminAnalytics";
+import AdminEmailVerify from "./pages/admin/AdminEmailVerify";
 import { AnalyticsTracker } from "./components/AnalyticsTracker";
 
 try {
@@ -70,6 +71,7 @@ const app = (
             <Route path="analytics" element={<AdminAnalytics />} />
             <Route path="notifications" element={<AdminNotifications />} />
             <Route path="marketing" element={<AdminMarketing />} />
+            <Route path="email-verify" element={<AdminEmailVerify />} />
             <Route path="bounces" element={<AdminBounces />} />
             <Route path="logs" element={<AdminLogs />} />
             <Route path="settings" element={<AdminSettings />} />

@@ -6,8 +6,9 @@ import { schema } from "../db";
 import { requireRole } from "../lib/middleware";
 import { safeISO } from "../lib/auth";
 import { toPublicUser, type AppEnv } from "../types";
-import { loadEmailSettings, sendManagedEmail, weAreBackEmail } from "../lib/notifications";
-import { cloudflareEmailApiConfigured } from "../lib/email";
+import { emailVerificationProbeEmail, loadEmailSettings, sendManagedEmail, weAreBackEmail } from "../lib/notifications";
+import { cloudflareEmailApiConfigured, listCloudflareDeliveryFailures, type CloudflareEmailFailure } from "../lib/email";
+import { classifyCloudflareEmailFailure, failureDetail, type EmailFailureClassification } from "../lib/email-classification";
 import { isEmailSuppressed, recordEmailSuppression } from "../lib/email-suppression";
 import { syncCloudflareEmailSuppressions } from "../lib/email-sync";
 
@@ -33,6 +34,73 @@ async function marketingDuplicateBlockingEnabled(db: AppEnv["Variables"]["db"]) 
     where: eq(schema.settings.key, MARKETING_BLOCK_DUPLICATE_SENDS_KEY),
   });
   return setting?.value !== "false";
+}
+
+function riskRank(risk: string): number {
+  if (risk === "critical") return 5;
+  if (risk === "high") return 4;
+  if (risk === "medium") return 3;
+  if (risk === "system") return 2;
+  return 1;
+}
+
+function msFromCfDate(value: string | undefined): number {
+  if (!value) return 0;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function classifyLocalEmailError(email: string, detail: string): EmailFailureClassification {
+  return classifyCloudflareEmailFailure({
+    to: email,
+    status: "local_error",
+    eventType: "local",
+    errorCause: detail,
+    errorDetail: detail,
+  });
+}
+
+async function emailVerifyCandidates(c: any, limit: number) {
+  const rows = await c.env.DB.prepare(
+    `SELECT u.id, u.username, u.display_name AS displayName, u.email
+     FROM users u
+     LEFT JOIN email_suppressions es ON LOWER(es.email) = LOWER(u.email)
+     WHERE u.banned = 0
+       AND u.email IS NOT NULL
+       AND TRIM(u.email) != ''
+       AND u.email_suppressed_at IS NULL
+       AND es.email IS NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM email_events ee
+         WHERE LOWER(ee.email) = LOWER(u.email)
+       )
+     ORDER BY u.created_at ASC
+     LIMIT ?`,
+  ).bind(limit).all<{
+    id: number;
+    username: string;
+    displayName: string;
+    email: string;
+  }>();
+  return rows.results ?? [];
+}
+
+async function emailVerifyCandidateCount(c: any): Promise<number> {
+  const row = await c.env.DB.prepare(
+    `SELECT COUNT(*) AS count
+     FROM users u
+     LEFT JOIN email_suppressions es ON LOWER(es.email) = LOWER(u.email)
+     WHERE u.banned = 0
+       AND u.email IS NOT NULL
+       AND TRIM(u.email) != ''
+       AND u.email_suppressed_at IS NULL
+       AND es.email IS NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM email_events ee
+         WHERE LOWER(ee.email) = LOWER(u.email)
+       )`,
+  ).first<{ count: number }>();
+  return Number(row?.count ?? 0);
 }
 
 app.get("/stats", async (c) => {
@@ -132,6 +200,296 @@ app.post("/email-suppressions/sync", zValidator("json", z.object({
     forceCloudflareSync: true,
   });
   return c.json(result);
+});
+
+app.get("/email-verify", async (c) => {
+  const db = c.get("db");
+  const hours = Math.max(1, Math.min(720, Number(c.req.query("hours") ?? 72) || 72));
+  const q = (c.req.query("q") ?? "").trim().toLowerCase();
+  const riskFilter = (c.req.query("risk") ?? "all").trim().toLowerCase();
+  const actionFilter = (c.req.query("action") ?? "all").trim().toLowerCase();
+  const includeSuppressed = c.req.query("includeSuppressed") !== "false";
+  const configured = cloudflareEmailApiConfigured(c.env);
+  const errors: string[] = [];
+  const groups = new Map<string, {
+    email: string;
+    classification: EmailFailureClassification;
+    attempts: number;
+    firstSeenMs: number;
+    lastSeenMs: number;
+    statuses: Set<string>;
+    subjects: Set<string>;
+    latest: CloudflareEmailFailure;
+    details: string;
+  }>();
+
+  if (configured) {
+    try {
+      const { from } = await loadEmailSettings(db, c.req.url);
+      const sendingDomain = from.replace(/^.*@/, "").toLowerCase();
+      const failures = await listCloudflareDeliveryFailures(c.env, { sendingDomain, hours });
+      for (const row of failures) {
+        const email = String(row.to ?? "").trim().toLowerCase();
+        if (!email) continue;
+        const classification = classifyCloudflareEmailFailure(row);
+        const seenMs = msFromCfDate(row.datetime);
+        const existing = groups.get(email);
+        if (!existing) {
+          groups.set(email, {
+            email,
+            classification,
+            attempts: 1,
+            firstSeenMs: seenMs,
+            lastSeenMs: seenMs,
+            statuses: new Set([row.status, row.eventType, row.errorCause].filter(Boolean).map(String)),
+            subjects: new Set(row.subject ? [row.subject] : []),
+            latest: row,
+            details: failureDetail(row),
+          });
+          continue;
+        }
+        existing.attempts += 1;
+        existing.firstSeenMs = existing.firstSeenMs ? Math.min(existing.firstSeenMs, seenMs || existing.firstSeenMs) : seenMs;
+        existing.lastSeenMs = Math.max(existing.lastSeenMs, seenMs);
+        if (row.status) existing.statuses.add(row.status);
+        if (row.eventType) existing.statuses.add(row.eventType);
+        if (row.errorCause) existing.statuses.add(row.errorCause);
+        if (row.subject) existing.subjects.add(row.subject);
+        if (seenMs >= existing.lastSeenMs) {
+          existing.latest = row;
+          existing.details = failureDetail(row);
+        }
+        const currentRank = riskRank(existing.classification.risk);
+        const nextRank = riskRank(classification.risk);
+        if (nextRank > currentRank || (nextRank === currentRank && classification.score > existing.classification.score)) {
+          existing.classification = classification;
+        }
+      }
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : "Cloudflare delivery failure scan failed");
+    }
+  } else {
+    errors.push("CF_ACCOUNT_ID / CF_EMAIL_API_TOKEN missing in Worker secrets");
+  }
+
+  const [users, suppressions, localVerifyErrors, candidateTotal, candidatePreview] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT id, username, display_name AS displayName, email FROM users WHERE email IS NOT NULL AND TRIM(email) != ''`,
+    ).all<{ id: number; username: string; displayName: string; email: string }>(),
+    c.env.DB.prepare(
+      `SELECT email, reason, updated_at AS updatedAt, cf_suppression_status AS cfSuppressionStatus
+       FROM email_suppressions`,
+    ).all<{ email: string; reason: string; updatedAt: number; cfSuppressionStatus: string | null }>(),
+    c.env.DB.prepare(
+      `SELECT email, subject, status, message, error_code AS errorCode, created_at AS createdAt
+       FROM email_events
+       WHERE kind = 'email_verify' AND status IN ('error', 'suppressed')
+       ORDER BY created_at DESC
+       LIMIT 500`,
+    ).all<{ email: string; subject: string; status: string; message: string | null; errorCode: string | null; createdAt: number }>(),
+    emailVerifyCandidateCount(c),
+    emailVerifyCandidates(c, 20),
+  ]);
+
+  for (const row of localVerifyErrors.results ?? []) {
+    const email = String(row.email ?? "").trim().toLowerCase();
+    if (!email || groups.has(email)) continue;
+    const detail = [row.status, row.errorCode, row.message].filter(Boolean).join(" | ");
+    groups.set(email, {
+      email,
+      classification: classifyLocalEmailError(email, detail || "local verify send failed"),
+      attempts: 1,
+      firstSeenMs: Number(row.createdAt ?? 0) * 1000,
+      lastSeenMs: Number(row.createdAt ?? 0) * 1000,
+      statuses: new Set([row.status, row.errorCode].filter(Boolean).map(String)),
+      subjects: new Set(row.subject ? [row.subject] : []),
+      latest: {
+        datetime: row.createdAt ? safeISO(row.createdAt) : undefined,
+        to: email,
+        subject: row.subject,
+        status: row.status,
+        errorCause: row.errorCode ?? undefined,
+        errorDetail: row.message ?? undefined,
+      },
+      details: detail,
+    });
+  }
+
+  const userByEmail = new Map((users.results ?? []).map((row) => [String(row.email).toLowerCase(), row]));
+  const suppressionByEmail = new Map((suppressions.results ?? []).map((row) => [String(row.email).toLowerCase(), row]));
+  const rows = [...groups.values()].map((group) => {
+    const user = userByEmail.get(group.email);
+    const suppression = suppressionByEmail.get(group.email);
+    return {
+      email: group.email,
+      userId: user?.id ?? null,
+      username: user?.username ?? null,
+      displayName: user?.displayName ?? null,
+      suppressed: Boolean(suppression),
+      suppressionReason: suppression?.reason ?? null,
+      suppressionUpdatedAt: suppression?.updatedAt ? safeISO(suppression.updatedAt) : null,
+      cfSuppressionStatus: suppression?.cfSuppressionStatus ?? null,
+      attempts: group.attempts,
+      firstSeenAt: group.firstSeenMs ? new Date(group.firstSeenMs).toISOString() : null,
+      lastSeenAt: group.lastSeenMs ? new Date(group.lastSeenMs).toISOString() : null,
+      statuses: [...group.statuses].slice(0, 6),
+      subjects: [...group.subjects].slice(0, 3),
+      latest: group.latest,
+      details: group.details,
+      ...group.classification,
+    };
+  }).filter((row) => {
+    if (!includeSuppressed && row.suppressed) return false;
+    if (riskFilter !== "all" && row.risk !== riskFilter) return false;
+    if (actionFilter !== "all" && row.action !== actionFilter) return false;
+    if (!q) return true;
+    return [
+      row.email,
+      row.username,
+      row.displayName,
+      row.category,
+      row.reason,
+      row.details,
+    ].filter(Boolean).join(" ").toLowerCase().includes(q);
+  }).sort((a, b) => {
+    if (a.suppressed !== b.suppressed) return a.suppressed ? 1 : -1;
+    const risk = riskRank(b.risk) - riskRank(a.risk);
+    if (risk) return risk;
+    if (b.score !== a.score) return b.score - a.score;
+    return Date.parse(b.lastSeenAt ?? "") - Date.parse(a.lastSeenAt ?? "");
+  });
+
+  const summary = rows.reduce((acc, row) => {
+    acc.risk[row.risk] = (acc.risk[row.risk] ?? 0) + 1;
+    acc.category[row.category] = (acc.category[row.category] ?? 0) + 1;
+    acc.action[row.action] = (acc.action[row.action] ?? 0) + 1;
+    if (row.suppressed) acc.suppressed += 1;
+    return acc;
+  }, {
+    risk: {} as Record<string, number>,
+    category: {} as Record<string, number>,
+    action: {} as Record<string, number>,
+    suppressed: 0,
+  });
+
+  return c.json({
+    configured,
+    hours,
+    errors,
+    total: rows.length,
+    candidateTotal,
+    candidatePreview,
+    summary,
+    rows,
+  });
+});
+
+app.post("/email-verify/suppress", zValidator("json", z.object({
+  emails: z.array(z.string().email()).min(1).max(200),
+  reason: z.string().min(1).max(120).optional(),
+})), async (c) => {
+  const db = c.get("db");
+  const body = c.req.valid("json");
+  const admin = c.get("user");
+  const emails = [...new Set(body.emails.map((email) => email.trim().toLowerCase()))];
+  const reason = body.reason ?? "admin_email_verify_risky";
+  const results: Array<{ email: string; ok: boolean; error?: string }> = [];
+
+  for (const email of emails) {
+    try {
+      await recordEmailSuppression(db, c.env, email, {
+        reason,
+        source: "admin_email_verify",
+        details: `Suppressed from Email Verify by ${admin?.username ?? "admin"}`,
+        forceCloudflareSync: true,
+        waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),
+      });
+      await c.env.DB.prepare(
+        `UPDATE email_events
+         SET status = 'suppressed', message = ?, error_code = ?
+         WHERE LOWER(email) = ?`,
+      ).bind("Suppressed from Email Verify", reason, email).run();
+      await c.env.DB.prepare(
+        `UPDATE marketing_sends
+         SET status = 'suppressed'
+         WHERE LOWER(email) = ?`,
+      ).bind(email).run();
+      results.push({ email, ok: true });
+    } catch (error) {
+      results.push({ email, ok: false, error: error instanceof Error ? error.message : "suppression failed" });
+    }
+  }
+
+  await db.insert(schema.activityLog).values({
+    userId: admin?.id ?? null,
+    type: "email_bounce",
+    summary: `Email Verify suppressed ${results.filter((row) => row.ok).length}/${emails.length} selected emails`,
+    createdAt: new Date(),
+  });
+
+  return c.json({
+    ok: results.every((row) => row.ok),
+    total: results.length,
+    suppressed: results.filter((row) => row.ok).length,
+    errors: results.filter((row) => !row.ok),
+    results,
+  });
+});
+
+app.post("/email-verify/run", zValidator("json", z.object({
+  limit: z.number().int().min(1).max(100).optional(),
+}).default({})), async (c) => {
+  const db = c.get("db");
+  const admin = c.get("user");
+  const body = c.req.valid("json");
+  const limit = Math.max(1, Math.min(100, body.limit ?? 25));
+  const users = await emailVerifyCandidates(c, limit);
+  const emailSettings = await loadEmailSettings(db, c.req.url);
+  const results: Array<{ userId: number; username: string; email: string; status: string; eventId: number | null }> = [];
+
+  for (const user of users) {
+    const mail = emailVerificationProbeEmail({ recipientName: user.displayName || user.username, siteUrl: emailSettings.siteUrl });
+    const result = await sendManagedEmail({
+      db,
+      env: c.env,
+      user: {
+        ...user,
+        banned: false,
+        emailSuppressedAt: null,
+      },
+      kind: "email_verify",
+      ...mail,
+      siteUrl: emailSettings.siteUrl,
+      from: emailSettings.from,
+      relatedType: "admin_email_verify",
+      ignorePreferences: false,
+      waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),
+    });
+    results.push({ userId: user.id, username: user.username, email: user.email, status: result.status, eventId: result.eventId });
+  }
+
+  const counts = results.reduce<Record<string, number>>((acc, row) => {
+    acc[row.status] = (acc[row.status] ?? 0) + 1;
+    return acc;
+  }, {});
+  const remaining = await emailVerifyCandidateCount(c);
+  await db.insert(schema.activityLog).values({
+    userId: admin?.id ?? null,
+    type: "email_verify",
+    summary: `Email Verify probed ${results.length} users (${counts.sent ?? 0} sent, ${counts.error ?? 0} errors, ${counts.suppressed ?? 0} suppressed, ${remaining} remaining)`,
+    createdAt: new Date(),
+  });
+
+  return c.json({
+    ok: true,
+    total: results.length,
+    remaining,
+    sent: counts.sent ?? 0,
+    skipped: counts.skipped ?? 0,
+    suppressed: counts.suppressed ?? 0,
+    error: counts.error ?? 0,
+    results,
+  });
 });
 
 app.patch("/users/:id/role", requireRole("admin"), zValidator("json", z.object({ role: z.enum(["admin", "moderator", "member"]) })), async (c) => {
