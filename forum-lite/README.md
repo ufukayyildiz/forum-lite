@@ -90,6 +90,8 @@ External services are accessed through Cloudflare Worker bindings, not hardcoded
 
 The application reads `env.DB`, `env.BUCKET` and `env.SEND_EMAIL` at runtime. No database password, token or connection string is committed.
 
+For public repositories, keep live Cloudflare IDs, API tokens and environment-specific values in Worker secrets or dashboard variables instead of committed config files.
+
 Sessions are stored in D1 as random tokens. You do not need a `SESSION_SECRET` or any extra secret to run the default setup.
 
 ---
