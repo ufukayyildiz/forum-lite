@@ -69,7 +69,7 @@ export default function AdminEmailVerify() {
     mutationFn: () => api.adminEmailVerifyRun(verifyLimit),
     onSuccess: (result) => {
       refreshAll();
-      toast.success(`Verify batch: ${result.sent} sent, ${result.preflightBlocked} preflight blocked, ${result.error} errors, ${result.remaining} remaining`);
+      toast.success(`Preflight batch: ${result.okPreflight} ok, ${result.risky} risky, ${result.error} errors, ${result.remaining} remaining, 0 emails sent`);
     },
     onError: (error: any) => toast.error(error.message || "Verify failed"),
   });
@@ -98,10 +98,10 @@ export default function AdminEmailVerify() {
           <div>
             <h2 style={{ margin: "0 0 6px", color: "var(--gb-yellow)", fontSize: 15 }}>$ email verify</h2>
             <p style={{ margin: 0, color: "var(--gb-gray)", maxWidth: 920 }}>
-              Scans Cloudflare failed/rejected events and preflights never-emailed users with syntax, typo, disposable, MX and A/AAAA checks. Mailbox/full-inbox status is classified after Cloudflare returns a delivery failure.
+              Scans Cloudflare failed/rejected events and checks never-emailed users with syntax, typo, disposable, MX and A/AAAA preflight. Mailbox/full-inbox status is classified only after Cloudflare returns a delivery failure.
             </p>
             <p style={{ margin: "6px 0 0", color: "var(--gb-yellow)", maxWidth: 920 }}>
-              `$ preflight + send` can send real verify emails, but only to addresses that pass preflight.
+              No email is sent from this screen. Use Marketing or Notify for actual sending.
             </p>
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -157,11 +157,11 @@ export default function AdminEmailVerify() {
         </label>
         <div style={{ display: "flex", gap: 8, alignItems: "end" }}>
           <label style={{ display: "grid", gap: 4, color: "var(--gb-gray)", fontSize: 11, letterSpacing: ".06em", width: 110 }}>
-            VERIFY BATCH
+            PREFLIGHT BATCH
             <input className="gb-input" type="number" min={1} max={100} value={verifyLimit} onChange={(event) => setVerifyLimit(Math.max(1, Math.min(100, Number(event.target.value) || 25)))} />
           </label>
           <button className="gb-btn" type="button" disabled={verify.isPending || !query.data?.candidateTotal} onClick={() => verify.mutate()}>
-            {verify.isPending ? "$ verifying..." : `$ preflight + send (${verifyLimit})`}
+            {verify.isPending ? "$ checking..." : `$ preflight (${verifyLimit})`}
           </button>
         </div>
       </section>
@@ -181,7 +181,7 @@ export default function AdminEmailVerify() {
 
       {candidatePreview.length > 0 && (
         <div style={{ border: "1px solid var(--gb-bg2)", padding: "8px 10px", color: "var(--gb-gray)", fontSize: 12 }}>
-          <span style={{ color: "var(--gb-yellow)" }}>next preflight/send:</span>{" "}
+          <span style={{ color: "var(--gb-yellow)" }}>next preflight:</span>{" "}
           {candidatePreview.slice(0, 8).map((user) => `${user.username} <${user.email}> [${preflightLabel(user.preflight)}]`).join(", ")}
           {candidatePreview.length > 8 ? " ..." : ""}
         </div>

@@ -6,7 +6,7 @@ import { schema } from "../db";
 import { requireRole } from "../lib/middleware";
 import { safeISO } from "../lib/auth";
 import { toPublicUser, type AppEnv } from "../types";
-import { emailVerificationProbeEmail, loadEmailSettings, sendManagedEmail, weAreBackEmail } from "../lib/notifications";
+import { loadEmailSettings, sendManagedEmail, weAreBackEmail } from "../lib/notifications";
 import { cloudflareEmailApiConfigured, listCloudflareDeliveryFailures, type CloudflareEmailFailure } from "../lib/email";
 import { classifyCloudflareEmailFailure, failureDetail, type EmailFailureClassification } from "../lib/email-classification";
 import { classificationForPreflight, preflightEmail, type EmailPreflightResult } from "../lib/email-preflight";
@@ -327,7 +327,7 @@ app.get("/email-verify", async (c) => {
     c.env.DB.prepare(
       `SELECT email, subject, status, message, error_code AS errorCode, created_at AS createdAt
        FROM email_events
-       WHERE kind = 'email_verify' AND status IN ('error', 'suppressed')
+       WHERE kind = 'email_verify' AND status IN ('error', 'suppressed', 'preflight_risky')
        ORDER BY created_at DESC
        LIMIT 500`,
     ).all<{ email: string; subject: string; status: string; message: string | null; errorCode: string | null; createdAt: number }>(),
@@ -526,55 +526,34 @@ app.post("/email-verify/run", zValidator("json", z.object({
   const body = c.req.valid("json");
   const limit = Math.max(1, Math.min(100, body.limit ?? 25));
   const users = await emailVerifyCandidates(c, limit);
-  const emailSettings = await loadEmailSettings(db, c.req.url);
-  const results: Array<{ userId: number; username: string; email: string; status: string; eventId: number | null; preflight?: EmailPreflightResult }> = [];
+  const results: Array<{ userId: number; username: string; email: string; status: string; eventId: number | null; preflight: EmailPreflightResult }> = [];
 
   for (const user of users) {
     const preflight = await preflightEmail(user.email);
     const classification = classificationForPreflight(preflight);
-    if (!preflight.canSend) {
-      const [event] = await db
-        .insert(schema.emailEvents)
-        .values({
-          userId: user.id,
-          email: preflight.email || user.email.trim().toLowerCase(),
-          kind: "email_verify",
-          subject: "FSTDESK Forum email check",
-          status: "error",
-          relatedType: "admin_email_verify",
-          message: preflightDetail(preflight, classification),
-          errorCode: `preflight_${classification.category}`,
-          createdAt: new Date(),
-        })
-        .returning({ id: schema.emailEvents.id });
-      results.push({
+    const status = classification.action === "ignore" ? "preflight_ok" : "preflight_risky";
+    const [event] = await db
+      .insert(schema.emailEvents)
+      .values({
         userId: user.id,
-        username: user.username,
-        email: user.email,
-        status: "preflight_blocked",
-        eventId: event?.id ?? null,
-        preflight,
-      });
-      continue;
-    }
-    const mail = emailVerificationProbeEmail({ recipientName: user.displayName || user.username, siteUrl: emailSettings.siteUrl });
-    const result = await sendManagedEmail({
-      db,
-      env: c.env,
-      user: {
-        ...user,
-        banned: false,
-        emailSuppressedAt: null,
-      },
-      kind: "email_verify",
-      ...mail,
-      siteUrl: emailSettings.siteUrl,
-      from: emailSettings.from,
-      relatedType: "admin_email_verify",
-      ignorePreferences: false,
-      waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),
+        email: preflight.email || user.email.trim().toLowerCase(),
+        kind: "email_verify",
+        subject: "FSTDESK Forum email preflight",
+        status,
+        relatedType: "admin_email_verify",
+        message: preflightDetail(preflight, classification),
+        errorCode: `preflight_${classification.category}`,
+        createdAt: new Date(),
+      })
+      .returning({ id: schema.emailEvents.id });
+    results.push({
+      userId: user.id,
+      username: user.username,
+      email: user.email,
+      status,
+      eventId: event?.id ?? null,
+      preflight,
     });
-    results.push({ userId: user.id, username: user.username, email: user.email, status: result.status, eventId: result.eventId });
   }
 
   const counts = results.reduce<Record<string, number>>((acc, row) => {
@@ -585,7 +564,7 @@ app.post("/email-verify/run", zValidator("json", z.object({
   await db.insert(schema.activityLog).values({
     userId: admin?.id ?? null,
     type: "email_verify",
-    summary: `Email Verify probed ${results.length} users (${counts.sent ?? 0} sent, ${counts.preflight_blocked ?? 0} preflight blocked, ${counts.error ?? 0} errors, ${counts.suppressed ?? 0} suppressed, ${remaining} remaining)`,
+    summary: `Email Verify preflighted ${results.length} users (${counts.preflight_ok ?? 0} ok, ${counts.preflight_risky ?? 0} risky, ${remaining} remaining, 0 emails sent)`,
     createdAt: new Date(),
   });
 
@@ -593,10 +572,12 @@ app.post("/email-verify/run", zValidator("json", z.object({
     ok: true,
     total: results.length,
     remaining,
-    sent: counts.sent ?? 0,
-    skipped: counts.skipped ?? 0,
+    okPreflight: counts.preflight_ok ?? 0,
+    risky: counts.preflight_risky ?? 0,
+    sent: 0,
+    skipped: 0,
     suppressed: counts.suppressed ?? 0,
-    preflightBlocked: counts.preflight_blocked ?? 0,
+    preflightBlocked: counts.preflight_risky ?? 0,
     error: counts.error ?? 0,
     results,
   });

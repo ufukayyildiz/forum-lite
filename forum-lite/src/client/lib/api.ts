@@ -325,7 +325,7 @@ export const api = {
   adminEmailVerifySuppress: (emails: string[], reason = "admin_email_verify_risky") =>
     post<{ ok: boolean; total: number; suppressed: number; errors: any[]; results: any[] }>("/admin/email-verify/suppress", { emails, reason }),
   adminEmailVerifyRun: (limit = 25) =>
-    post<{ ok: boolean; total: number; remaining: number; sent: number; skipped: number; suppressed: number; preflightBlocked: number; error: number; results: any[] }>("/admin/email-verify/run", { limit }),
+    post<{ ok: boolean; total: number; remaining: number; okPreflight: number; risky: number; sent: number; skipped: number; suppressed: number; preflightBlocked: number; error: number; results: any[] }>("/admin/email-verify/run", { limit }),
   adminEmailEvents: (page = 1, kind = "") =>
     get<{ events: Array<any & { openCount?: number; clickCount?: number; openedAt?: string | null; clickedAt?: string | null; lastOpenedAt?: string | null; lastClickedAt?: string | null }>; total: number; page: number; perPage: number }>(
       `/admin/email-events?page=${page}${kind ? `&kind=${encodeURIComponent(kind)}` : ""}`

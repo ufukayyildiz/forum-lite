@@ -15,6 +15,10 @@ function generatedWorkerConfigFiles() {
     .filter((file) => existsSync(file));
 }
 
+function readConfig(file) {
+  return JSON.parse(readFileSync(file, "utf8"));
+}
+
 function envCandidates(binding, databaseName) {
   const normalizedName = databaseName.toUpperCase().replace(/[^A-Z0-9]+/g, "_");
   const normalizedBinding = binding.toUpperCase().replace(/[^A-Z0-9]+/g, "_");
@@ -60,18 +64,24 @@ function rootRelative(path) {
   return path.replace(`${rootDir}/`, "");
 }
 
-const [workerConfigFile] = generatedWorkerConfigFiles();
+const workerConfigFiles = generatedWorkerConfigFiles();
+const workerConfigFile =
+  workerConfigFiles.find((file) => {
+    const config = readConfig(file);
+    return config.name === "forum-lite" || config.topLevelName === "forum-lite";
+  }) || workerConfigFiles[0];
 if (!workerConfigFile) {
   throw new Error("No forum-lite/dist/*/wrangler.json file found. Run the app build first.");
 }
 
-const config = JSON.parse(readFileSync(workerConfigFile, "utf8"));
+const config = readConfig(workerConfigFile);
 const workerDistDir = dirname(workerConfigFile);
 
 delete config.configPath;
 delete config.userConfigPath;
 
-config.name = config.name || "forum-lite";
+config.name = "forum-lite";
+config.topLevelName = "forum-lite";
 config.main = rootRelative(join(workerDistDir, "index.js"));
 config.assets = {
   ...(config.assets ?? {}),
