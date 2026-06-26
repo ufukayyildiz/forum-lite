@@ -103,7 +103,21 @@ function preflightDetail(result: EmailPreflightResult, classification: EmailFail
   ].filter(Boolean).join(" | ").slice(0, 2000);
 }
 
-async function emailVerifyCandidates(c: any, limit: number) {
+function emailVerifyCandidateSearchSql(q: string) {
+  if (!q) return { clause: "", bindings: [] as string[] };
+  const like = `%${q.toLowerCase()}%`;
+  return {
+    clause: `AND (
+         LOWER(u.email) LIKE ?
+         OR LOWER(u.username) LIKE ?
+         OR LOWER(COALESCE(u.display_name, '')) LIKE ?
+       )`,
+    bindings: [like, like, like],
+  };
+}
+
+async function emailVerifyCandidates(c: any, limit: number, q = "") {
+  const search = emailVerifyCandidateSearchSql(q);
   const rows = await c.env.DB.prepare(
     `SELECT u.id, u.username, u.display_name AS displayName, u.email
      FROM users u
@@ -117,9 +131,10 @@ async function emailVerifyCandidates(c: any, limit: number) {
          SELECT 1 FROM email_events ee
          WHERE LOWER(ee.email) = LOWER(u.email)
        )
+       ${search.clause}
      ORDER BY u.created_at ASC
      LIMIT ?`,
-  ).bind(limit).all<{
+  ).bind(...search.bindings, limit).all<{
     id: number;
     username: string;
     displayName: string;
@@ -128,7 +143,36 @@ async function emailVerifyCandidates(c: any, limit: number) {
   return rows.results ?? [];
 }
 
-async function emailVerifyCandidateCount(c: any): Promise<number> {
+async function emailVerifyCandidatesByEmails(c: any, emails: string[]) {
+  const normalized = [...new Set(emails.map((email) => email.trim().toLowerCase()).filter(Boolean))].slice(0, 100);
+  if (!normalized.length) return [];
+  const placeholders = normalized.map(() => "?").join(",");
+  const rows = await c.env.DB.prepare(
+    `SELECT u.id, u.username, u.display_name AS displayName, u.email
+     FROM users u
+     LEFT JOIN email_suppressions es ON LOWER(es.email) = LOWER(u.email)
+     WHERE u.banned = 0
+       AND u.email IS NOT NULL
+       AND TRIM(u.email) != ''
+       AND u.email_suppressed_at IS NULL
+       AND es.email IS NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM email_events ee
+         WHERE LOWER(ee.email) = LOWER(u.email)
+       )
+       AND LOWER(u.email) IN (${placeholders})
+     ORDER BY u.created_at ASC`,
+  ).bind(...normalized).all<{
+    id: number;
+    username: string;
+    displayName: string;
+    email: string;
+  }>();
+  return rows.results ?? [];
+}
+
+async function emailVerifyCandidateCount(c: any, q = ""): Promise<number> {
+  const search = emailVerifyCandidateSearchSql(q);
   const row = await c.env.DB.prepare(
     `SELECT COUNT(*) AS count
      FROM users u
@@ -141,8 +185,9 @@ async function emailVerifyCandidateCount(c: any): Promise<number> {
        AND NOT EXISTS (
          SELECT 1 FROM email_events ee
          WHERE LOWER(ee.email) = LOWER(u.email)
-       )`,
-  ).first<{ count: number }>();
+       )
+       ${search.clause}`,
+  ).bind(...search.bindings).first<{ count: number }>();
   return Number(row?.count ?? 0);
 }
 
@@ -252,6 +297,7 @@ app.get("/email-verify", async (c) => {
   const riskFilter = (c.req.query("risk") ?? "all").trim().toLowerCase();
   const actionFilter = (c.req.query("action") ?? "all").trim().toLowerCase();
   const includeSuppressed = c.req.query("includeSuppressed") !== "false";
+  const candidateLimit = Math.max(1, Math.min(100, Number(c.req.query("candidateLimit") ?? 100) || 100));
   const configured = cloudflareEmailApiConfigured(c.env);
   const errors: string[] = [];
   const groups = new Map<string, {
@@ -316,7 +362,7 @@ app.get("/email-verify", async (c) => {
     errors.push("CF_ACCOUNT_ID / CF_EMAIL_API_TOKEN missing in Worker secrets");
   }
 
-  const [users, suppressions, localVerifyErrors, candidateTotal, candidatePreview] = await Promise.all([
+  const [users, suppressions, localVerifyErrors, candidateTotal, candidates] = await Promise.all([
     c.env.DB.prepare(
       `SELECT id, username, display_name AS displayName, email FROM users WHERE email IS NOT NULL AND TRIM(email) != ''`,
     ).all<{ id: number; username: string; displayName: string; email: string }>(),
@@ -331,44 +377,9 @@ app.get("/email-verify", async (c) => {
        ORDER BY created_at DESC
        LIMIT 500`,
     ).all<{ email: string; subject: string; status: string; message: string | null; errorCode: string | null; createdAt: number }>(),
-    emailVerifyCandidateCount(c),
-    emailVerifyCandidates(c, 20),
+    emailVerifyCandidateCount(c, q),
+    emailVerifyCandidates(c, candidateLimit, q),
   ]);
-
-  const candidatePreflights = await Promise.all(
-    candidatePreview.map(async (user) => ({
-      user,
-      preflight: await preflightEmail(user.email),
-    })),
-  );
-
-  for (const { preflight } of candidatePreflights) {
-    const email = preflight.email.trim().toLowerCase();
-    if (!email || groups.has(email)) continue;
-    const classification = classificationForPreflight(preflight);
-    if (classification.action === "ignore") continue;
-    const nowMs = Date.now();
-    groups.set(email, {
-      email,
-      classification,
-      attempts: 0,
-      firstSeenMs: nowMs,
-      lastSeenMs: nowMs,
-      statuses: new Set(["preflight", classification.category]),
-      subjects: new Set(["FSTDESK email preflight"]),
-      latest: {
-        datetime: new Date(nowMs).toISOString(),
-        to: email,
-        subject: "FSTDESK email preflight",
-        status: "preflight",
-        eventType: "preflight",
-        errorCause: classification.category,
-        errorDetail: classification.reason,
-      },
-      details: preflightDetail(preflight, classification),
-      preflight,
-    });
-  }
 
   for (const row of localVerifyErrors.results ?? []) {
     const email = String(row.email ?? "").trim().toLowerCase();
@@ -396,10 +407,42 @@ app.get("/email-verify", async (c) => {
 
   const userByEmail = new Map((users.results ?? []).map((row) => [String(row.email).toLowerCase(), row]));
   const suppressionByEmail = new Map((suppressions.results ?? []).map((row) => [String(row.email).toLowerCase(), row]));
-  const rows = [...groups.values()].map((group) => {
+  const candidateRows = candidates.map((user) => {
+    const email = String(user.email ?? "").trim().toLowerCase();
+    return {
+      rowType: "candidate" as const,
+      email,
+      userId: user.id,
+      username: user.username,
+      displayName: user.displayName,
+      suppressed: false,
+      suppressionReason: null,
+      suppressionUpdatedAt: null,
+      cfSuppressionStatus: null,
+      attempts: 0,
+      firstSeenAt: null,
+      lastSeenAt: null,
+      statuses: ["never_emailed"],
+      subjects: ["Email preflight candidate"],
+      latest: null,
+      details: "Never emailed; select this row to run syntax, typo, disposable, MX and A/AAAA checks. No email will be sent.",
+      preflight: null,
+      category: "not_checked",
+      label: "not checked",
+      risk: "system" as const,
+      action: "review" as const,
+      score: 0,
+      temporary: false,
+      reason: "Never emailed. Select and run preflight checks.",
+      evidence: ["no previous email event"],
+    };
+  }).filter((row) => row.email && !groups.has(row.email));
+
+  const riskRows = [...groups.values()].map((group) => {
     const user = userByEmail.get(group.email);
     const suppression = suppressionByEmail.get(group.email);
     return {
+      rowType: "risk" as const,
       email: group.email,
       userId: user?.id ?? null,
       username: user?.username ?? null,
@@ -418,7 +461,9 @@ app.get("/email-verify", async (c) => {
       preflight: group.preflight ?? null,
       ...group.classification,
     };
-  }).filter((row) => {
+  });
+
+  const rows = [...candidateRows, ...riskRows].filter((row) => {
     if (!includeSuppressed && row.suppressed) return false;
     if (riskFilter !== "all" && row.risk !== riskFilter) return false;
     if (actionFilter !== "all" && row.action !== actionFilter) return false;
@@ -433,6 +478,7 @@ app.get("/email-verify", async (c) => {
     ].filter(Boolean).join(" ").toLowerCase().includes(q);
   }).sort((a, b) => {
     if (a.suppressed !== b.suppressed) return a.suppressed ? 1 : -1;
+    if (a.rowType !== b.rowType) return a.rowType === "candidate" ? -1 : 1;
     const risk = riskRank(b.risk) - riskRank(a.risk);
     if (risk) return risk;
     if (b.score !== a.score) return b.score - a.score;
@@ -457,8 +503,9 @@ app.get("/email-verify", async (c) => {
     hours,
     errors,
     total: rows.length,
+    candidateLimit,
     candidateTotal,
-    candidatePreview: candidatePreflights.map(({ user, preflight }) => ({ ...user, preflight })),
+    candidatePreview: candidates,
     summary,
     rows,
   });
@@ -520,12 +567,16 @@ app.post("/email-verify/suppress", zValidator("json", z.object({
 
 app.post("/email-verify/run", zValidator("json", z.object({
   limit: z.number().int().min(1).max(100).optional(),
+  emails: z.array(z.string().min(3).max(254)).max(100).optional(),
 }).default({})), async (c) => {
   const db = c.get("db");
   const admin = c.get("user");
   const body = c.req.valid("json");
-  const limit = Math.max(1, Math.min(100, body.limit ?? 25));
-  const users = await emailVerifyCandidates(c, limit);
+  const selectedEmails = body.emails?.map((email) => email.trim().toLowerCase()).filter(Boolean) ?? [];
+  const limit = Math.max(1, Math.min(100, body.limit ?? 100));
+  const users = selectedEmails.length
+    ? await emailVerifyCandidatesByEmails(c, selectedEmails)
+    : await emailVerifyCandidates(c, limit);
   const results: Array<{ userId: number; username: string; email: string; status: string; eventId: number | null; preflight: EmailPreflightResult }> = [];
 
   for (const user of users) {
@@ -564,7 +615,7 @@ app.post("/email-verify/run", zValidator("json", z.object({
   await db.insert(schema.activityLog).values({
     userId: admin?.id ?? null,
     type: "email_verify",
-    summary: `Email Verify preflighted ${results.length} users (${counts.preflight_ok ?? 0} ok, ${counts.preflight_risky ?? 0} risky, ${remaining} remaining, 0 emails sent)`,
+    summary: `Email Verify preflighted ${results.length} ${selectedEmails.length ? "selected" : "batch"} users (${counts.preflight_ok ?? 0} ok, ${counts.preflight_risky ?? 0} risky, ${remaining} remaining, 0 emails sent)`,
     createdAt: new Date(),
   });
 

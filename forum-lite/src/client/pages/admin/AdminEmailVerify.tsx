@@ -5,6 +5,7 @@ import { api, type AdminEmailVerifyRow } from "../../lib/api";
 import { relativeTime } from "../../lib/utils";
 
 const MAX_SUPPRESS = 200;
+const MAX_PREFLIGHT = 100;
 
 function riskColor(risk: string) {
   if (risk === "critical" || risk === "high") return "var(--gb-red)";
@@ -31,21 +32,30 @@ export default function AdminEmailVerify() {
   const [risk, setRisk] = useState("all");
   const [action, setAction] = useState("all");
   const [hours, setHours] = useState(72);
-  const [verifyLimit, setVerifyLimit] = useState(25);
+  const [verifyLimit, setVerifyLimit] = useState(100);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const qc = useQueryClient();
 
   const query = useQuery({
-    queryKey: ["admin-email-verify", hours, q, risk, action],
-    queryFn: () => api.adminEmailVerify({ hours, q, risk, action }),
+    queryKey: ["admin-email-verify", hours, q, risk, action, verifyLimit],
+    queryFn: () => api.adminEmailVerify({ hours, q, risk, action, candidateLimit: verifyLimit }),
   });
 
   const rows = query.data?.rows ?? [];
-  const selectable = useMemo(
-    () => rows.filter((row) => !row.suppressed && row.action === "suppress"),
+  const candidateRows = useMemo(
+    () => rows.filter((row) => row.rowType === "candidate" && !row.suppressed),
     [rows],
   );
-  const selectedRows = rows.filter((row) => selected.has(row.email) && !row.suppressed);
+  const riskRows = useMemo(
+    () => rows.filter((row) => row.rowType !== "candidate"),
+    [rows],
+  );
+  const suppressableRows = useMemo(
+    () => riskRows.filter((row) => !row.suppressed && row.action === "suppress"),
+    [riskRows],
+  );
+  const selectedCandidateRows = candidateRows.filter((row) => selected.has(row.email));
+  const selectedSuppressRows = suppressableRows.filter((row) => selected.has(row.email));
 
   const refreshAll = () => {
     qc.invalidateQueries({ queryKey: ["admin-email-verify"] });
@@ -66,8 +76,9 @@ export default function AdminEmailVerify() {
   });
 
   const verify = useMutation({
-    mutationFn: () => api.adminEmailVerifyRun(verifyLimit),
+    mutationFn: (emails?: string[]) => api.adminEmailVerifyRun(emails?.length ? { emails } : { limit: verifyLimit }),
     onSuccess: (result) => {
+      setSelected(new Set());
       refreshAll();
       toast.success(`Preflight batch: ${result.okPreflight} ok, ${result.risky} risky, ${result.error} errors, ${result.remaining} remaining, 0 emails sent`);
     },
@@ -76,20 +87,30 @@ export default function AdminEmailVerify() {
 
   const toggle = (row: AdminEmailVerifyRow) => {
     if (row.suppressed) return;
+    if (row.rowType !== "candidate" && row.action !== "suppress") return;
     setSelected((current) => {
       const next = new Set(current);
       if (next.has(row.email)) next.delete(row.email);
-      else if (next.size < MAX_SUPPRESS) next.add(row.email);
+      else if (row.rowType === "candidate") {
+        const selectedCandidateCount = candidateRows.filter((item) => next.has(item.email)).length;
+        if (selectedCandidateCount < MAX_PREFLIGHT) next.add(row.email);
+      } else {
+        const selectedSuppressCount = suppressableRows.filter((item) => next.has(item.email)).length;
+        if (selectedSuppressCount < MAX_SUPPRESS) next.add(row.email);
+      }
       return next;
     });
   };
 
   const selectRisky = () => {
-    setSelected(new Set(selectable.slice(0, MAX_SUPPRESS).map((row) => row.email)));
+    setSelected(new Set(suppressableRows.slice(0, MAX_SUPPRESS).map((row) => row.email)));
+  };
+
+  const selectCandidates = () => {
+    setSelected(new Set(candidateRows.slice(0, MAX_PREFLIGHT).map((row) => row.email)));
   };
 
   const summary = query.data?.summary;
-  const candidatePreview = query.data?.candidatePreview ?? [];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -108,8 +129,11 @@ export default function AdminEmailVerify() {
             <button className="gb-btn" type="button" disabled={query.isFetching} onClick={() => query.refetch()}>
               $ scan cf
             </button>
-            <button className="gb-btn" type="button" disabled={!selectable.length} onClick={selectRisky}>
-              $ select risky ({Math.min(selectable.length, MAX_SUPPRESS)})
+            <button className="gb-btn" type="button" disabled={!candidateRows.length} onClick={selectCandidates}>
+              $ select unverified ({Math.min(candidateRows.length, MAX_PREFLIGHT)})
+            </button>
+            <button className="gb-btn" type="button" disabled={!suppressableRows.length} onClick={selectRisky}>
+              $ select risky ({Math.min(suppressableRows.length, MAX_SUPPRESS)})
             </button>
             <button className="gb-btn" type="button" disabled={!selected.size} onClick={() => setSelected(new Set())}>
               $ clear
@@ -117,10 +141,10 @@ export default function AdminEmailVerify() {
             <button
               className="gb-btn gb-btn-primary"
               type="button"
-              disabled={!selectedRows.length || suppress.isPending}
-              onClick={() => suppress.mutate(selectedRows.map((row) => row.email))}
+              disabled={!selectedSuppressRows.length || suppress.isPending}
+              onClick={() => suppress.mutate(selectedSuppressRows.map((row) => row.email))}
             >
-              {suppress.isPending ? "$ suppressing..." : `$ suppress checked (${selectedRows.length})`}
+              {suppress.isPending ? "$ suppressing..." : `$ suppress checked (${selectedSuppressRows.length})`}
             </button>
           </div>
         </div>
@@ -158,18 +182,24 @@ export default function AdminEmailVerify() {
         <div style={{ display: "flex", gap: 8, alignItems: "end" }}>
           <label style={{ display: "grid", gap: 4, color: "var(--gb-gray)", fontSize: 11, letterSpacing: ".06em", width: 110 }}>
             PREFLIGHT BATCH
-            <input className="gb-input" type="number" min={1} max={100} value={verifyLimit} onChange={(event) => setVerifyLimit(Math.max(1, Math.min(100, Number(event.target.value) || 25)))} />
+            <input className="gb-input" type="number" min={1} max={100} value={verifyLimit} onChange={(event) => setVerifyLimit(Math.max(1, Math.min(100, Number(event.target.value) || 100)))} />
           </label>
-          <button className="gb-btn" type="button" disabled={verify.isPending || !query.data?.candidateTotal} onClick={() => verify.mutate()}>
-            {verify.isPending ? "$ checking..." : `$ preflight (${verifyLimit})`}
+          <button className="gb-btn gb-btn-primary" type="button" disabled={verify.isPending || !selectedCandidateRows.length} onClick={() => verify.mutate(selectedCandidateRows.map((row) => row.email))}>
+            {verify.isPending ? "$ checking..." : `$ run checked (${selectedCandidateRows.length})`}
+          </button>
+          <button className="gb-btn" type="button" disabled={verify.isPending || !query.data?.candidateTotal} onClick={() => verify.mutate(undefined)}>
+            {verify.isPending ? "$ checking..." : `$ run next ${verifyLimit}`}
           </button>
         </div>
       </section>
 
       {query.data && (
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", color: "var(--gb-gray)", fontSize: 12 }}>
-          <span><strong style={{ color: "var(--gb-yellow)" }}>{query.data.total}</strong> risk rows</span>
-          <span><strong style={{ color: "var(--gb-yellow)" }}>{query.data.candidateTotal}</strong> never emailed</span>
+          <span><strong style={{ color: "var(--gb-yellow)" }}>{query.data.total}</strong> visible rows</span>
+          <span><strong style={{ color: "var(--gb-yellow)" }}>{query.data.candidateTotal}</strong> never emailed total</span>
+          <span><strong style={{ color: "var(--gb-green)" }}>{candidateRows.length}</strong> selectable now</span>
+          <span><strong style={{ color: "var(--gb-yellow)" }}>{selectedCandidateRows.length}/{MAX_PREFLIGHT}</strong> selected for preflight</span>
+          <span><strong style={{ color: "var(--gb-red)" }}>{selectedSuppressRows.length}/{MAX_SUPPRESS}</strong> selected for suppression</span>
           <span><strong style={{ color: "var(--gb-red)" }}>{summary?.risk.critical ?? 0}</strong> critical</span>
           <span><strong style={{ color: "var(--gb-red)" }}>{summary?.risk.high ?? 0}</strong> high</span>
           <span><strong style={{ color: "var(--gb-yellow)" }}>{summary?.action.suppress ?? 0}</strong> suppress recommended</span>
@@ -179,19 +209,11 @@ export default function AdminEmailVerify() {
         </div>
       )}
 
-      {candidatePreview.length > 0 && (
-        <div style={{ border: "1px solid var(--gb-bg2)", padding: "8px 10px", color: "var(--gb-gray)", fontSize: 12 }}>
-          <span style={{ color: "var(--gb-yellow)" }}>next preflight:</span>{" "}
-          {candidatePreview.slice(0, 8).map((user) => `${user.username} <${user.email}> [${preflightLabel(user.preflight)}]`).join(", ")}
-          {candidatePreview.length > 8 ? " ..." : ""}
-        </div>
-      )}
-
       <table className="gb-table">
         <thead>
           <tr>
             <th scope="col" style={{ width: 34 }}>
-              <button className="gb-check-all" type="button" onClick={selected.size ? () => setSelected(new Set()) : selectRisky}>
+              <button className="gb-check-all" type="button" onClick={selected.size ? () => setSelected(new Set()) : selectCandidates}>
                 {selected.size ? "–" : "✓"}
               </button>
             </th>
@@ -211,10 +233,10 @@ export default function AdminEmailVerify() {
           ) : rows.length ? rows.map((row) => (
             <tr key={row.email} style={{ opacity: row.suppressed ? .55 : 1 }}>
               <td>
-                <label className={`gb-check${row.suppressed ? " is-disabled" : ""}`}>
+                <label className={`gb-check${row.suppressed || (row.rowType !== "candidate" && row.action !== "suppress") ? " is-disabled" : ""}`}>
                   <input
                     type="checkbox"
-                    disabled={row.suppressed}
+                    disabled={row.suppressed || (row.rowType !== "candidate" && row.action !== "suppress")}
                     checked={selected.has(row.email)}
                     onChange={() => toggle(row)}
                   />
@@ -224,6 +246,7 @@ export default function AdminEmailVerify() {
               <td>
                 <div style={{ color: "var(--gb-fg)", fontSize: 13 }}>
                   {row.email}
+                  {row.rowType === "candidate" && <span style={{ color: "var(--gb-yellow)", marginLeft: 8 }}>never emailed</span>}
                   {row.suppressed && <span style={{ color: "var(--gb-green)", marginLeft: 8 }}>suppressed</span>}
                 </div>
                 <div style={{ color: "var(--gb-gray)", fontSize: 11 }}>
@@ -239,7 +262,7 @@ export default function AdminEmailVerify() {
                 )}
               </td>
               <td style={{ color: riskColor(row.risk), fontSize: 12 }}>
-                {row.risk}
+                {row.rowType === "candidate" ? "unchecked" : row.risk}
                 <div style={{ color: "var(--gb-gray)", fontSize: 10 }}>{row.score}/100</div>
               </td>
               <td style={{ fontSize: 12 }}>

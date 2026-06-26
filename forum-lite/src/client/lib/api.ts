@@ -170,6 +170,7 @@ export type EmailPreflightResult = {
 };
 
 export type AdminEmailVerifyRow = {
+  rowType?: "candidate" | "risk";
   email: string;
   userId: number | null;
   username: string | null;
@@ -200,8 +201,9 @@ export type AdminEmailVerifyResponse = {
   hours: number;
   errors: string[];
   total: number;
+  candidateLimit: number;
   candidateTotal: number;
-  candidatePreview: Array<{ id: number; username: string; displayName: string; email: string; preflight?: EmailPreflightResult }>;
+  candidatePreview: Array<{ id: number; username: string; displayName: string | null; email: string; preflight?: EmailPreflightResult | null }>;
   summary: {
     risk: Record<string, number>;
     category: Record<string, number>;
@@ -314,18 +316,19 @@ export const api = {
       "/admin/email-suppressions/sync",
       { hours },
     ),
-  adminEmailVerify: (params?: { hours?: number; q?: string; risk?: string; action?: string; includeSuppressed?: boolean }) =>
+  adminEmailVerify: (params?: { hours?: number; q?: string; risk?: string; action?: string; includeSuppressed?: boolean; candidateLimit?: number }) =>
     get<AdminEmailVerifyResponse>("/admin/email-verify?" + new URLSearchParams({
       hours: String(params?.hours ?? 72),
       q: params?.q ?? "",
       risk: params?.risk ?? "all",
       action: params?.action ?? "all",
       includeSuppressed: params?.includeSuppressed === false ? "false" : "true",
+      candidateLimit: String(params?.candidateLimit ?? 100),
     }).toString()),
   adminEmailVerifySuppress: (emails: string[], reason = "admin_email_verify_risky") =>
     post<{ ok: boolean; total: number; suppressed: number; errors: any[]; results: any[] }>("/admin/email-verify/suppress", { emails, reason }),
-  adminEmailVerifyRun: (limit = 25) =>
-    post<{ ok: boolean; total: number; remaining: number; okPreflight: number; risky: number; sent: number; skipped: number; suppressed: number; preflightBlocked: number; error: number; results: any[] }>("/admin/email-verify/run", { limit }),
+  adminEmailVerifyRun: (input: { limit?: number; emails?: string[] } = {}) =>
+    post<{ ok: boolean; total: number; remaining: number; okPreflight: number; risky: number; sent: number; skipped: number; suppressed: number; preflightBlocked: number; error: number; results: any[] }>("/admin/email-verify/run", input),
   adminEmailEvents: (page = 1, kind = "") =>
     get<{ events: Array<any & { openCount?: number; clickCount?: number; openedAt?: string | null; clickedAt?: string | null; lastOpenedAt?: string | null; lastClickedAt?: string | null }>; total: number; page: number; perPage: number }>(
       `/admin/email-events?page=${page}${kind ? `&kind=${encodeURIComponent(kind)}` : ""}`
