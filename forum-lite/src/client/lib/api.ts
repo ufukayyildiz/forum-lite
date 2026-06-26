@@ -152,6 +152,23 @@ export type AdminAnalyticsResponse = {
   }>;
 };
 
+export type EmailPreflightResult = {
+  input: string;
+  email: string;
+  local: string;
+  domain: string;
+  validSyntax: boolean;
+  disposable: boolean;
+  typoSuggestion: string | null;
+  hasMx: boolean;
+  hasA: boolean;
+  hasAaaa: boolean;
+  domainExists: boolean;
+  canSend: boolean;
+  mxRecords: string[];
+  errors: string[];
+};
+
 export type AdminEmailVerifyRow = {
   email: string;
   userId: number | null;
@@ -175,6 +192,7 @@ export type AdminEmailVerifyRow = {
   statuses: string[];
   subjects: string[];
   details: string;
+  preflight: EmailPreflightResult | null;
 };
 
 export type AdminEmailVerifyResponse = {
@@ -183,7 +201,7 @@ export type AdminEmailVerifyResponse = {
   errors: string[];
   total: number;
   candidateTotal: number;
-  candidatePreview: Array<{ id: number; username: string; displayName: string; email: string }>;
+  candidatePreview: Array<{ id: number; username: string; displayName: string; email: string; preflight?: EmailPreflightResult }>;
   summary: {
     risk: Record<string, number>;
     category: Record<string, number>;
@@ -307,7 +325,7 @@ export const api = {
   adminEmailVerifySuppress: (emails: string[], reason = "admin_email_verify_risky") =>
     post<{ ok: boolean; total: number; suppressed: number; errors: any[]; results: any[] }>("/admin/email-verify/suppress", { emails, reason }),
   adminEmailVerifyRun: (limit = 25) =>
-    post<{ ok: boolean; total: number; remaining: number; sent: number; skipped: number; suppressed: number; error: number; results: any[] }>("/admin/email-verify/run", { limit }),
+    post<{ ok: boolean; total: number; remaining: number; sent: number; skipped: number; suppressed: number; preflightBlocked: number; error: number; results: any[] }>("/admin/email-verify/run", { limit }),
   adminEmailEvents: (page = 1, kind = "") =>
     get<{ events: Array<any & { openCount?: number; clickCount?: number; openedAt?: string | null; clickedAt?: string | null; lastOpenedAt?: string | null; lastClickedAt?: string | null }>; total: number; page: number; perPage: number }>(
       `/admin/email-events?page=${page}${kind ? `&kind=${encodeURIComponent(kind)}` : ""}`

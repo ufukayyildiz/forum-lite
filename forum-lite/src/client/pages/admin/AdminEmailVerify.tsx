@@ -16,6 +16,16 @@ function compact(value: string | null | undefined, fallback = "-") {
   return value && value.trim() ? value : fallback;
 }
 
+function preflightLabel(preflight: AdminEmailVerifyRow["preflight"] | undefined) {
+  if (!preflight) return "preflight pending";
+  if (!preflight.validSyntax) return "bad syntax";
+  if (preflight.typoSuggestion) return `typo? use ${preflight.typoSuggestion}`;
+  if (preflight.disposable) return "disposable";
+  if (!preflight.domainExists) return "no DNS";
+  if (!preflight.hasMx) return "no MX, A fallback";
+  return "MX ok";
+}
+
 export default function AdminEmailVerify() {
   const [q, setQ] = useState("");
   const [risk, setRisk] = useState("all");
@@ -59,7 +69,7 @@ export default function AdminEmailVerify() {
     mutationFn: () => api.adminEmailVerifyRun(verifyLimit),
     onSuccess: (result) => {
       refreshAll();
-      toast.success(`Verify batch: ${result.sent} sent, ${result.error} errors, ${result.remaining} remaining`);
+      toast.success(`Verify batch: ${result.sent} sent, ${result.preflightBlocked} preflight blocked, ${result.error} errors, ${result.remaining} remaining`);
     },
     onError: (error: any) => toast.error(error.message || "Verify failed"),
   });
@@ -88,7 +98,10 @@ export default function AdminEmailVerify() {
           <div>
             <h2 style={{ margin: "0 0 6px", color: "var(--gb-yellow)", fontSize: 15 }}>$ email verify</h2>
             <p style={{ margin: 0, color: "var(--gb-gray)", maxWidth: 920 }}>
-              Classifies Cloudflare failed/rejected delivery events, then lets admin suppress risky recipients. Verify sends a small account email only to users with no previous email event.
+              Scans Cloudflare failed/rejected events and preflights never-emailed users with syntax, typo, disposable, MX and A/AAAA checks. Mailbox/full-inbox status is classified after Cloudflare returns a delivery failure.
+            </p>
+            <p style={{ margin: "6px 0 0", color: "var(--gb-yellow)", maxWidth: 920 }}>
+              `$ preflight + send` can send real verify emails, but only to addresses that pass preflight.
             </p>
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -148,14 +161,14 @@ export default function AdminEmailVerify() {
             <input className="gb-input" type="number" min={1} max={100} value={verifyLimit} onChange={(event) => setVerifyLimit(Math.max(1, Math.min(100, Number(event.target.value) || 25)))} />
           </label>
           <button className="gb-btn" type="button" disabled={verify.isPending || !query.data?.candidateTotal} onClick={() => verify.mutate()}>
-            {verify.isPending ? "$ verifying..." : "$ verify unsent"}
+            {verify.isPending ? "$ verifying..." : `$ preflight + send (${verifyLimit})`}
           </button>
         </div>
       </section>
 
       {query.data && (
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", color: "var(--gb-gray)", fontSize: 12 }}>
-          <span><strong style={{ color: "var(--gb-yellow)" }}>{query.data.total}</strong> classified</span>
+          <span><strong style={{ color: "var(--gb-yellow)" }}>{query.data.total}</strong> risk rows</span>
           <span><strong style={{ color: "var(--gb-yellow)" }}>{query.data.candidateTotal}</strong> never emailed</span>
           <span><strong style={{ color: "var(--gb-red)" }}>{summary?.risk.critical ?? 0}</strong> critical</span>
           <span><strong style={{ color: "var(--gb-red)" }}>{summary?.risk.high ?? 0}</strong> high</span>
@@ -168,8 +181,8 @@ export default function AdminEmailVerify() {
 
       {candidatePreview.length > 0 && (
         <div style={{ border: "1px solid var(--gb-bg2)", padding: "8px 10px", color: "var(--gb-gray)", fontSize: 12 }}>
-          <span style={{ color: "var(--gb-yellow)" }}>next verify:</span>{" "}
-          {candidatePreview.slice(0, 8).map((user) => `${user.username} <${user.email}>`).join(", ")}
+          <span style={{ color: "var(--gb-yellow)" }}>next preflight/send:</span>{" "}
+          {candidatePreview.slice(0, 8).map((user) => `${user.username} <${user.email}> [${preflightLabel(user.preflight)}]`).join(", ")}
           {candidatePreview.length > 8 ? " ..." : ""}
         </div>
       )}
@@ -219,6 +232,11 @@ export default function AdminEmailVerify() {
                 <div title={row.details} style={{ color: "var(--gb-gray)", fontSize: 11, maxWidth: 760, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {row.details || row.reason}
                 </div>
+                {row.preflight && (
+                  <div style={{ color: row.preflight.canSend ? "var(--gb-green)" : "var(--gb-yellow)", fontSize: 10, marginTop: 3 }}>
+                    preflight: {preflightLabel(row.preflight)} | domain {row.preflight.domain || "-"} | mx {row.preflight.hasMx ? "yes" : "no"} | a {row.preflight.hasA ? "yes" : "no"} | aaaa {row.preflight.hasAaaa ? "yes" : "no"}
+                  </div>
+                )}
               </td>
               <td style={{ color: riskColor(row.risk), fontSize: 12 }}>
                 {row.risk}

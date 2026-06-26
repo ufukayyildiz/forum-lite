@@ -9,6 +9,7 @@ import { toPublicUser, type AppEnv } from "../types";
 import { emailVerificationProbeEmail, loadEmailSettings, sendManagedEmail, weAreBackEmail } from "../lib/notifications";
 import { cloudflareEmailApiConfigured, listCloudflareDeliveryFailures, type CloudflareEmailFailure } from "../lib/email";
 import { classifyCloudflareEmailFailure, failureDetail, type EmailFailureClassification } from "../lib/email-classification";
+import { classificationForPreflight, preflightEmail, type EmailPreflightResult } from "../lib/email-preflight";
 import { isEmailSuppressed, recordEmailSuppression } from "../lib/email-suppression";
 import { syncCloudflareEmailSuppressions } from "../lib/email-sync";
 
@@ -51,6 +52,33 @@ function msFromCfDate(value: string | undefined): number {
 }
 
 function classifyLocalEmailError(email: string, detail: string): EmailFailureClassification {
+  const text = detail.toLowerCase();
+  const local = (category: string, label: string, risk: EmailFailureClassification["risk"], action: EmailFailureClassification["action"], score: number, reason: string): EmailFailureClassification => ({
+    email,
+    category,
+    label,
+    risk,
+    action,
+    score,
+    temporary: false,
+    reason,
+    evidence: detail ? [detail.slice(0, 500)] : [],
+  });
+  if (text.includes("preflight_invalid_syntax")) {
+    return local("invalid_syntax", "invalid syntax", "critical", "suppress", 98, "The email address syntax is invalid.");
+  }
+  if (text.includes("preflight_domain_typo")) {
+    return local("domain_typo", "domain typo", "high", "review", 88, "The domain looks like a typo and should be corrected before sending.");
+  }
+  if (text.includes("preflight_disposable_email")) {
+    return local("disposable_email", "disposable email", "high", "suppress", 86, "The recipient domain is a known disposable or temporary email provider.");
+  }
+  if (text.includes("preflight_domain_no_dns")) {
+    return local("domain_no_dns", "domain has no DNS", "critical", "suppress", 96, "The recipient domain has no MX, A or AAAA records.");
+  }
+  if (text.includes("preflight_domain_no_mx")) {
+    return local("domain_no_mx", "domain has no MX", "medium", "review", 60, "The domain has no MX record. A/AAAA fallback exists, but mail delivery may be unreliable.");
+  }
   return classifyCloudflareEmailFailure({
     to: email,
     status: "local_error",
@@ -58,6 +86,21 @@ function classifyLocalEmailError(email: string, detail: string): EmailFailureCla
     errorCause: detail,
     errorDetail: detail,
   });
+}
+
+function preflightDetail(result: EmailPreflightResult, classification: EmailFailureClassification): string {
+  return [
+    "preflight",
+    classification.category,
+    classification.reason,
+    `domain=${result.domain || "-"}`,
+    `mx=${result.hasMx ? "yes" : "no"}`,
+    `a=${result.hasA ? "yes" : "no"}`,
+    `aaaa=${result.hasAaaa ? "yes" : "no"}`,
+    result.typoSuggestion ? `suggestion=${result.typoSuggestion}` : "",
+    result.disposable ? "disposable=yes" : "",
+    ...result.errors,
+  ].filter(Boolean).join(" | ").slice(0, 2000);
 }
 
 async function emailVerifyCandidates(c: any, limit: number) {
@@ -221,6 +264,7 @@ app.get("/email-verify", async (c) => {
     subjects: Set<string>;
     latest: CloudflareEmailFailure;
     details: string;
+    preflight?: EmailPreflightResult | null;
   }>();
 
   if (configured) {
@@ -291,6 +335,41 @@ app.get("/email-verify", async (c) => {
     emailVerifyCandidates(c, 20),
   ]);
 
+  const candidatePreflights = await Promise.all(
+    candidatePreview.map(async (user) => ({
+      user,
+      preflight: await preflightEmail(user.email),
+    })),
+  );
+
+  for (const { preflight } of candidatePreflights) {
+    const email = preflight.email.trim().toLowerCase();
+    if (!email || groups.has(email)) continue;
+    const classification = classificationForPreflight(preflight);
+    if (classification.action === "ignore") continue;
+    const nowMs = Date.now();
+    groups.set(email, {
+      email,
+      classification,
+      attempts: 0,
+      firstSeenMs: nowMs,
+      lastSeenMs: nowMs,
+      statuses: new Set(["preflight", classification.category]),
+      subjects: new Set(["FSTDESK email preflight"]),
+      latest: {
+        datetime: new Date(nowMs).toISOString(),
+        to: email,
+        subject: "FSTDESK email preflight",
+        status: "preflight",
+        eventType: "preflight",
+        errorCause: classification.category,
+        errorDetail: classification.reason,
+      },
+      details: preflightDetail(preflight, classification),
+      preflight,
+    });
+  }
+
   for (const row of localVerifyErrors.results ?? []) {
     const email = String(row.email ?? "").trim().toLowerCase();
     if (!email || groups.has(email)) continue;
@@ -336,6 +415,7 @@ app.get("/email-verify", async (c) => {
       subjects: [...group.subjects].slice(0, 3),
       latest: group.latest,
       details: group.details,
+      preflight: group.preflight ?? null,
       ...group.classification,
     };
   }).filter((row) => {
@@ -378,14 +458,14 @@ app.get("/email-verify", async (c) => {
     errors,
     total: rows.length,
     candidateTotal,
-    candidatePreview,
+    candidatePreview: candidatePreflights.map(({ user, preflight }) => ({ ...user, preflight })),
     summary,
     rows,
   });
 });
 
 app.post("/email-verify/suppress", zValidator("json", z.object({
-  emails: z.array(z.string().email()).min(1).max(200),
+  emails: z.array(z.string().min(3).max(254)).min(1).max(200),
   reason: z.string().min(1).max(120).optional(),
 })), async (c) => {
   const db = c.get("db");
@@ -397,11 +477,13 @@ app.post("/email-verify/suppress", zValidator("json", z.object({
 
   for (const email of emails) {
     try {
+      const cloudflareSyncable = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
       await recordEmailSuppression(db, c.env, email, {
         reason,
         source: "admin_email_verify",
         details: `Suppressed from Email Verify by ${admin?.username ?? "admin"}`,
-        forceCloudflareSync: true,
+        forceCloudflareSync: cloudflareSyncable,
+        skipCloudflareSync: !cloudflareSyncable,
         waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),
       });
       await c.env.DB.prepare(
@@ -445,9 +527,36 @@ app.post("/email-verify/run", zValidator("json", z.object({
   const limit = Math.max(1, Math.min(100, body.limit ?? 25));
   const users = await emailVerifyCandidates(c, limit);
   const emailSettings = await loadEmailSettings(db, c.req.url);
-  const results: Array<{ userId: number; username: string; email: string; status: string; eventId: number | null }> = [];
+  const results: Array<{ userId: number; username: string; email: string; status: string; eventId: number | null; preflight?: EmailPreflightResult }> = [];
 
   for (const user of users) {
+    const preflight = await preflightEmail(user.email);
+    const classification = classificationForPreflight(preflight);
+    if (!preflight.canSend) {
+      const [event] = await db
+        .insert(schema.emailEvents)
+        .values({
+          userId: user.id,
+          email: preflight.email || user.email.trim().toLowerCase(),
+          kind: "email_verify",
+          subject: "FSTDESK Forum email check",
+          status: "error",
+          relatedType: "admin_email_verify",
+          message: preflightDetail(preflight, classification),
+          errorCode: `preflight_${classification.category}`,
+          createdAt: new Date(),
+        })
+        .returning({ id: schema.emailEvents.id });
+      results.push({
+        userId: user.id,
+        username: user.username,
+        email: user.email,
+        status: "preflight_blocked",
+        eventId: event?.id ?? null,
+        preflight,
+      });
+      continue;
+    }
     const mail = emailVerificationProbeEmail({ recipientName: user.displayName || user.username, siteUrl: emailSettings.siteUrl });
     const result = await sendManagedEmail({
       db,
@@ -476,7 +585,7 @@ app.post("/email-verify/run", zValidator("json", z.object({
   await db.insert(schema.activityLog).values({
     userId: admin?.id ?? null,
     type: "email_verify",
-    summary: `Email Verify probed ${results.length} users (${counts.sent ?? 0} sent, ${counts.error ?? 0} errors, ${counts.suppressed ?? 0} suppressed, ${remaining} remaining)`,
+    summary: `Email Verify probed ${results.length} users (${counts.sent ?? 0} sent, ${counts.preflight_blocked ?? 0} preflight blocked, ${counts.error ?? 0} errors, ${counts.suppressed ?? 0} suppressed, ${remaining} remaining)`,
     createdAt: new Date(),
   });
 
@@ -487,6 +596,7 @@ app.post("/email-verify/run", zValidator("json", z.object({
     sent: counts.sent ?? 0,
     skipped: counts.skipped ?? 0,
     suppressed: counts.suppressed ?? 0,
+    preflightBlocked: counts.preflight_blocked ?? 0,
     error: counts.error ?? 0,
     results,
   });
