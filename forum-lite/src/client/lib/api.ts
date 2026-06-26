@@ -310,7 +310,7 @@ export const api = {
   adminAddEmailSuppression: (email: string, reason = "manual_admin_suppression") =>
     post<{ ok: boolean; email: string }>("/admin/email-suppressions", { email, reason }),
   adminSyncEmailSuppressions: (hours = 72) =>
-    post<{ ok: boolean; configured: boolean; hours: number; cfSuppressions: number; deliveryFailures: number; localUpdates: number; errors: string[] }>(
+    post<{ ok: boolean; configured: boolean; hours: number; cfSuppressions: number; deliveryFailures: number; localUpdates: number; cfWriteAttempts: number; cfWriteSynced: number; cfWriteErrors: number; errors: string[] }>(
       "/admin/email-suppressions/sync",
       { hours },
     ),

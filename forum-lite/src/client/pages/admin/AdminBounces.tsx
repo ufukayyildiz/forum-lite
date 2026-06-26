@@ -29,9 +29,10 @@ export default function AdminBounces() {
       qc.invalidateQueries({ queryKey: ["admin-email-suppressions"] });
       qc.invalidateQueries({ queryKey: ["admin-marketing-users"] });
       qc.invalidateQueries({ queryKey: ["admin-marketing-sends"] });
-      const message = `CF sync: ${result.localUpdates} updated, ${result.deliveryFailures} failures`;
+      const message = `CF sync: ${result.localUpdates} local updates, ${result.deliveryFailures} failures, ${result.cfWriteSynced}/${result.cfWriteAttempts} CF writes`;
       if (!result.configured) toast.error("CF sync secrets are missing: CF_ACCOUNT_ID / CF_EMAIL_API_TOKEN");
       else if (result.errors.length) toast.warning(`${message}; ${result.errors[0]}`);
+      else if (result.cfWriteErrors) toast.warning(`${message}; ${result.cfWriteErrors} CF write errors`);
       else toast.success(message);
     },
     onError: (error: any) => toast.error(error.message || "CF sync failed"),
@@ -77,7 +78,7 @@ export default function AdminBounces() {
           )}
           {cfWriteBlockedCount > 0 && (
             <span style={{ color: "var(--gb-yellow)", fontSize: 11 }}>
-              {cfWriteBlockedCount} local suppressions are blocked in FSTDESK, but Cloudflare dashboard write is not authorized
+              {cfWriteBlockedCount} local suppressions are blocked in FSTDESK; press sync to retry Cloudflare suppression write
             </span>
           )}
         </div>

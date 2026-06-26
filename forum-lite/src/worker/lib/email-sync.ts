@@ -1,6 +1,6 @@
 import { schema, type DB } from "../db";
 import type { Bindings } from "../types";
-import { listCloudflareDeliveryFailures, listCloudflareSuppressions, cloudflareEmailApiConfigured } from "./email";
+import { addCloudflareSuppression, listCloudflareDeliveryFailures, listCloudflareSuppressions, cloudflareEmailApiConfigured } from "./email";
 import { recordEmailSuppression } from "./email-suppression";
 import { loadEmailSettings } from "./notifications";
 
@@ -11,6 +11,9 @@ export type EmailSuppressionSyncResult = {
   cfSuppressions: number;
   deliveryFailures: number;
   localUpdates: number;
+  cfWriteAttempts: number;
+  cfWriteSynced: number;
+  cfWriteErrors: number;
   errors: string[];
 };
 
@@ -24,6 +27,60 @@ function failureDetail(row: Awaited<ReturnType<typeof listCloudflareDeliveryFail
     row.subject ? `subject=${row.subject}` : "",
     row.messageId ? `messageId=${row.messageId}` : "",
   ].filter(Boolean).join(" | ").slice(0, 2000);
+}
+
+async function retryCloudflareSuppressionWrites(
+  env: Bindings,
+  opts: { includeAuthErrors?: boolean; limit?: number } = {},
+): Promise<{ attempted: number; synced: number; errors: number }> {
+  if (!cloudflareEmailApiConfigured(env)) return { attempted: 0, synced: 0, errors: 0 };
+  const limit = Math.max(1, Math.min(1000, opts.limit ?? 250));
+  const rows = opts.includeAuthErrors
+    ? await env.DB.prepare(
+      `SELECT email
+       FROM email_suppressions
+       WHERE COALESCE(cf_suppression_status, '') IN ('pending', 'skipped', 'error', 'auth_error', '')
+       ORDER BY updated_at DESC
+       LIMIT ?`,
+    ).bind(limit).all<{ email: string }>()
+    : await env.DB.prepare(
+      `SELECT email
+       FROM email_suppressions
+       WHERE COALESCE(cf_suppression_status, '') IN ('pending', 'skipped', 'error', '')
+          OR (cf_suppression_status = 'auth_error' AND updated_at <= ?)
+       ORDER BY updated_at DESC
+       LIMIT ?`,
+    ).bind(Math.floor(Date.now() / 1000) - 300, limit).all<{ email: string }>();
+
+  let attempted = 0;
+  let synced = 0;
+  let errors = 0;
+  for (const row of rows.results ?? []) {
+    const email = String(row.email ?? "").trim().toLowerCase();
+    if (!email) continue;
+    attempted += 1;
+    const result = await addCloudflareSuppression(env, email);
+    const now = Math.floor(Date.now() / 1000);
+    const status = result.ok ? "synced" : result.skipped ? "skipped" : result.code === "auth_error" ? "auth_error" : "error";
+    if (result.ok) synced += 1;
+    else errors += 1;
+    await env.DB.prepare(
+      `UPDATE email_suppressions
+       SET cf_suppression_status = ?,
+           cf_suppressed_at = CASE WHEN ? = 'synced' THEN ? ELSE cf_suppressed_at END,
+           cf_suppression_error = ?,
+           updated_at = ?
+       WHERE LOWER(email) = ?`,
+    ).bind(
+      status,
+      status,
+      now,
+      result.error?.slice(0, 1000) ?? null,
+      now,
+      email,
+    ).run();
+  }
+  return { attempted, synced, errors };
 }
 
 export async function syncCloudflareEmailSuppressions(
@@ -43,6 +100,9 @@ export async function syncCloudflareEmailSuppressions(
   let cfSuppressions = 0;
   let deliveryFailures = 0;
   let localUpdates = 0;
+  let cfWriteAttempts = 0;
+  let cfWriteSynced = 0;
+  let cfWriteErrors = 0;
   const seen = new Set<string>();
 
   if (!configured) {
@@ -101,6 +161,17 @@ export async function syncCloudflareEmailSuppressions(
     } catch (error) {
       errors.push(`delivery failures: ${error instanceof Error ? error.message : "sync failed"}`);
     }
+
+    try {
+      const retry = await retryCloudflareSuppressionWrites(env, {
+        includeAuthErrors: opts.forceCloudflareSync,
+      });
+      cfWriteAttempts = retry.attempted;
+      cfWriteSynced = retry.synced;
+      cfWriteErrors = retry.errors;
+    } catch (error) {
+      errors.push(`suppression write retry: ${error instanceof Error ? error.message : "retry failed"}`);
+    }
   }
 
   if (configured || opts.logMissingConfig !== false) {
@@ -111,6 +182,7 @@ export async function syncCloudflareEmailSuppressions(
         `Synced CF bounces: ${localUpdates} local updates`,
         `${deliveryFailures} failures`,
         `${cfSuppressions} suppressions`,
+        `${cfWriteSynced}/${cfWriteAttempts} CF writes synced`,
         configured ? "configured" : "not configured",
         errors.length ? `errors=${errors.join(" | ").slice(0, 500)}` : "",
       ].filter(Boolean).join(", "),
@@ -125,6 +197,9 @@ export async function syncCloudflareEmailSuppressions(
     cfSuppressions,
     deliveryFailures,
     localUpdates,
+    cfWriteAttempts,
+    cfWriteSynced,
+    cfWriteErrors,
     errors,
   };
 }

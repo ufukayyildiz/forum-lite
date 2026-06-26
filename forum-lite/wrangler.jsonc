@@ -13,7 +13,7 @@
     }
   },
   "triggers": {
-    "crons": ["*/10 * * * *"]
+    "crons": ["* * * * *"]
   },
   "assets": {
     "binding": "ASSETS",
