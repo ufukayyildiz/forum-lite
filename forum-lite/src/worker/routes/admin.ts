@@ -10,6 +10,13 @@ import { loadEmailSettings, sendManagedEmail, weAreBackEmail } from "../lib/noti
 import { cloudflareEmailApiConfigured, listCloudflareDeliveryFailures, type CloudflareEmailFailure } from "../lib/email";
 import { classifyCloudflareEmailFailure, failureDetail, type EmailFailureClassification } from "../lib/email-classification";
 import { classificationForPreflight, preflightEmail, type EmailPreflightResult } from "../lib/email-preflight";
+import {
+  classificationForSmtpVerify,
+  smtpVerifierConfigured,
+  smtpVerifyDetail,
+  verifyWithSelfHostedSmtp,
+  type SmtpVerifyResult,
+} from "../lib/email-smtp-verifier";
 import { isEmailSuppressed, recordEmailSuppression } from "../lib/email-suppression";
 import { syncCloudflareEmailSuppressions } from "../lib/email-sync";
 
@@ -81,6 +88,24 @@ function classifyLocalEmailError(email: string, detail: string): EmailFailureCla
   }
   if (text.includes("preflight_ok") || text.includes("preflight_reachable")) {
     return local("preflight_ok", "DNS/MX passed", "low", "ignore", 5, "Syntax, typo, disposable, domain and MX checks passed. Mailbox existence and inbox quota are unknown until a real delivery failure is returned.");
+  }
+  if (text.includes("smtp_deliverable") || text.includes("smtp_verify_ok")) {
+    return local("smtp_deliverable", "SMTP mailbox accepted", "low", "ignore", 2, "Recipient MX accepted RCPT TO during SMTP handshake. No email DATA was sent.");
+  }
+  if (text.includes("smtp_mailbox_rejected")) {
+    return local("smtp_mailbox_rejected", "mailbox rejected", "critical", "suppress", 97, "Recipient MX rejected the mailbox during SMTP handshake.");
+  }
+  if (text.includes("smtp_accept_all")) {
+    return local("smtp_accept_all", "accept-all domain", "high", "review", 68, "Recipient domain accepts random mailbox probes; deliverability is risky.");
+  }
+  if (text.includes("smtp_temporary")) {
+    return local("smtp_temporary", "SMTP temporary", "medium", "review", 58, "Recipient MX returned a temporary SMTP response.");
+  }
+  if (text.includes("smtp_unknown")) {
+    return local("smtp_unknown", "SMTP unknown", "medium", "review", 50, "SMTP verifier could not determine mailbox status.");
+  }
+  if (text.includes("smtp_risky") || text.includes("smtp_verify_risky")) {
+    return local("smtp_risky", "SMTP risky", "high", "review", 78, "SMTP verifier marked this recipient as risky.");
   }
   return classifyCloudflareEmailFailure({
     to: email,
@@ -394,7 +419,7 @@ app.get("/email-verify", async (c) => {
     c.env.DB.prepare(
       `SELECT email, subject, status, message, error_code AS errorCode, created_at AS createdAt
        FROM email_events
-       WHERE kind = 'email_verify' AND status IN ('error', 'suppressed', 'preflight_risky', 'preflight_ok')
+       WHERE kind = 'email_verify' AND status IN ('error', 'suppressed', 'preflight_risky', 'preflight_ok', 'smtp_verify_risky', 'smtp_verify_ok')
        ORDER BY created_at DESC
        LIMIT 500`,
     ).all<{ email: string; subject: string; status: string; message: string | null; errorCode: string | null; createdAt: number }>(),
@@ -446,7 +471,9 @@ app.get("/email-verify", async (c) => {
       statuses: ["never_emailed"],
       subjects: ["Email preflight candidate"],
       latest: null,
-      details: "Never emailed; select this row to run syntax, typo, disposable, MX and A/AAAA checks. No email will be sent.",
+      details: smtpVerifierConfigured(c.env)
+        ? "Never emailed; selected rows run syntax, typo, disposable, MX/A/AAAA and self-hosted SMTP RCPT checks. No email DATA will be sent."
+        : "Never emailed; select this row to run syntax, typo, disposable, MX and A/AAAA checks. No email will be sent.",
       preflight: null,
       category: "not_checked",
       label: "not checked",
@@ -521,6 +548,7 @@ app.get("/email-verify", async (c) => {
 
   return c.json({
     configured,
+    smtpVerifierConfigured: smtpVerifierConfigured(c.env),
     hours,
     errors,
     total: rows.length,
@@ -598,30 +626,51 @@ app.post("/email-verify/run", zValidator("json", z.object({
   const users = selectedEmails.length
     ? await emailVerifyCandidatesByEmails(c, selectedEmails)
     : await emailVerifyCandidates(c, limit);
-  const preflightResults = await mapWithConcurrency(users, 10, async (user) => {
+  const useSmtpVerifier = smtpVerifierConfigured(c.env);
+  const preflightResults = await mapWithConcurrency(users, useSmtpVerifier ? 4 : 10, async (user) => {
     const preflight = await preflightEmail(user.email);
+    const preflightClassification = classificationForPreflight(preflight);
+    const smtpVerify = preflightClassification.action === "ignore"
+      ? await verifyWithSelfHostedSmtp(c.env, preflight.email || user.email)
+      : null;
+    const classification = smtpVerify
+      ? classificationForSmtpVerify(smtpVerify)
+      : preflightClassification;
     return {
       user,
       preflight,
-      classification: classificationForPreflight(preflight),
+      smtpVerify,
+      classification,
     };
   });
 
-  const results: Array<{ userId: number; username: string; email: string; status: string; eventId: number | null; preflight: EmailPreflightResult }> = [];
+  const results: Array<{
+    userId: number;
+    username: string;
+    email: string;
+    status: string;
+    eventId: number | null;
+    preflight: EmailPreflightResult;
+    smtpVerify: SmtpVerifyResult | null;
+  }> = [];
 
-  for (const { user, preflight, classification } of preflightResults) {
-    const status = classification.action === "ignore" ? "preflight_ok" : "preflight_risky";
+  for (const { user, preflight, smtpVerify, classification } of preflightResults) {
+    const status = smtpVerify
+      ? classification.action === "ignore" ? "smtp_verify_ok" : "smtp_verify_risky"
+      : classification.action === "ignore" ? "preflight_ok" : "preflight_risky";
     const [event] = await db
       .insert(schema.emailEvents)
       .values({
         userId: user.id,
         email: preflight.email || user.email.trim().toLowerCase(),
         kind: "email_verify",
-        subject: "FSTDESK Forum email preflight",
+        subject: smtpVerify ? "FSTDESK Forum SMTP verification" : "FSTDESK Forum email preflight",
         status,
         relatedType: "admin_email_verify",
-        message: preflightDetail(preflight, classification),
-        errorCode: `preflight_${classification.category}`,
+        message: smtpVerify
+          ? `${preflightDetail(preflight, classification)} | ${smtpVerifyDetail(smtpVerify)}`
+          : preflightDetail(preflight, classification),
+        errorCode: smtpVerify ? classification.category : `preflight_${classification.category}`,
         createdAt: new Date(),
       })
       .returning({ id: schema.emailEvents.id });
@@ -632,6 +681,7 @@ app.post("/email-verify/run", zValidator("json", z.object({
       status,
       eventId: event?.id ?? null,
       preflight,
+      smtpVerify,
     });
   }
 
@@ -639,11 +689,14 @@ app.post("/email-verify/run", zValidator("json", z.object({
     acc[row.status] = (acc[row.status] ?? 0) + 1;
     return acc;
   }, {});
+  const passed = (counts.preflight_ok ?? 0) + (counts.smtp_verify_ok ?? 0);
+  const risky = (counts.preflight_risky ?? 0) + (counts.smtp_verify_risky ?? 0);
+  const smtpVerified = (counts.smtp_verify_ok ?? 0) + (counts.smtp_verify_risky ?? 0);
   const remaining = await emailVerifyCandidateCount(c);
   await db.insert(schema.activityLog).values({
     userId: admin?.id ?? null,
     type: "email_verify",
-    summary: `Email Verify preflighted ${results.length} ${selectedEmails.length ? "selected" : "batch"} users (${counts.preflight_ok ?? 0} DNS/MX passed, ${counts.preflight_risky ?? 0} risky, ${remaining} remaining, 0 emails sent)`,
+    summary: `Email Verify checked ${results.length} ${selectedEmails.length ? "selected" : "batch"} users (${passed} passed, ${risky} risky, ${smtpVerified} SMTP verified, ${remaining} remaining, 0 emails sent)`,
     createdAt: new Date(),
   });
 
@@ -651,8 +704,10 @@ app.post("/email-verify/run", zValidator("json", z.object({
     ok: true,
     total: results.length,
     remaining,
-    okPreflight: counts.preflight_ok ?? 0,
-    risky: counts.preflight_risky ?? 0,
+    okPreflight: passed,
+    risky,
+    smtpVerified,
+    verifierConfigured: useSmtpVerifier,
     sent: 0,
     skipped: 0,
     suppressed: counts.suppressed ?? 0,

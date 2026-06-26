@@ -196,6 +196,33 @@ From: noreply@example.com
 
 If the email binding is missing, the forum still works. Email features fail silently and never block requests.
 
+### Self-Hosted Email Verification
+
+The admin Email Verify screen always runs local preflight checks: syntax, common typo domains, disposable domains, MX, A and AAAA. For mailbox-level no-send checks, run the included self-hosted SMTP verifier on a server where outbound TCP port 25 is allowed. Cloudflare Workers cannot perform recipient-MX SMTP handshakes directly, so the Worker calls this service over HTTPS.
+
+```bash
+EMAIL_VERIFY_SECRET="change-me" \
+EMAIL_VERIFY_FROM="verify@example.com" \
+EMAIL_VERIFY_HELO="example.com" \
+npm run email:verifier
+```
+
+Expose the verifier behind HTTPS, then configure the Worker:
+
+```bash
+npx wrangler secret put EMAIL_VERIFY_SECRET
+npx wrangler secret put EMAIL_VERIFY_FROM
+npx wrangler secret put EMAIL_VERIFY_HELO
+```
+
+Set `EMAIL_VERIFY_ENDPOINT` as a non-secret dashboard variable, for example:
+
+```text
+EMAIL_VERIFY_ENDPOINT=https://verify.example.com/verify
+```
+
+No email content is sent by this verifier. It resolves MX records, opens SMTP, runs `EHLO`, `MAIL FROM`, `RCPT TO`, optionally probes catch-all behavior, then quits before `DATA`. Some providers intentionally hide mailbox status or accept all recipients, so those results are marked as review/risky instead of safe.
+
 ### Public Config Note
 
 The tracked `wrangler.jsonc` only contains binding names, public example values and a placeholder D1 database ID. Keep real Cloudflare IDs in ignored local files or in the Cloudflare dashboard.

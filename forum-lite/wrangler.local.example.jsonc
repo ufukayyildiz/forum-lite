@@ -9,6 +9,11 @@
 //         npx wrangler secret put CF_EMAIL_API_TOKEN --config wrangler.local.jsonc
 //         npx wrangler secret put CF_ZONE_ID --config wrangler.local.jsonc
 // The token needs Email Sending suppression read/write + GraphQL Analytics read.
+// Optional self-hosted SMTP verifier:
+//         add EMAIL_VERIFY_ENDPOINT as a non-secret var in Cloudflare dashboard
+//         npx wrangler secret put EMAIL_VERIFY_SECRET --config wrangler.local.jsonc
+//         npx wrangler secret put EMAIL_VERIFY_FROM --config wrangler.local.jsonc
+//         npx wrangler secret put EMAIL_VERIFY_HELO --config wrangler.local.jsonc
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "forum-lite",
