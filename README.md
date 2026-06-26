@@ -94,7 +94,7 @@ Worker binding names:
 | `ASSETS` | Static Assets | Yes |
 | `BUCKET` | R2 Bucket | No |
 | `SEND_EMAIL` | Send Email | No |
-| `EMAIL_VERIFY_ENDPOINT` | Self-hosted SMTP verifier URL | No |
+| `EMAIL_VERIFY_ENDPOINT` | Self-hosted SMTP verifier base or `/verify` URL | No |
 | `EMAIL_VERIFY_SECRET` | Worker secret for verifier auth | No |
 
 Detailed setup guide: [forum-lite/README.md](forum-lite/README.md)

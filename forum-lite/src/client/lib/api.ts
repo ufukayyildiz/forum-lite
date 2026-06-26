@@ -183,6 +183,15 @@ export type SmtpVerifyResult = {
   error?: string | null;
 };
 
+export type SmtpVerifierStatus = {
+  configured: boolean;
+  ready: boolean;
+  endpoint?: string;
+  healthUrl?: string;
+  reason: string;
+  error?: string | null;
+};
+
 export type AdminEmailVerifyRow = {
   rowType?: "candidate" | "risk";
   email: string;
@@ -214,6 +223,8 @@ export type AdminEmailVerifyRow = {
 export type AdminEmailVerifyResponse = {
   configured: boolean;
   smtpVerifierConfigured?: boolean;
+  smtpVerifierReady?: boolean;
+  smtpVerifierStatus?: SmtpVerifierStatus;
   hours: number;
   errors: string[];
   total: number;
@@ -344,7 +355,7 @@ export const api = {
   adminEmailVerifySuppress: (emails: string[], reason = "admin_email_verify_risky") =>
     post<{ ok: boolean; total: number; suppressed: number; errors: any[]; results: any[] }>("/admin/email-verify/suppress", { emails, reason }),
   adminEmailVerifyRun: (input: { limit?: number; emails?: string[] } = {}) =>
-    post<{ ok: boolean; total: number; remaining: number; okPreflight: number; risky: number; smtpVerified?: number; verifierConfigured?: boolean; sent: number; skipped: number; suppressed: number; preflightBlocked: number; error: number; results: any[] }>("/admin/email-verify/run", input),
+    post<{ ok: boolean; total: number; remaining: number; okPreflight: number; risky: number; smtpVerified?: number; verifierConfigured?: boolean; verifierReady?: boolean; verifierHealth?: SmtpVerifierStatus; sent: number; skipped: number; suppressed: number; preflightBlocked: number; error: number; results: any[] }>("/admin/email-verify/run", input),
   adminEmailEvents: (page = 1, kind = "") =>
     get<{ events: Array<any & { openCount?: number; clickCount?: number; openedAt?: string | null; clickedAt?: string | null; lastOpenedAt?: string | null; lastClickedAt?: string | null }>; total: number; page: number; perPage: number }>(
       `/admin/email-events?page=${page}${kind ? `&kind=${encodeURIComponent(kind)}` : ""}`

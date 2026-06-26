@@ -17,8 +17,66 @@ export type SmtpVerifyResult = {
   error?: string | null;
 };
 
+export type SmtpVerifierHealth = {
+  configured: boolean;
+  ready: boolean;
+  endpoint?: string;
+  healthUrl?: string;
+  reason: string;
+  error?: string | null;
+};
+
 export function smtpVerifierConfigured(env: Bindings): boolean {
   return Boolean(env.EMAIL_VERIFY_ENDPOINT?.trim());
+}
+
+export async function checkSmtpVerifierHealth(env: Bindings): Promise<SmtpVerifierHealth> {
+  const endpoint = env.EMAIL_VERIFY_ENDPOINT?.trim();
+  if (!endpoint) {
+    return {
+      configured: false,
+      ready: false,
+      reason: "EMAIL_VERIFY_ENDPOINT is missing. SMTP mailbox verification is disabled.",
+    };
+  }
+
+  const healthUrl = smtpVerifierUrl(endpoint, "health");
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    const headers: Record<string, string> = {};
+    if (env.EMAIL_VERIFY_SECRET) headers.authorization = `Bearer ${env.EMAIL_VERIFY_SECRET}`;
+    const res = await fetch(healthUrl, { headers, signal: controller.signal });
+    const body = await res.json().catch(() => null) as { ok?: boolean; mode?: string; error?: string } | null;
+    if (!res.ok || body?.ok !== true) {
+      return {
+        configured: true,
+        ready: false,
+        endpoint: smtpVerifierUrl(endpoint, "verify"),
+        healthUrl,
+        reason: `SMTP verifier health failed with HTTP ${res.status}.`,
+        error: body?.error ?? `HTTP ${res.status}`,
+      };
+    }
+    return {
+      configured: true,
+      ready: true,
+      endpoint: smtpVerifierUrl(endpoint, "verify"),
+      healthUrl,
+      reason: body.mode ? `SMTP verifier ready (${body.mode}).` : "SMTP verifier ready.",
+    };
+  } catch (error) {
+    return {
+      configured: true,
+      ready: false,
+      endpoint: smtpVerifierUrl(endpoint, "verify"),
+      healthUrl,
+      reason: "SMTP verifier health request failed.",
+      error: error instanceof Error ? error.message : "request failed",
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export async function verifyWithSelfHostedSmtp(
@@ -27,6 +85,7 @@ export async function verifyWithSelfHostedSmtp(
 ): Promise<SmtpVerifyResult | null> {
   const endpoint = env.EMAIL_VERIFY_ENDPOINT?.trim();
   if (!endpoint) return null;
+  const verifyUrl = smtpVerifierUrl(endpoint, "verify");
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
@@ -34,7 +93,7 @@ export async function verifyWithSelfHostedSmtp(
     const headers: Record<string, string> = { "content-type": "application/json" };
     if (env.EMAIL_VERIFY_SECRET) headers.authorization = `Bearer ${env.EMAIL_VERIFY_SECRET}`;
 
-    const res = await fetch(endpoint, {
+    const res = await fetch(verifyUrl, {
       method: "POST",
       headers,
       body: JSON.stringify({
@@ -175,6 +234,24 @@ export function smtpVerifyDetail(result: SmtpVerifyResult): string {
     result.error ? `error=${result.error}` : "",
     ...(result.checks ?? []),
   ].filter(Boolean).join(" | ").slice(0, 2000);
+}
+
+function smtpVerifierUrl(input: string, route: "health" | "verify"): string {
+  const raw = input.trim();
+  try {
+    const url = new URL(raw);
+    const pathname = url.pathname.replace(/\/+$/, "");
+    if (!pathname || pathname === "/") {
+      url.pathname = `/${route}`;
+    } else if (pathname.endsWith("/health") || pathname.endsWith("/verify")) {
+      url.pathname = `${pathname.replace(/\/(health|verify)$/, "")}/${route}`;
+    } else if (route === "health") {
+      url.pathname = `${pathname}/health`;
+    }
+    return url.toString();
+  } catch {
+    return raw;
+  }
 }
 
 function normalizeSmtpStatus(value: unknown): SmtpVerifyStatus {

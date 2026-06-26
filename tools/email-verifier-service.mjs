@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createServer } from "node:http";
 import { promises as dns } from "node:dns";
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import net from "node:net";
 
 const PORT = Number(process.env.PORT || 8789);
@@ -13,18 +13,20 @@ const COMMAND_TIMEOUT_MS = Number(process.env.SMTP_VERIFY_COMMAND_TIMEOUT_MS || 
 
 createServer(async (req, res) => {
   if (req.method === "GET" && req.url === "/health") {
-    return json(res, 200, { ok: true });
+    if (!authorized(req)) return json(res, 401, { ok: false, error: "unauthorized" });
+    return json(res, 200, {
+      ok: true,
+      mode: "smtp-rcpt-no-data",
+      outboundPort: 25,
+      helo: DEFAULT_HELO,
+      mailFromDomain: DEFAULT_MAIL_FROM.replace(/^.*@/, ""),
+    });
   }
   if (req.method !== "POST" || req.url !== "/verify") {
     return json(res, 404, { error: "not found" });
   }
 
-  if (VERIFY_SECRET) {
-    const auth = req.headers.authorization || "";
-    if (auth !== `Bearer ${VERIFY_SECRET}`) {
-      return json(res, 401, { error: "unauthorized" });
-    }
-  }
+  if (!authorized(req)) return json(res, 401, { error: "unauthorized" });
 
   try {
     const body = await readJson(req);
@@ -51,12 +53,12 @@ async function verifyEmail(email, options) {
     return result(email, "undeliverable", "Invalid email syntax.", { checks: ["syntax failed"] });
   }
 
-  const mxRecords = await resolveMx(parsed.domain);
+  const mxRecords = await resolveMxOrFallback(parsed.domain);
   if (!mxRecords.length) {
-    return result(email, "undeliverable", "Domain has no MX record.", { checks: ["mx failed"] });
+    return result(email, "undeliverable", "Domain has no MX or A/AAAA fallback record.", { checks: ["mx failed", "a/aaaa failed"] });
   }
 
-  const checks = ["syntax ok", "mx ok"];
+  const checks = ["syntax ok", mxRecords[0].source === "a_fallback" ? "mx missing, a/aaaa fallback ok" : "mx ok"];
   let lastError = "";
   for (const mx of mxRecords.slice(0, 3)) {
     try {
@@ -106,6 +108,19 @@ async function verifyEmail(email, options) {
   });
 }
 
+function authorized(req) {
+  if (!VERIFY_SECRET) return true;
+  const auth = req.headers.authorization || "";
+  const expected = `Bearer ${VERIFY_SECRET}`;
+  try {
+    const a = Buffer.from(auth);
+    const b = Buffer.from(expected);
+    return a.length === b.length && timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
+
 function parseEmail(input) {
   const raw = String(input || "").trim().replace(/^mailto:/i, "");
   const match = /^([^@\s]+)@([^@\s]+)$/.exec(raw);
@@ -125,15 +140,26 @@ function parseEmail(input) {
   return { email: `${local}@${domain}`, local, domain, validSyntax };
 }
 
-async function resolveMx(domain) {
+async function resolveMxOrFallback(domain) {
   try {
     const rows = await dns.resolveMx(domain);
-    return rows
+    const mx = rows
       .filter((row) => row.exchange)
-      .sort((a, b) => a.priority - b.priority);
+      .sort((a, b) => a.priority - b.priority)
+      .map((row) => ({ ...row, source: "mx" }));
+    if (mx.length) return mx;
   } catch {
-    return [];
+    // Fall through to RFC-compatible implicit A/AAAA fallback.
   }
+
+  const [a, aaaa] = await Promise.all([
+    dns.resolve4(domain).catch(() => []),
+    dns.resolve6(domain).catch(() => []),
+  ]);
+  if (a.length || aaaa.length) {
+    return [{ exchange: domain, priority: 0, source: "a_fallback" }];
+  }
+  return [];
 }
 
 async function smtpRcpt(host, rcptTo, options) {

@@ -166,10 +166,18 @@ export default function AdminEmailVerify() {
   const summary = query.data?.summary;
   const runQueuedRows = selectedCandidateRows.length ? selectedCandidateRows : queuedForNextBatch;
   const runMode: VerifyLogState["mode"] = selectedCandidateRows.length ? "selected" : "batch";
-  const runLabel = selectedCandidateRows.length ? `$ run checked (${selectedCandidateRows.length})` : `$ run next ${verifyLimit}`;
+  const smtpReady = Boolean(query.data?.smtpVerifierReady);
+  const smtpStatus = query.data?.smtpVerifierStatus;
+  const runLabel = !smtpReady
+    ? "$ SMTP offline"
+    : selectedCandidateRows.length ? `$ run SMTP checked (${selectedCandidateRows.length})` : `$ run SMTP next ${verifyLimit}`;
 
   const runPreflight = () => {
     if (verify.isPending || !runQueuedRows.length) return;
+    if (!smtpReady) {
+      toast.error(smtpStatus?.error || smtpStatus?.reason || "SMTP verifier is not ready");
+      return;
+    }
     const queued = runQueuedRows.map((row) => ({
       email: row.email,
       username: row.username,
@@ -181,7 +189,7 @@ export default function AdminEmailVerify() {
       mode: runMode,
       queued,
       results: [],
-      message: `${queued.length} address${queued.length === 1 ? "" : "es"} queued for preflight. No email will be sent.`,
+      message: `${queued.length} address${queued.length === 1 ? "" : "es"} queued for SMTP RCPT verification. No email DATA will be sent.`,
     });
     verify.mutate(selectedCandidateRows.length ? selectedCandidateRows.map((row) => row.email) : undefined);
   };
@@ -193,13 +201,14 @@ export default function AdminEmailVerify() {
           <div>
             <h2 style={{ margin: "0 0 6px", color: "var(--gb-yellow)", fontSize: 15 }}>$ email verify</h2>
             <p style={{ margin: 0, color: "var(--gb-gray)", maxWidth: 920 }}>
-              Scans Cloudflare failed/rejected events, then checks never-emailed users with syntax, typo, disposable, MX and A/AAAA preflight. If EMAIL_VERIFY_ENDPOINT is configured, passed rows also get a no-DATA SMTP RCPT handshake.
+              Scans Cloudflare failed/rejected events, then verifies never-emailed users with syntax, typo, disposable, MX/A/AAAA and self-hosted SMTP RCPT checks.
             </p>
             <p style={{ margin: "6px 0 0", color: "var(--gb-yellow)", maxWidth: 920 }}>
               No email is sent from this screen. SMTP verification sends HELO/MAIL FROM/RCPT TO only, then quits before DATA.
             </p>
-            <p style={{ margin: "6px 0 0", color: query.data?.smtpVerifierConfigured ? "var(--gb-green)" : "var(--gb-gray)", maxWidth: 920 }}>
-              SMTP verifier: {query.data?.smtpVerifierConfigured ? "connected" : "not configured; local DNS/MX preflight only"}
+            <p style={{ margin: "6px 0 0", color: smtpReady ? "var(--gb-green)" : "var(--gb-red)", maxWidth: 920 }}>
+              SMTP verifier: {smtpReady ? "ready" : (smtpStatus?.configured ? "configured but not ready" : "not configured")}
+              {smtpStatus?.reason ? ` — ${smtpStatus.reason}` : ""}
             </p>
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -258,10 +267,10 @@ export default function AdminEmailVerify() {
         </label>
         <div style={{ display: "flex", gap: 8, alignItems: "end" }}>
           <label style={{ display: "grid", gap: 4, color: "var(--gb-gray)", fontSize: 11, letterSpacing: ".06em", width: 110 }}>
-            PREFLIGHT BATCH
+            SMTP BATCH
             <input className="gb-input" type="number" min={1} max={100} value={verifyLimit} onChange={(event) => setVerifyLimit(Math.max(1, Math.min(100, Number(event.target.value) || 100)))} />
           </label>
-          <button className="gb-btn gb-btn-primary" type="button" disabled={verify.isPending || !runQueuedRows.length} onClick={runPreflight}>
+          <button className="gb-btn gb-btn-primary" type="button" disabled={verify.isPending || !runQueuedRows.length || !smtpReady} onClick={runPreflight}>
             {verify.isPending ? "$ checking..." : runLabel}
           </button>
         </div>
@@ -272,7 +281,7 @@ export default function AdminEmailVerify() {
           <span><strong style={{ color: "var(--gb-yellow)" }}>{query.data.total}</strong> visible rows</span>
           <span><strong style={{ color: "var(--gb-yellow)" }}>{query.data.candidateTotal}</strong> never emailed total</span>
           <span><strong style={{ color: "var(--gb-green)" }}>{candidateRows.length}</strong> selectable now</span>
-          <span><strong style={{ color: "var(--gb-yellow)" }}>{selectedCandidateRows.length}/{MAX_PREFLIGHT}</strong> selected for preflight</span>
+          <span><strong style={{ color: "var(--gb-yellow)" }}>{selectedCandidateRows.length}/{MAX_PREFLIGHT}</strong> selected for SMTP verify</span>
           <span><strong style={{ color: "var(--gb-red)" }}>{selectedSuppressRows.length}/{MAX_SUPPRESS}</strong> selected for suppression</span>
           <span><strong style={{ color: "var(--gb-red)" }}>{summary?.risk.critical ?? 0}</strong> critical</span>
           <span><strong style={{ color: "var(--gb-red)" }}>{summary?.risk.high ?? 0}</strong> high</span>
@@ -373,7 +382,7 @@ export default function AdminEmailVerify() {
           <section className="gb-preview-dialog gb-send-dialog" role="dialog" aria-modal="true" aria-labelledby="email-verify-run-title">
             <div className="gb-preview-titlebar">
               <div id="email-verify-run-title" className="gb-preview-title">
-                {verifyLog.phase === "checking" ? "$ email preflight running" : "$ email preflight log"}
+                {verifyLog.phase === "checking" ? "$ SMTP verify running" : "$ SMTP verify log"}
               </div>
               <button
                 className="gb-btn"
@@ -429,7 +438,7 @@ export default function AdminEmailVerify() {
                           ? `${smtpVerifyLabel(row.smtpVerify)} / mx ${row.smtpVerify.mxHost || "-"} / smtp ${row.smtpVerify.smtpCode ?? "-"}${row.smtpVerify.catchAll ? " / catch-all" : ""}`
                           : row.preflight
                             ? `${preflightLabel(row.preflight)} / mx ${row.preflight.hasMx ? "yes" : "no"} / a ${row.preflight.hasA ? "yes" : "no"} / aaaa ${row.preflight.hasAaaa ? "yes" : "no"}`
-                            : verifyLog.phase === "checking" ? "syntax, typo, disposable, MX, A/AAAA, SMTP endpoint if configured..." : "-"}
+                            : verifyLog.phase === "checking" ? "syntax, typo, disposable, MX, A/AAAA, SMTP RCPT..." : "-"}
                       </td>
                     </tr>
                   ))}

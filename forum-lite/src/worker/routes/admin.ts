@@ -11,8 +11,8 @@ import { cloudflareEmailApiConfigured, listCloudflareDeliveryFailures, type Clou
 import { classifyCloudflareEmailFailure, failureDetail, type EmailFailureClassification } from "../lib/email-classification";
 import { classificationForPreflight, preflightEmail, type EmailPreflightResult } from "../lib/email-preflight";
 import {
+  checkSmtpVerifierHealth,
   classificationForSmtpVerify,
-  smtpVerifierConfigured,
   smtpVerifyDetail,
   verifyWithSelfHostedSmtp,
   type SmtpVerifyResult,
@@ -345,6 +345,7 @@ app.get("/email-verify", async (c) => {
   const includeSuppressed = c.req.query("includeSuppressed") !== "false";
   const candidateLimit = Math.max(1, Math.min(100, Number(c.req.query("candidateLimit") ?? 100) || 100));
   const configured = cloudflareEmailApiConfigured(c.env);
+  const smtpHealth = await checkSmtpVerifierHealth(c.env);
   const errors: string[] = [];
   const groups = new Map<string, {
     email: string;
@@ -471,9 +472,11 @@ app.get("/email-verify", async (c) => {
       statuses: ["never_emailed"],
       subjects: ["Email preflight candidate"],
       latest: null,
-      details: smtpVerifierConfigured(c.env)
-        ? "Never emailed; selected rows run syntax, typo, disposable, MX/A/AAAA and self-hosted SMTP RCPT checks. No email DATA will be sent."
-        : "Never emailed; select this row to run syntax, typo, disposable, MX and A/AAAA checks. No email will be sent.",
+      details: smtpHealth.configured
+        ? smtpHealth.ready
+          ? "Never emailed; selected rows run syntax, typo, disposable, MX/A/AAAA and self-hosted SMTP RCPT checks. No email DATA will be sent."
+          : `Never emailed; SMTP verifier is configured but not ready: ${smtpHealth.error ?? smtpHealth.reason}`
+        : "Never emailed; SMTP verifier is not configured, so mailbox-level verification cannot run.",
       preflight: null,
       category: "not_checked",
       label: "not checked",
@@ -548,7 +551,9 @@ app.get("/email-verify", async (c) => {
 
   return c.json({
     configured,
-    smtpVerifierConfigured: smtpVerifierConfigured(c.env),
+    smtpVerifierConfigured: smtpHealth.configured,
+    smtpVerifierReady: smtpHealth.ready,
+    smtpVerifierStatus: smtpHealth,
     hours,
     errors,
     total: rows.length,
@@ -626,7 +631,27 @@ app.post("/email-verify/run", zValidator("json", z.object({
   const users = selectedEmails.length
     ? await emailVerifyCandidatesByEmails(c, selectedEmails)
     : await emailVerifyCandidates(c, limit);
-  const useSmtpVerifier = smtpVerifierConfigured(c.env);
+  const smtpHealth = await checkSmtpVerifierHealth(c.env);
+  if (!smtpHealth.ready) {
+    return c.json({
+      ok: false,
+      error: smtpHealth.error ?? smtpHealth.reason,
+      verifierConfigured: smtpHealth.configured,
+      verifierReady: false,
+      verifierHealth: smtpHealth,
+      total: 0,
+      remaining: await emailVerifyCandidateCount(c),
+      okPreflight: 0,
+      risky: 0,
+      smtpVerified: 0,
+      sent: 0,
+      skipped: users.length,
+      suppressed: 0,
+      preflightBlocked: 0,
+      results: [],
+    }, 503);
+  }
+  const useSmtpVerifier = true;
   const preflightResults = await mapWithConcurrency(users, useSmtpVerifier ? 4 : 10, async (user) => {
     const preflight = await preflightEmail(user.email);
     const preflightClassification = classificationForPreflight(preflight);
@@ -696,7 +721,7 @@ app.post("/email-verify/run", zValidator("json", z.object({
   await db.insert(schema.activityLog).values({
     userId: admin?.id ?? null,
     type: "email_verify",
-    summary: `Email Verify checked ${results.length} ${selectedEmails.length ? "selected" : "batch"} users (${passed} passed, ${risky} risky, ${smtpVerified} SMTP verified, ${remaining} remaining, 0 emails sent)`,
+    summary: `Email Verify checked ${results.length} ${selectedEmails.length ? "selected" : "batch"} users via SMTP verifier (${smtpVerified} SMTP checked, ${passed} accepted, ${risky} risky, ${remaining} remaining, 0 emails sent)`,
     createdAt: new Date(),
   });
 
@@ -708,6 +733,8 @@ app.post("/email-verify/run", zValidator("json", z.object({
     risky,
     smtpVerified,
     verifierConfigured: useSmtpVerifier,
+    verifierReady: true,
+    verifierHealth: smtpHealth,
     sent: 0,
     skipped: 0,
     suppressed: counts.suppressed ?? 0,
