@@ -57,6 +57,15 @@ export type Thread = {
   category: { id: number; publicId: string; name: string; slug: string; color: string };
   author: { id: number; publicId?: string; username: string; displayName: string; avatarUrl: string | null; bio?: string | null; role?: string };
   tags?: { id: number; name: string; slug: string }[];
+  internalLinks?: Array<{
+    term: string;
+    title: string;
+    path: string;
+    categoryName: string;
+    categoryPath: string;
+    publicId: string;
+    excerpt: string;
+  }>;
 };
 export type Post = {
   id: number; content: string; likeCount: number; likedByMe: boolean;
@@ -238,6 +247,14 @@ export type AdminEmailSuppressionsResponse = {
   perPage: number;
 };
 
+export type ContactMessageInput = {
+  name: string;
+  email: string;
+  subject: string;
+  message: string;
+  website?: string;
+};
+
 export const api = {
   // auth
   me: () => get<{ user: PublicUser | null }>("/auth/me"),
@@ -322,6 +339,9 @@ export const api = {
 
   // search
   search: (q: string) => get<{ threads: any[]; posts: any[]; users: any[] }>(`/search?q=${encodeURIComponent(q)}`),
+
+  // contact
+  contactMessage: (b: ContactMessageInput) => post<{ ok: boolean; message: string }>("/contact", b),
 
   // admin
   adminStats: () => get<{ userCount: number; threadCount: number; postCount: number; recentActivity: any[] }>("/admin/stats"),

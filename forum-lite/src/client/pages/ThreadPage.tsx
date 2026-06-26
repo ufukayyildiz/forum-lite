@@ -450,6 +450,19 @@ export default function ThreadPage() {
           ))}
         </div>
 
+        {thread.internalLinks?.length ? (
+          <nav className="gb-related-links" aria-label="Related technical topics">
+            <span className="gb-related-label">related</span>
+            {thread.internalLinks.map((link) => (
+              <Link key={`${link.term}:${link.publicId}`} to={link.path} className="gb-related-link" title={link.title}>
+                <span className="gb-related-term"># {link.term}</span>
+                <span className="gb-related-title">{link.title}</span>
+                {link.categoryName && <span className="gb-related-category">| {link.categoryName}</span>}
+              </Link>
+            ))}
+          </nav>
+        ) : null}
+
         {/* OP post */}
         <div style={{ borderBottom: "1px solid var(--gb-bg2)" }}>
           <div className="gb-post" style={{ padding: "12px 20px" }}>

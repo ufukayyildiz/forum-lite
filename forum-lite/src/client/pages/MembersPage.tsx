@@ -5,7 +5,7 @@ import { api } from "../lib/api";
 import { DAvatar } from "../components/DAvatar";
 import { GbToolbar } from "../components/layout/Header";
 import { SEOHead } from "../components/SEOHead";
-import { ListAdRow, shouldShowListAd } from "../components/ListAdRow";
+import { ListAdRow, shouldShowLeadListAd, shouldShowListAd } from "../components/ListAdRow";
 
 const ROLE_LABEL: Record<string, string> = { admin: "[admin]", moderator: "[mod]" };
 const ROLE_COLOR: Record<string, string> = { admin: "var(--gb-red)", moderator: "var(--gb-blue)" };
@@ -71,6 +71,9 @@ export default function MembersPage() {
               </tr>
             </thead>
             <tbody>
+              {shouldShowLeadListAd(adsConfig, list.length) && (
+                <ListAdRow config={adsConfig} index={0} colSpan={6} lead />
+              )}
               {list.map((m, i) => {
                 const position = i + 1;
                 return (

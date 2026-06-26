@@ -8,7 +8,7 @@ import { GbToolbar } from "../components/layout/Header";
 import { Plus } from "lucide-react";
 import { SEOHead } from "../components/SEOHead";
 import { categoryPath, threadPath } from "../lib/routes";
-import { ListAdRow, shouldShowListAd } from "../components/ListAdRow";
+import { ListAdRow, shouldShowLeadListAd, shouldShowListAd } from "../components/ListAdRow";
 
 const VISIBLE_ROWS = 18;
 
@@ -96,6 +96,9 @@ export default function CategoryPage() {
               </tr>
             </thead>
             <tbody>
+              {shouldShowLeadListAd(adsConfig, list.length) && (
+                <ListAdRow config={adsConfig} index={0} colSpan={6} lead />
+              )}
               {list.map((t, i) => {
                 const position = i + 1;
                 return (

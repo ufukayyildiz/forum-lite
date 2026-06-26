@@ -71,6 +71,8 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
           { to: "/", label: "threads", icon: "#", exact: true },
           { to: "/members", label: "members", icon: "#" },
           { to: "/tags", label: "tags", icon: "#" },
+          { to: "/contact", label: "contact", icon: "$" },
+          { to: "/about", label: "about", icon: '"' },
         ].map(({ to, label, icon, exact }) => (
           <Link
             key={to}

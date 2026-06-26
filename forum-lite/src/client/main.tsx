@@ -21,6 +21,8 @@ import RegisterPage from "./pages/RegisterPage";
 import SearchPage from "./pages/SearchPage";
 import TagsPage from "./pages/TagsPage";
 import TagDetailPage from "./pages/TagDetailPage";
+import ContactPage from "./pages/ContactPage";
+import AboutPage from "./pages/AboutPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import AdminLayout from "./pages/admin/AdminLayout";
 import AdminDashboard from "./pages/admin/AdminDashboard";
@@ -63,6 +65,8 @@ const app = (
           <Route path="/search" element={<Layout><SearchPage /></Layout>} />
           <Route path="/tags" element={<Layout><TagsPage /></Layout>} />
           <Route path="/tag/:slug" element={<Layout><TagDetailPage /></Layout>} />
+          <Route path="/contact" element={<Layout><ContactPage /></Layout>} />
+          <Route path="/about" element={<Layout><AboutPage /></Layout>} />
           <Route path="/admin" element={<Layout><AdminLayout /></Layout>}>
             <Route index element={<AdminDashboard />} />
             <Route path="users" element={<AdminUsers />} />

@@ -4,7 +4,7 @@ import { Fragment } from "react";
 import { api } from "../lib/api";
 import { GbToolbar } from "../components/layout/Header";
 import { SEOHead } from "../components/SEOHead";
-import { ListAdRow, shouldShowListAd } from "../components/ListAdRow";
+import { ListAdRow, shouldShowLeadListAd, shouldShowListAd } from "../components/ListAdRow";
 
 const VISIBLE_ROWS = 18;
 
@@ -50,6 +50,9 @@ export default function TagsPage() {
               </tr>
             </thead>
             <tbody>
+              {shouldShowLeadListAd(adsConfig, tags?.length ?? 0) && (
+                <ListAdRow config={adsConfig} index={0} colSpan={6} lead />
+              )}
               {tags?.map((t, i) => {
                 const position = i + 1;
                 return (

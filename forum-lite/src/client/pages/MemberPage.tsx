@@ -11,7 +11,7 @@ import { SEOHead } from "../components/SEOHead";
 import { categoryPathFromRow } from "../lib/routes";
 import { toast } from "sonner";
 import { ThreadLink } from "../components/ThreadLink";
-import { ListAdRow, shouldShowListAd } from "../components/ListAdRow";
+import { ListAdRow, shouldShowLeadListAd, shouldShowListAd } from "../components/ListAdRow";
 
 const ROLE_LABEL: Record<string, string> = { admin: "[admin]", moderator: "[mod]", member: "[member]" };
 const ROLE_COLOR: Record<string, string> = { admin: "var(--gb-red)", moderator: "var(--gb-blue)", member: "var(--gb-gray)" };
@@ -237,6 +237,9 @@ export default function MemberPage() {
               </tr>
             </thead>
             <tbody>
+              {shouldShowLeadListAd(adsConfig, threads.length) && (
+                <ListAdRow config={adsConfig} index={0} colSpan={5} lead />
+              )}
               {threads.map((t: any, i: number) => {
                 const position = i + 1;
                 return (
@@ -298,6 +301,9 @@ export default function MemberPage() {
               </tr>
             </thead>
             <tbody>
+              {shouldShowLeadListAd(adsConfig, replies.length) && (
+                <ListAdRow config={adsConfig} index={0} colSpan={5} lead />
+              )}
               {replies.map((p: any, i: number) => {
                 const position = i + 1;
                 return (

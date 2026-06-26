@@ -6,7 +6,7 @@ import { GbToolbar } from "../components/layout/Header";
 import { SEOHead } from "../components/SEOHead";
 import { TopicRow, EmptyRows } from "../components/TopicRow";
 import { threadPath } from "../lib/routes";
-import { ListAdRow, shouldShowListAd } from "../components/ListAdRow";
+import { ListAdRow, shouldShowLeadListAd, shouldShowListAd } from "../components/ListAdRow";
 
 const VISIBLE_ROWS = 20;
 
@@ -89,6 +89,9 @@ export default function TagDetailPage() {
               </tr>
             </thead>
             <tbody>
+              {shouldShowLeadListAd(adsConfig, threads.length) && (
+                <ListAdRow config={adsConfig} index={0} colSpan={6} lead />
+              )}
               {threads.length === 0 && (
                 <tr>
                   <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>~</td>

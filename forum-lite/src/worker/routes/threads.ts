@@ -7,6 +7,7 @@ import { requireAuth, requireRole } from "../lib/middleware";
 import { slugify, safeISO, generatePublicId } from "../lib/auth";
 import { toPublicUser, type AppEnv } from "../types";
 import type { DB } from "../db";
+import { loadInternalLinkTargets } from "../lib/internal-links";
 
 const app = new Hono<AppEnv>();
 const PUBLIC_ID_ATTEMPTS = 20;
@@ -230,16 +231,31 @@ app.get("/:id", async (c) => {
 
   const thread = await db.query.threads.findFirst({ where: eq(schema.threads.id, t.id) });
 
-  const tagRows = await db
-    .select({ id: schema.tags.id, name: schema.tags.name, slug: schema.tags.slug })
-    .from(schema.tags)
-    .innerJoin(schema.threadTags, eq(schema.threadTags.tagId, schema.tags.id))
-    .where(eq(schema.threadTags.threadId, t.id));
+  const [tagRows, postTextRows] = await Promise.all([
+    db
+      .select({ id: schema.tags.id, name: schema.tags.name, slug: schema.tags.slug })
+      .from(schema.tags)
+      .innerJoin(schema.threadTags, eq(schema.threadTags.tagId, schema.tags.id))
+      .where(eq(schema.threadTags.threadId, t.id)),
+    c.env.DB.prepare("SELECT content FROM posts WHERE thread_id = ? ORDER BY created_at ASC LIMIT 8")
+      .bind(t.id)
+      .all<{ content: string }>(),
+  ]);
+
+  const tagText = tagRows.map((tag) => tag.name).join(" ");
+  const replyText = (postTextRows.results ?? []).map((post) => post.content).join("\n");
+  const internalLinks = await loadInternalLinkTargets(c.env.DB, {
+    sourceThreadId: Number(t.id),
+    sourcePublicId: String(t.publicId),
+    text: `${t.title}\n${thread?.content ?? ""}\n${tagText}\n${replyText}`,
+    maxLinks: 8,
+  });
 
   return c.json({
     ...mapThread(t),
     content: thread?.content ?? "",
     tags: tagRows,
+    internalLinks,
     author: {
       id: t.authorId,
       publicId: t.authorPublicId,

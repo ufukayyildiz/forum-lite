@@ -11,6 +11,7 @@ import tagRoutes from "./routes/tags";
 import searchRoutes from "./routes/search";
 import adminRoutes from "./routes/admin";
 import attachmentRoutes from "./routes/attachments";
+import contactRoutes from "./routes/contact";
 import { schema, getDb } from "./db";
 import type { Bindings, Variables } from "./types";
 import { renderSeoHtml } from "./lib/seo";
@@ -51,6 +52,7 @@ app.route("/api/posts", postRoutes);
 app.route("/api/members", memberRoutes);
 app.route("/api/tags", tagRoutes);
 app.route("/api/search", searchRoutes);
+app.route("/api/contact", contactRoutes);
 app.route("/api/admin", adminRoutes);
 app.route("/api/attachments", attachmentRoutes);
 
@@ -199,6 +201,8 @@ app.get("/sitemap-general.xml", async (c) => {
     sitemapUrl(base, "/", { changefreq: "daily", priority: "1.0" }),
     sitemapUrl(base, "/members", { changefreq: "weekly", priority: "0.6" }),
     sitemapUrl(base, "/tags", { changefreq: "weekly", priority: "0.6" }),
+    sitemapUrl(base, "/about", { changefreq: "monthly", priority: "0.5" }),
+    sitemapUrl(base, "/contact", { changefreq: "monthly", priority: "0.4" }),
   ];
   return c.text(urlset(urls), 200, { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=3600" });
 });

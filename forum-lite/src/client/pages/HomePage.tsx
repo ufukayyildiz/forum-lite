@@ -7,7 +7,7 @@ import { GbToolbar } from "../components/layout/Header";
 import { useMe } from "../lib/useAuth";
 import { SEOHead } from "../components/SEOHead";
 import { threadPath } from "../lib/routes";
-import { ListAdRow, shouldShowListAd } from "../components/ListAdRow";
+import { ListAdRow, shouldShowLeadListAd, shouldShowListAd } from "../components/ListAdRow";
 
 const THREAD_ROWS = 15;
 
@@ -81,6 +81,9 @@ export default function HomePage() {
               </tr>
             </thead>
             <tbody>
+              {shouldShowLeadListAd(adsConfig, list.length) && (
+                <ListAdRow config={adsConfig} index={0} colSpan={6} lead />
+              )}
               {list.map((t, i) => {
                 const position = i + 1;
                 return (

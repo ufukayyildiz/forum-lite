@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import type { Bindings, Variables } from "../types";
+import { loadInternalLinkTargets } from "./internal-links";
 
 type AppContext = Context<{ Bindings: Bindings; Variables: Variables }>;
 
@@ -310,24 +311,43 @@ async function loadThreadApi(c: AppContext, id: string) {
     .first<Record<string, unknown>>();
   if (!thread) return null;
 
-  const tagRows = await c.env.DB.prepare(
-    `SELECT tags.id, tags.name, tags.slug
-     FROM tags
-     INNER JOIN thread_tags tt ON tt.tag_id = tags.id
-     WHERE tt.thread_id = ?
-     ORDER BY tags.name`,
-  )
-    .bind(Number(thread.id))
-    .all<Record<string, unknown>>();
+  const [tagRows, postTextRows] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT tags.id, tags.name, tags.slug
+       FROM tags
+       INNER JOIN thread_tags tt ON tt.tag_id = tags.id
+       WHERE tt.thread_id = ?
+       ORDER BY tags.name`,
+    )
+      .bind(Number(thread.id))
+      .all<Record<string, unknown>>(),
+    c.env.DB.prepare("SELECT content FROM posts WHERE thread_id = ? ORDER BY created_at ASC LIMIT 8")
+      .bind(Number(thread.id))
+      .all<Record<string, unknown>>(),
+  ]);
+
+  const tags = (tagRows.results ?? []).map((tag) => ({
+    id: Number(tag.id),
+    name: String(tag.name ?? ""),
+    slug: String(tag.slug ?? ""),
+  }));
+  const internalLinks = await loadInternalLinkTargets(c.env.DB, {
+    sourceThreadId: Number(thread.id),
+    sourcePublicId: String(thread.publicId),
+    text: [
+      String(thread.title ?? ""),
+      String(thread.content ?? ""),
+      tags.map((tag) => tag.name).join(" "),
+      ...(postTextRows.results ?? []).map((post) => String(post.content ?? "")),
+    ].join("\n"),
+    maxLinks: 8,
+  });
 
   return {
     ...mapThreadApi(thread),
     content: String(thread.content ?? ""),
-    tags: (tagRows.results ?? []).map((tag) => ({
-      id: Number(tag.id),
-      name: String(tag.name ?? ""),
-      slug: String(tag.slug ?? ""),
-    })),
+    tags,
+    internalLinks,
   };
 }
 
@@ -808,6 +828,17 @@ async function threadPayload(c: AppContext, base: string, id: string): Promise<S
   const path = `/t/${thread.publicId}`;
   const url = absoluteUrl(base, path);
   const description = cleanText(thread.content, 160) || `${title} discussion in ${thread.categoryName}.`;
+  const internalLinks = await loadInternalLinkTargets(c.env.DB, {
+    sourceThreadId: Number(thread.id),
+    sourcePublicId: String(thread.publicId),
+    text: [
+      title,
+      String(thread.content ?? ""),
+      tags.map((tag) => String(tag.name)).join(" "),
+      ...replies.slice(0, 8).map((reply) => String(reply.content ?? "")),
+    ].join("\n"),
+    maxLinks: 8,
+  });
   const schemas: SeoSchema[] = [
     breadcrumbSchema(base, [
       { name: "Forum", path: "/" },
@@ -824,6 +855,14 @@ async function threadPayload(c: AppContext, base: string, id: string): Promise<S
       text: cleanText(thread.content, 4000),
       articleSection: String(thread.categoryName),
       keywords: tags.map((tag) => String(tag.name)).join(", ") || undefined,
+      mentions: internalLinks.length
+        ? internalLinks.map((link) => ({
+            "@type": "DiscussionForumPosting",
+            name: link.title,
+            url: absoluteUrl(base, link.path),
+            about: link.term,
+          }))
+        : undefined,
       datePublished: isoDate(thread.createdAt),
       dateModified: newestIsoDate(thread.updatedAt, thread.lastPostAt, thread.createdAt),
       inLanguage: CONTENT_LANGUAGE,
@@ -858,6 +897,17 @@ async function threadPayload(c: AppContext, base: string, id: string): Promise<S
       })),
     },
   ];
+  if (internalLinks.length) {
+    schemas.push(
+      itemListSchema(
+        base,
+        internalLinks.map((link) => ({
+          name: `${link.term}: ${link.title}`,
+          path: link.path,
+        })),
+      ),
+    );
+  }
 
   return {
     title: `${title} — ${SITE_NAME}`,
@@ -870,11 +920,23 @@ async function threadPayload(c: AppContext, base: string, id: string): Promise<S
     contentHtml: seoBlock(
       title,
       description,
-      replies.map((reply) => ({
-        title: `${reply.authorName} reply`,
-        path,
-        text: cleanText(reply.content, 180),
-      })),
+      [
+        {
+          title: `Original post by ${thread.authorName}`,
+          path,
+          text: cleanText(thread.content, 260),
+        },
+        ...internalLinks.map((link) => ({
+          title: `${link.term}: ${link.title}`,
+          path: link.path,
+          text: link.categoryName ? `Related discussion in ${link.categoryName}. ${link.excerpt}` : link.excerpt,
+        })),
+        ...replies.map((reply) => ({
+          title: `${reply.authorName} reply`,
+          path,
+          text: cleanText(reply.content, 180),
+        })),
+      ],
     ),
   };
 }
@@ -1169,6 +1231,67 @@ async function tagPayload(c: AppContext, base: string, slug: string): Promise<Se
   };
 }
 
+function aboutPayload(base: string): SeoPayload {
+  const description = "Learn how FSTDESK Forum helps members browse food science, food safety, product development and food technology discussions.";
+  const rows = [
+    { title: "Threads", path: "/", text: "Browse practical food science and product development conversations." },
+    { title: "Categories", path: "/", text: "Follow focused areas such as ingredients, food safety, nutrition, packaging and regulations." },
+    { title: "Tags", path: "/tags", text: "Find recurring technical topics and related discussions by tag." },
+    { title: "Members", path: "/members", text: "Open member profiles to view their threads, replies and forum history." },
+    { title: "Contact", path: "/contact", text: "Reach the FSTDESK team for account, content and community requests." },
+  ];
+  return {
+    title: `About — ${SITE_NAME}`,
+    description,
+    canonicalPath: "/about",
+    schemas: [
+      breadcrumbSchema(base, [
+        { name: "Forum", path: "/" },
+        { name: "About", path: "/about" },
+      ]),
+      {
+        "@context": "https://schema.org",
+        "@type": "AboutPage",
+        name: "About FSTDESK Forum",
+        url: `${base}/about`,
+        description,
+        inLanguage: CONTENT_LANGUAGE,
+      },
+      itemListSchema(base, rows.map((row) => ({ name: row.title, path: row.path }))),
+    ],
+    contentHtml: seoBlock("About FSTDESK Forum", description, rows),
+  };
+}
+
+function contactPayload(base: string): SeoPayload {
+  const description = "Contact the FSTDESK Forum team for account, content and community requests.";
+  return {
+    title: `Contact — ${SITE_NAME}`,
+    description,
+    canonicalPath: "/contact",
+    schemas: [
+      breadcrumbSchema(base, [
+        { name: "Forum", path: "/" },
+        { name: "Contact", path: "/contact" },
+      ]),
+      {
+        "@context": "https://schema.org",
+        "@type": "ContactPage",
+        name: "Contact FSTDESK Forum",
+        url: `${base}/contact`,
+        description,
+        inLanguage: CONTENT_LANGUAGE,
+        about: { "@id": `${base}/#organization` },
+      },
+    ],
+    contentHtml: seoBlock("Contact FSTDESK Forum", description, [
+      { title: "Send a message", path: "/contact", text: "Use the contact form to send a direct message to the FSTDESK team." },
+      { title: "Forum", path: "/", text: "Return to recent food science discussions." },
+      { title: "Members", path: "/members", text: "Browse community member profiles." },
+    ]),
+  };
+}
+
 async function payloadForPath(c: AppContext, base: string, pathname: string): Promise<SeoPayload> {
   const parts = pathname.split("/").filter(Boolean).map((part) => decodeURIComponent(part));
   if (pathname === "/") return homePayload(c, base);
@@ -1178,6 +1301,8 @@ async function payloadForPath(c: AppContext, base: string, pathname: string): Pr
   if (parts[0] === "u" && parts[1]) return (await memberPayload(c, base, parts[1])) ?? notFoundPayload(pathname, "Member not found");
   if (parts[0] === "tags" && parts.length === 1) return tagsPayload(c, base);
   if (parts[0] === "tag" && parts[1]) return (await tagPayload(c, base, parts[1])) ?? notFoundPayload(pathname, "Tag not found");
+  if (parts[0] === "contact" && parts.length === 1) return contactPayload(base);
+  if (parts[0] === "about" && parts.length === 1) return aboutPayload(base);
   if (["admin", "login", "register", "new-thread", "search"].includes(parts[0] ?? "")) return noindexPayload(pathname);
   return notFoundPayload(pathname);
 }
@@ -1291,6 +1416,8 @@ function staticSidebarHtml(pathname: string, categories: ApiCategory[]): string 
     { href: "/", label: "threads", exact: true },
     { href: "/members", label: "members" },
     { href: "/tags", label: "tags" },
+    { href: "/contact", label: "contact" },
+    { href: "/about", label: "about" },
   ];
   const navHtml = nav
     .map((item) => {
