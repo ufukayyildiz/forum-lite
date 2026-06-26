@@ -10,7 +10,7 @@ import { loadEmailSettings, sendManagedEmail, weAreBackEmail } from "../lib/noti
 import { cloudflareEmailApiConfigured, listCloudflareDeliveryFailures, type CloudflareEmailFailure } from "../lib/email";
 import { classifyCloudflareEmailFailure, failureDetail, type EmailFailureClassification } from "../lib/email-classification";
 import { classificationForPreflight, preflightEmail, type EmailPreflightResult } from "../lib/email-preflight";
-import { isEmailSuppressed, recordEmailSuppression } from "../lib/email-suppression";
+import { isEmailSuppressed, normalizeEmailAddress, recordEmailSuppression } from "../lib/email-suppression";
 import { syncCloudflareEmailSuppressions } from "../lib/email-sync";
 
 const app = new Hono<AppEnv>();
@@ -247,27 +247,101 @@ app.get("/users", async (c) => {
 });
 
 app.get("/email-suppressions", async (c) => {
-  const db = c.get("db");
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
-  const perPage = 50;
-  const rows = await db
-    .select()
-    .from(schema.emailSuppressions)
-    .orderBy(desc(schema.emailSuppressions.updatedAt))
-    .limit(perPage)
-    .offset((page - 1) * perPage);
-  const total = await db.$count(schema.emailSuppressions);
+  const perPage = Math.max(1, Math.min(500, Number(c.req.query("perPage") ?? 100) || 100));
+  const q = (c.req.query("q") ?? "").trim().toLowerCase();
+  const where = q
+    ? `WHERE LOWER(es.email) LIKE ?
+       OR LOWER(es.reason) LIKE ?
+       OR LOWER(es.source) LIKE ?
+       OR LOWER(COALESCE(u.username, '')) LIKE ?
+       OR LOWER(COALESCE(u.display_name, '')) LIKE ?`
+    : "";
+  const bindings = q ? Array(5).fill(`%${q}%`) : [];
+  const rows = await c.env.DB.prepare(
+    `SELECT
+       es.email,
+       es.reason,
+       es.source,
+       es.details,
+       es.cf_suppression_status AS cfSuppressionStatus,
+       es.cf_suppressed_at AS cfSuppressedAt,
+       es.cf_suppression_error AS cfSuppressionError,
+       es.created_at AS createdAt,
+       es.updated_at AS updatedAt,
+       u.id AS userId,
+       u.username,
+       u.display_name AS displayName,
+       COALESCE(u.thread_count, 0) AS threadCount,
+       COALESCE(u.post_count, 0) AS postCount
+     FROM email_suppressions es
+     LEFT JOIN users u ON LOWER(u.email) = LOWER(es.email)
+     ${where}
+     ORDER BY es.updated_at DESC
+     LIMIT ? OFFSET ?`,
+  ).bind(...bindings, perPage, (page - 1) * perPage).all<any>();
+  const totalRow = await c.env.DB.prepare(
+    `SELECT COUNT(*) AS count
+     FROM email_suppressions es
+     LEFT JOIN users u ON LOWER(u.email) = LOWER(es.email)
+     ${where}`,
+  ).bind(...bindings).first<{ count: number }>();
   return c.json({
-    suppressions: rows.map((row) => ({
+    suppressions: (rows.results ?? []).map((row) => ({
       ...row,
       createdAt: safeISO(row.createdAt),
       updatedAt: safeISO(row.updatedAt),
       cfSuppressedAt: row.cfSuppressedAt ? safeISO(row.cfSuppressedAt) : null,
     })),
     syncConfigured: cloudflareEmailApiConfigured(c.env),
-    total,
+    total: Number(totalRow?.count ?? 0),
     page,
     perPage,
+  });
+});
+
+function csvCell(value: unknown): string {
+  const text = String(value ?? "");
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+app.get("/email-suppressions/export", async (c) => {
+  const rows = await c.env.DB.prepare(
+    `SELECT
+       es.email,
+       COALESCE(u.username, '') AS username,
+       COALESCE(u.display_name, '') AS displayName,
+       COALESCE(u.thread_count, 0) AS threadCount,
+       COALESCE(u.post_count, 0) AS postCount,
+       es.reason,
+       es.source,
+       COALESCE(es.cf_suppression_status, '') AS cfSuppressionStatus,
+       es.updated_at AS updatedAt
+     FROM email_suppressions es
+     LEFT JOIN users u ON LOWER(u.email) = LOWER(es.email)
+     ORDER BY es.updated_at DESC`,
+  ).all<any>();
+  const header = ["email", "username", "display_name", "threads", "replies", "reason", "source", "cf_status", "updated_at"];
+  const lines = [
+    header.join(","),
+    ...(rows.results ?? []).map((row) => [
+      row.email,
+      row.username,
+      row.displayName,
+      row.threadCount,
+      row.postCount,
+      row.reason,
+      row.source,
+      row.cfSuppressionStatus,
+      safeISO(row.updatedAt),
+    ].map(csvCell).join(",")),
+  ];
+  return new Response(lines.join("\n"), {
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="fstdesk-suppressions.csv"`,
+      "Cache-Control": "no-store",
+    },
   });
 });
 
@@ -294,6 +368,26 @@ app.post("/email-suppressions", zValidator("json", z.object({
      SET status = 'suppressed'
      WHERE LOWER(email) = ?`,
   ).bind(email).run();
+  return c.json({ ok: true, email });
+});
+
+app.delete("/email-suppressions/:email", async (c) => {
+  const db = c.get("db");
+  const email = normalizeEmailAddress(decodeURIComponent(c.req.param("email")));
+  if (!z.string().email().safeParse(email).success) return c.json({ error: "Invalid email" }, 400);
+
+  await db.delete(schema.emailSuppressions).where(eq(schema.emailSuppressions.email, email));
+  await c.env.DB.prepare(
+    `UPDATE users
+     SET email_suppressed_at = NULL,
+         email_suppression_reason = NULL
+     WHERE LOWER(email) = ?`,
+  ).bind(email).run();
+  await db.insert(schema.activityLog).values({
+    userId: c.get("user")?.id ?? null,
+    type: "email_bounce",
+    summary: `Removed local suppression for ${email}`,
+  });
   return c.json({ ok: true, email });
 });
 

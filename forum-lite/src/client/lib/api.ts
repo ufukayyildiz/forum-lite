@@ -213,6 +213,31 @@ export type AdminEmailVerifyResponse = {
   rows: AdminEmailVerifyRow[];
 };
 
+export type AdminEmailSuppression = {
+  email: string;
+  reason: string;
+  source: string;
+  details: string | null;
+  cfSuppressionStatus: string | null;
+  cfSuppressedAt: string | null;
+  cfSuppressionError: string | null;
+  createdAt: string;
+  updatedAt: string;
+  userId: number | null;
+  username: string | null;
+  displayName: string | null;
+  threadCount: number;
+  postCount: number;
+};
+
+export type AdminEmailSuppressionsResponse = {
+  suppressions: AdminEmailSuppression[];
+  syncConfigured: boolean;
+  total: number;
+  page: number;
+  perPage: number;
+};
+
 export const api = {
   // auth
   me: () => get<{ user: PublicUser | null }>("/auth/me"),
@@ -308,9 +333,18 @@ export const api = {
     patch<{ ok: boolean; user: PublicUser }>(`/admin/users/${id}`, data),
   adminDeleteUser: (id: number) => del<{ ok: boolean }>(`/admin/users/${id}`),
   adminLogs: (page = 1) => get<{ logs: any[]; total: number; page: number; perPage: number }>(`/admin/logs?page=${page}`),
-  adminEmailSuppressions: (page = 1) => get<{ suppressions: any[]; syncConfigured: boolean; total: number; page: number; perPage: number }>(`/admin/email-suppressions?page=${page}`),
+  adminEmailSuppressions: (params: { page?: number; q?: string; perPage?: number } | number = 1) => {
+    const page = typeof params === "number" ? params : params.page ?? 1;
+    const q = typeof params === "number" ? "" : params.q ?? "";
+    const perPage = typeof params === "number" ? 100 : params.perPage ?? 100;
+    return get<AdminEmailSuppressionsResponse>(
+      `/admin/email-suppressions?${new URLSearchParams({ page: String(page), q, perPage: String(perPage) }).toString()}`,
+    );
+  },
   adminAddEmailSuppression: (email: string, reason = "manual_admin_suppression") =>
     post<{ ok: boolean; email: string }>("/admin/email-suppressions", { email, reason }),
+  adminRemoveEmailSuppression: (email: string) =>
+    del<{ ok: boolean; email: string }>(`/admin/email-suppressions/${encodeURIComponent(email)}`),
   adminSyncEmailSuppressions: (hours = 72) =>
     post<{ ok: boolean; configured: boolean; hours: number; cfSuppressions: number; deliveryFailures: number; localUpdates: number; cfWriteAttempts: number; cfWriteSynced: number; cfWriteErrors: number; errors: string[] }>(
       "/admin/email-suppressions/sync",
