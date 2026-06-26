@@ -115,13 +115,13 @@ export async function syncCloudflareEmailSuppressions(
         if (!email || seen.has(email)) continue;
         seen.add(email);
         cfSuppressions += 1;
-        await recordEmailSuppression(db, env, email, {
+        const recorded = await recordEmailSuppression(db, env, email, {
           reason: row.reason || "cloudflare_suppression",
           source: "cf_suppression_sync",
           details: JSON.stringify(row).slice(0, 2000),
           skipCloudflareSync: true,
         });
-        localUpdates += 1;
+        if (recorded.created || recorded.updated) localUpdates += 1;
       }
     } catch (error) {
       errors.push(`suppression list: ${error instanceof Error ? error.message : "sync failed"}`);
@@ -140,7 +140,7 @@ export async function syncCloudflareEmailSuppressions(
         seen.add(email);
         const detail = failureDetail(row);
         const code = row.errorCause || row.status || row.eventType || "delivery_failed";
-        await recordEmailSuppression(db, env, email, {
+        const recorded = await recordEmailSuppression(db, env, email, {
           reason: String(row.status ?? "").toLowerCase().includes("reject") ? "delivery_rejected" : "delivery_failed",
           source: "cf_activity_sync",
           details: detail,
@@ -156,7 +156,7 @@ export async function syncCloudflareEmailSuppressions(
            SET status = 'suppressed'
            WHERE LOWER(email) = ? AND created_at >= ?`,
         ).bind(email, since).run();
-        localUpdates += 1;
+        if (recorded.created || recorded.updated) localUpdates += 1;
       }
     } catch (error) {
       errors.push(`delivery failures: ${error instanceof Error ? error.message : "sync failed"}`);
@@ -174,7 +174,8 @@ export async function syncCloudflareEmailSuppressions(
     }
   }
 
-  if (configured || opts.logMissingConfig !== false) {
+  const shouldLog = errors.length > 0 || localUpdates > 0 || cfWriteAttempts > 0 || cfWriteSynced > 0 || cfWriteErrors > 0;
+  if ((configured || opts.logMissingConfig !== false) && shouldLog) {
     await db.insert(schema.activityLog).values({
       userId: opts.userId ?? null,
       type: "email_bounce",

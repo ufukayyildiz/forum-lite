@@ -94,10 +94,10 @@ Worker binding names:
 | `ASSETS` | Static Assets | Yes |
 | `BUCKET` | R2 Bucket | No |
 | `SEND_EMAIL` | Send Email | No |
-| `EMAIL_VERIFY_ENDPOINT` | Self-hosted SMTP verifier base or `/verify` URL | No |
-| `EMAIL_VERIFY_SECRET` | Worker secret for verifier auth | No |
 
 Detailed setup guide: [forum-lite/README.md](forum-lite/README.md)
+
+Email Verify is passive only: syntax, typo/disposable-domain, MX and A/AAAA checks. It never sends mail and does not run mailbox probes. Cloudflare failed/rejected delivery events are the source for mailbox, quota and suppression decisions.
 
 ## Public Repository Safety
 

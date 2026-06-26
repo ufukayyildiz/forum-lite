@@ -297,6 +297,7 @@ export const emailEvents = sqliteTable(
   },
   (t) => ({
     createdAtIdx: index("email_events_created_at_idx").on(t.createdAt),
+    emailIdx: index("email_events_email_idx").on(t.email),
     kindIdx: index("email_events_kind_idx").on(t.kind),
     userIdx: index("email_events_user_idx").on(t.userId),
     trackingTokenIdx: uniqueIndex("email_events_tracking_token_idx").on(t.trackingToken),

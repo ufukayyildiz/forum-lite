@@ -30,11 +30,13 @@ type MarketingUser = {
   username: string;
   displayName: string;
   email: string;
-  marketingStatus: "subscribed" | "unsubscribed" | "suppressed";
+  marketingStatus: "subscribed" | "unsubscribed" | "suppressed" | "risk";
   canReceiveMarketing: boolean;
   marketingUnsubscribed: boolean;
   emailSuppressedAt?: string | null;
   suppressionReason?: string | null;
+  riskReason?: string | null;
+  riskCheckedAt?: string | null;
   sendCount: number;
   lastSentAt?: string | null;
 };
@@ -42,6 +44,7 @@ type MarketingUser = {
 function marketingStatusColor(status?: string) {
   if (status === "subscribed") return "var(--gb-green)";
   if (status === "unsubscribed") return "var(--gb-yellow)";
+  if (status === "risk") return "var(--gb-red)";
   return "var(--gb-red)";
 }
 
@@ -89,6 +92,7 @@ const MarketingUserRow = memo(function MarketingUserRow({
       <td>
         <div style={{ color: marketingStatusColor(user.marketingStatus), fontSize: 12 }}>{user.marketingStatus}</div>
         {user.suppressionReason && <div style={{ color: "var(--gb-gray)", fontSize: 10 }}>{user.suppressionReason}</div>}
+        {user.riskReason && <div style={{ color: "var(--gb-gray)", fontSize: 10 }}>{user.riskReason}</div>}
       </td>
       <td className="gb-col-modified" style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 12, fontSize: 11 }}>
         {user.sendCount ? `${user.sendCount}x${user.lastSentAt ? ` ${relativeTime(user.lastSentAt)}` : ""}` : "-"}
@@ -167,6 +171,7 @@ export default function AdminMarketing() {
     subscribed: users.data?.summary?.subscribed ?? audience.filter((u: any) => u.marketingStatus === "subscribed").length,
     unsubscribed: users.data?.summary?.unsubscribed ?? audience.filter((u: any) => u.marketingStatus === "unsubscribed").length,
     suppressed: users.data?.summary?.suppressed ?? audience.filter((u: any) => u.marketingStatus === "suppressed").length,
+    risk: users.data?.summary?.risk ?? audience.filter((u: any) => u.marketingStatus === "risk").length,
   }), [audience, users.data?.summary]);
   const audienceById = useMemo(
     () => new Map(audience.map((user) => [user.id, user])),
@@ -384,6 +389,11 @@ export default function AdminMarketing() {
             {selectedUser.marketingUnsubscribed && (
               <div style={{ color: "var(--gb-yellow)", marginTop: 5 }}>user unsubscribed from marketing; send is blocked</div>
             )}
+            {selectedUser.marketingStatus === "risk" && (
+              <div style={{ color: "var(--gb-red)", marginTop: 5 }}>
+                email verify marked this recipient risky; send is blocked{selectedUser.riskReason ? ` (${selectedUser.riskReason})` : ""}
+              </div>
+            )}
           </div>
         )}
       </section>
@@ -397,6 +407,7 @@ export default function AdminMarketing() {
             <span style={{ color: "var(--gb-green)", marginLeft: 10 }}>{audienceCounts.subscribed} subscribed total</span>
             <span style={{ color: "var(--gb-yellow)", marginLeft: 10 }}>{audienceCounts.unsubscribed} unsubscribed total</span>
             <span style={{ color: "var(--gb-red)", marginLeft: 10 }}>{audienceCounts.suppressed} suppressed total</span>
+            <span style={{ color: "var(--gb-red)", marginLeft: 10 }}>{audienceCounts.risk} risk blocked total</span>
             <span style={{ color: activeCheckedIds.length ? "var(--gb-yellow)" : "var(--gb-gray)", marginLeft: 10 }}>
               {activeCheckedIds.length}/{MAX_BULK_RECIPIENTS} checked
             </span>

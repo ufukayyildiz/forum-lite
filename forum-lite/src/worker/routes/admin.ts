@@ -10,13 +10,6 @@ import { loadEmailSettings, sendManagedEmail, weAreBackEmail } from "../lib/noti
 import { cloudflareEmailApiConfigured, listCloudflareDeliveryFailures, type CloudflareEmailFailure } from "../lib/email";
 import { classifyCloudflareEmailFailure, failureDetail, type EmailFailureClassification } from "../lib/email-classification";
 import { classificationForPreflight, preflightEmail, type EmailPreflightResult } from "../lib/email-preflight";
-import {
-  checkSmtpVerifierHealth,
-  classificationForSmtpVerify,
-  smtpVerifyDetail,
-  verifyWithSelfHostedSmtp,
-  type SmtpVerifyResult,
-} from "../lib/email-smtp-verifier";
 import { isEmailSuppressed, recordEmailSuppression } from "../lib/email-suppression";
 import { syncCloudflareEmailSuppressions } from "../lib/email-sync";
 
@@ -88,24 +81,6 @@ function classifyLocalEmailError(email: string, detail: string): EmailFailureCla
   }
   if (text.includes("preflight_ok") || text.includes("preflight_reachable")) {
     return local("preflight_ok", "DNS/MX passed", "low", "ignore", 5, "Syntax, typo, disposable, domain and MX checks passed. Mailbox existence and inbox quota are unknown until a real delivery failure is returned.");
-  }
-  if (text.includes("smtp_deliverable") || text.includes("smtp_verify_ok")) {
-    return local("smtp_deliverable", "SMTP mailbox accepted", "low", "ignore", 2, "Recipient MX accepted RCPT TO during SMTP handshake. No email DATA was sent.");
-  }
-  if (text.includes("smtp_mailbox_rejected")) {
-    return local("smtp_mailbox_rejected", "mailbox rejected", "critical", "suppress", 97, "Recipient MX rejected the mailbox during SMTP handshake.");
-  }
-  if (text.includes("smtp_accept_all")) {
-    return local("smtp_accept_all", "accept-all domain", "high", "review", 68, "Recipient domain accepts random mailbox probes; deliverability is risky.");
-  }
-  if (text.includes("smtp_temporary")) {
-    return local("smtp_temporary", "SMTP temporary", "medium", "review", 58, "Recipient MX returned a temporary SMTP response.");
-  }
-  if (text.includes("smtp_unknown")) {
-    return local("smtp_unknown", "SMTP unknown", "medium", "review", 50, "SMTP verifier could not determine mailbox status.");
-  }
-  if (text.includes("smtp_risky") || text.includes("smtp_verify_risky")) {
-    return local("smtp_risky", "SMTP risky", "high", "review", 78, "SMTP verifier marked this recipient as risky.");
   }
   return classifyCloudflareEmailFailure({
     to: email,
@@ -345,7 +320,6 @@ app.get("/email-verify", async (c) => {
   const includeSuppressed = c.req.query("includeSuppressed") !== "false";
   const candidateLimit = Math.max(1, Math.min(100, Number(c.req.query("candidateLimit") ?? 100) || 100));
   const configured = cloudflareEmailApiConfigured(c.env);
-  const smtpHealth = await checkSmtpVerifierHealth(c.env);
   const errors: string[] = [];
   const groups = new Map<string, {
     email: string;
@@ -420,7 +394,7 @@ app.get("/email-verify", async (c) => {
     c.env.DB.prepare(
       `SELECT email, subject, status, message, error_code AS errorCode, created_at AS createdAt
        FROM email_events
-       WHERE kind = 'email_verify' AND status IN ('error', 'suppressed', 'preflight_risky', 'preflight_ok', 'smtp_verify_risky', 'smtp_verify_ok')
+       WHERE kind = 'email_verify' AND status IN ('error', 'suppressed', 'preflight_risky', 'preflight_ok')
        ORDER BY created_at DESC
        LIMIT 500`,
     ).all<{ email: string; subject: string; status: string; message: string | null; errorCode: string | null; createdAt: number }>(),
@@ -472,11 +446,7 @@ app.get("/email-verify", async (c) => {
       statuses: ["never_emailed"],
       subjects: ["Email preflight candidate"],
       latest: null,
-      details: smtpHealth.configured
-        ? smtpHealth.ready
-          ? "Never emailed; selected rows run syntax, typo, disposable, MX/A/AAAA and self-hosted SMTP RCPT checks. No email DATA will be sent."
-          : `Never emailed; SMTP verifier is configured but not ready: ${smtpHealth.error ?? smtpHealth.reason}`
-        : "Never emailed; SMTP verifier is not configured, so mailbox-level verification cannot run.",
+      details: "Never emailed; selected rows run syntax, typo, disposable, MX and A/AAAA checks only. No email will be sent.",
       preflight: null,
       category: "not_checked",
       label: "not checked",
@@ -551,9 +521,6 @@ app.get("/email-verify", async (c) => {
 
   return c.json({
     configured,
-    smtpVerifierConfigured: smtpHealth.configured,
-    smtpVerifierReady: smtpHealth.ready,
-    smtpVerifierStatus: smtpHealth,
     hours,
     errors,
     total: rows.length,
@@ -631,40 +598,13 @@ app.post("/email-verify/run", zValidator("json", z.object({
   const users = selectedEmails.length
     ? await emailVerifyCandidatesByEmails(c, selectedEmails)
     : await emailVerifyCandidates(c, limit);
-  const smtpHealth = await checkSmtpVerifierHealth(c.env);
-  if (!smtpHealth.ready) {
-    return c.json({
-      ok: false,
-      error: smtpHealth.error ?? smtpHealth.reason,
-      verifierConfigured: smtpHealth.configured,
-      verifierReady: false,
-      verifierHealth: smtpHealth,
-      total: 0,
-      remaining: await emailVerifyCandidateCount(c),
-      okPreflight: 0,
-      risky: 0,
-      smtpVerified: 0,
-      sent: 0,
-      skipped: users.length,
-      suppressed: 0,
-      preflightBlocked: 0,
-      results: [],
-    }, 503);
-  }
-  const useSmtpVerifier = true;
-  const preflightResults = await mapWithConcurrency(users, useSmtpVerifier ? 4 : 10, async (user) => {
+  const skipped = selectedEmails.length ? Math.max(0, [...new Set(selectedEmails)].length - users.length) : 0;
+  const preflightResults = await mapWithConcurrency(users, 10, async (user) => {
     const preflight = await preflightEmail(user.email);
-    const preflightClassification = classificationForPreflight(preflight);
-    const smtpVerify = preflightClassification.action === "ignore"
-      ? await verifyWithSelfHostedSmtp(c.env, preflight.email || user.email)
-      : null;
-    const classification = smtpVerify
-      ? classificationForSmtpVerify(smtpVerify)
-      : preflightClassification;
+    const classification = classificationForPreflight(preflight);
     return {
       user,
       preflight,
-      smtpVerify,
       classification,
     };
   });
@@ -676,26 +616,21 @@ app.post("/email-verify/run", zValidator("json", z.object({
     status: string;
     eventId: number | null;
     preflight: EmailPreflightResult;
-    smtpVerify: SmtpVerifyResult | null;
   }> = [];
 
-  for (const { user, preflight, smtpVerify, classification } of preflightResults) {
-    const status = smtpVerify
-      ? classification.action === "ignore" ? "smtp_verify_ok" : "smtp_verify_risky"
-      : classification.action === "ignore" ? "preflight_ok" : "preflight_risky";
+  for (const { user, preflight, classification } of preflightResults) {
+    const status = classification.action === "ignore" ? "preflight_ok" : "preflight_risky";
     const [event] = await db
       .insert(schema.emailEvents)
       .values({
         userId: user.id,
         email: preflight.email || user.email.trim().toLowerCase(),
         kind: "email_verify",
-        subject: smtpVerify ? "FSTDESK Forum SMTP verification" : "FSTDESK Forum email preflight",
+        subject: "FSTDESK Forum email preflight",
         status,
         relatedType: "admin_email_verify",
-        message: smtpVerify
-          ? `${preflightDetail(preflight, classification)} | ${smtpVerifyDetail(smtpVerify)}`
-          : preflightDetail(preflight, classification),
-        errorCode: smtpVerify ? classification.category : `preflight_${classification.category}`,
+        message: preflightDetail(preflight, classification),
+        errorCode: `preflight_${classification.category}`,
         createdAt: new Date(),
       })
       .returning({ id: schema.emailEvents.id });
@@ -706,7 +641,6 @@ app.post("/email-verify/run", zValidator("json", z.object({
       status,
       eventId: event?.id ?? null,
       preflight,
-      smtpVerify,
     });
   }
 
@@ -714,14 +648,13 @@ app.post("/email-verify/run", zValidator("json", z.object({
     acc[row.status] = (acc[row.status] ?? 0) + 1;
     return acc;
   }, {});
-  const passed = (counts.preflight_ok ?? 0) + (counts.smtp_verify_ok ?? 0);
-  const risky = (counts.preflight_risky ?? 0) + (counts.smtp_verify_risky ?? 0);
-  const smtpVerified = (counts.smtp_verify_ok ?? 0) + (counts.smtp_verify_risky ?? 0);
+  const passed = counts.preflight_ok ?? 0;
+  const risky = counts.preflight_risky ?? 0;
   const remaining = await emailVerifyCandidateCount(c);
   await db.insert(schema.activityLog).values({
     userId: admin?.id ?? null,
     type: "email_verify",
-    summary: `Email Verify checked ${results.length} ${selectedEmails.length ? "selected" : "batch"} users via SMTP verifier (${smtpVerified} SMTP checked, ${passed} accepted, ${risky} risky, ${remaining} remaining, 0 emails sent)`,
+    summary: `Email Verify checked ${results.length} ${selectedEmails.length ? "selected" : "batch"} users with passive preflight (${passed} passed, ${risky} risky, ${skipped} already checked, ${remaining} remaining, 0 emails sent)`,
     createdAt: new Date(),
   });
 
@@ -731,12 +664,8 @@ app.post("/email-verify/run", zValidator("json", z.object({
     remaining,
     okPreflight: passed,
     risky,
-    smtpVerified,
-    verifierConfigured: useSmtpVerifier,
-    verifierReady: true,
-    verifierHealth: smtpHealth,
     sent: 0,
-    skipped: 0,
+    skipped,
     suppressed: counts.suppressed ?? 0,
     preflightBlocked: counts.preflight_risky ?? 0,
     error: counts.error ?? 0,
@@ -1085,21 +1014,30 @@ app.get("/marketing/users", async (c) => {
   const q = (c.req.query("q") ?? "").trim().toLowerCase();
   const campaign = c.req.query("campaign") || WE_ARE_BACK_CAMPAIGN;
   const like = `%${q}%`;
+  const riskJoin = `LEFT JOIN (
+        SELECT LOWER(email) AS email, MAX(created_at) AS riskCheckedAt, MAX(error_code) AS riskCode
+        FROM email_events
+        WHERE kind = 'email_verify' AND status IN ('preflight_risky', 'error', 'suppressed')
+        GROUP BY LOWER(email)
+       ) evr ON evr.email = LOWER(u.email)`;
   const marketingOrder = `CASE
-    WHEN COALESCE(ms.sendCount, 0) > 0 THEN 2
     WHEN es.email IS NOT NULL OR u.email_suppressed_at IS NOT NULL THEN 1
     WHEN np.all_email = 0 OR np.marketing_email = 0 THEN 1
+    WHEN evr.email IS NOT NULL THEN 1
+    WHEN COALESCE(ms.sendCount, 0) > 0 THEN 2
     ELSE 0
   END`;
   const query = q
     ? `SELECT u.id, u.username, u.display_name AS displayName, u.email, u.email_suppressed_at AS emailSuppressedAt,
         np.all_email AS allEmail, np.marketing_email AS marketingEmail,
         es.email AS suppressedEmail, es.reason AS suppressionReason, es.updated_at AS suppressionUpdatedAt,
+        evr.riskCheckedAt AS riskCheckedAt, evr.riskCode AS riskCode,
         ms.lastSentAt AS lastSentAt,
         COALESCE(ms.sendCount, 0) AS sendCount
        FROM users u
        LEFT JOIN notification_preferences np ON np.user_id = u.id
        LEFT JOIN email_suppressions es ON LOWER(es.email) = LOWER(u.email)
+       ${riskJoin}
        LEFT JOIN (
         SELECT user_id, MAX(created_at) AS lastSentAt, COUNT(*) AS sendCount
         FROM marketing_sends
@@ -1111,11 +1049,13 @@ app.get("/marketing/users", async (c) => {
     : `SELECT u.id, u.username, u.display_name AS displayName, u.email, u.email_suppressed_at AS emailSuppressedAt,
         np.all_email AS allEmail, np.marketing_email AS marketingEmail,
         es.email AS suppressedEmail, es.reason AS suppressionReason, es.updated_at AS suppressionUpdatedAt,
+        evr.riskCheckedAt AS riskCheckedAt, evr.riskCode AS riskCode,
         ms.lastSentAt AS lastSentAt,
         COALESCE(ms.sendCount, 0) AS sendCount
        FROM users u
        LEFT JOIN notification_preferences np ON np.user_id = u.id
        LEFT JOIN email_suppressions es ON LOWER(es.email) = LOWER(u.email)
+       ${riskJoin}
        LEFT JOIN (
         SELECT user_id, MAX(created_at) AS lastSentAt, COUNT(*) AS sendCount
         FROM marketing_sends
@@ -1136,37 +1076,45 @@ app.get("/marketing/users", async (c) => {
     suppressedEmail: string | null;
     suppressionReason: string | null;
     suppressionUpdatedAt: number | null;
+    riskCheckedAt: number | null;
+    riskCode: string | null;
     lastSentAt: number | null;
     sendCount: number;
   }>();
   const totalRows = await c.env.DB.prepare(
     `SELECT
       COUNT(*) AS total,
-      SUM(CASE WHEN es.email IS NULL AND u.email_suppressed_at IS NULL AND COALESCE(np.all_email, 1) != 0 AND COALESCE(np.marketing_email, 1) != 0 THEN 1 ELSE 0 END) AS subscribed,
+      SUM(CASE WHEN es.email IS NULL AND u.email_suppressed_at IS NULL AND COALESCE(np.all_email, 1) != 0 AND COALESCE(np.marketing_email, 1) != 0 AND evr.email IS NULL THEN 1 ELSE 0 END) AS subscribed,
       SUM(CASE WHEN es.email IS NULL AND u.email_suppressed_at IS NULL AND (np.all_email = 0 OR np.marketing_email = 0) THEN 1 ELSE 0 END) AS unsubscribed,
-      SUM(CASE WHEN es.email IS NOT NULL OR u.email_suppressed_at IS NOT NULL THEN 1 ELSE 0 END) AS suppressed
+      SUM(CASE WHEN es.email IS NOT NULL OR u.email_suppressed_at IS NOT NULL THEN 1 ELSE 0 END) AS suppressed,
+      SUM(CASE WHEN es.email IS NULL AND u.email_suppressed_at IS NULL AND COALESCE(np.all_email, 1) != 0 AND COALESCE(np.marketing_email, 1) != 0 AND evr.email IS NOT NULL THEN 1 ELSE 0 END) AS risk
      FROM users u
      LEFT JOIN notification_preferences np ON np.user_id = u.id
      LEFT JOIN email_suppressions es ON LOWER(es.email) = LOWER(u.email)
+     ${riskJoin}
      WHERE u.banned = 0`,
-  ).first<{ total: number; subscribed: number | null; unsubscribed: number | null; suppressed: number | null }>();
+  ).first<{ total: number; subscribed: number | null; unsubscribed: number | null; suppressed: number | null; risk: number | null }>();
   return c.json({
     total: Number(totalRows?.total ?? 0),
     summary: {
       subscribed: Number(totalRows?.subscribed ?? 0),
       unsubscribed: Number(totalRows?.unsubscribed ?? 0),
       suppressed: Number(totalRows?.suppressed ?? 0),
+      risk: Number(totalRows?.risk ?? 0),
     },
     users: (rows.results ?? []).map((row) => {
       const suppressed = Boolean(row.emailSuppressedAt || row.suppressedEmail);
       const marketingUnsubscribed = row.allEmail === 0 || row.marketingEmail === 0;
+      const riskBlocked = Boolean(row.riskCheckedAt);
       return {
         ...row,
         allEmail: row.allEmail !== 0,
         marketingEmail: row.marketingEmail !== 0,
         marketingUnsubscribed,
-        canReceiveMarketing: !suppressed && !marketingUnsubscribed,
-        marketingStatus: suppressed ? "suppressed" : marketingUnsubscribed ? "unsubscribed" : "subscribed",
+        canReceiveMarketing: !suppressed && !marketingUnsubscribed && !riskBlocked,
+        marketingStatus: suppressed ? "suppressed" : marketingUnsubscribed ? "unsubscribed" : riskBlocked ? "risk" : "subscribed",
+        riskReason: row.riskCode ? `email verify risk: ${row.riskCode}` : null,
+        riskCheckedAt: row.riskCheckedAt ? safeISO(row.riskCheckedAt) : null,
         emailSuppressedAt: row.emailSuppressedAt ? safeISO(row.emailSuppressedAt) : row.suppressionUpdatedAt ? safeISO(row.suppressionUpdatedAt) : null,
         lastSentAt: row.lastSentAt ? safeISO(row.lastSentAt) : null,
         sendCount: Number(row.sendCount ?? 0),
@@ -1243,6 +1191,55 @@ app.post("/marketing/send", zValidator("json", z.object({
       };
     }
     const { siteUrl, from } = emailSettings;
+    if (mode !== "test") {
+      const risky = await c.env.DB.prepare(
+        `SELECT status, error_code AS errorCode, created_at AS createdAt
+         FROM email_events
+         WHERE kind = 'email_verify'
+           AND LOWER(email) = LOWER(?)
+           AND status IN ('preflight_risky', 'error', 'suppressed')
+         ORDER BY created_at DESC
+         LIMIT 1`,
+      ).bind(user.email).first<{ status: string; errorCode: string | null; createdAt: number | null }>();
+      if (risky) {
+        const mail = weAreBackEmail({ recipientName: user.displayName, siteUrl });
+        const [event] = await db.insert(schema.emailEvents).values({
+          userId: user.id,
+          email: user.email.trim().toLowerCase(),
+          kind: "marketing",
+          subject: mail.subject,
+          status: "skipped",
+          relatedType: "marketing",
+          campaignKey: body.campaignKey,
+          message: `Marketing skipped because Email Verify marked this recipient risky${risky.errorCode ? `: ${risky.errorCode}` : ""}`,
+          errorCode: "email_verify_risk",
+          createdAt: new Date(),
+        }).returning({ id: schema.emailEvents.id });
+        await db.insert(schema.marketingSends).values({
+          campaignKey: body.campaignKey,
+          userId: user.id,
+          email: user.email,
+          status: "skipped",
+          emailEventId: event?.id ?? null,
+          sentByUserId: admin.id,
+          createdAt: new Date(),
+        });
+        await db.insert(schema.activityLog).values({
+          userId: admin.id,
+          type: "marketing",
+          summary: `Skipped ${body.campaignKey} to ${user.username} (email verify risk)`,
+          createdAt: new Date(),
+        });
+        return {
+          userId: user.id,
+          username: user.username,
+          email: user.email,
+          status: "skipped",
+          error: "email_verify_risk",
+          previousSentAt: previous?.createdAt ? safeISO(previous.createdAt) : null,
+        };
+      }
+    }
     const mail = weAreBackEmail({ recipientName: user.displayName, siteUrl });
     const result = await sendManagedEmail({
       db,

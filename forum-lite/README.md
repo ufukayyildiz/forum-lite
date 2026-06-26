@@ -196,32 +196,20 @@ From: noreply@example.com
 
 If the email binding is missing, the forum still works. Email features fail silently and never block requests.
 
-### Self-Hosted SMTP Email Verification
+### Passive Email Verification And Suppression
 
-The admin Email Verify screen verifies never-emailed users with local preflight checks first: syntax, common typo domains, disposable domains, MX, A and AAAA. Rows that pass preflight are then checked by the included self-hosted SMTP verifier. The verifier must run on a server where outbound TCP port 25 is allowed. Cloudflare Workers cannot perform recipient-MX SMTP handshakes directly, so the Worker calls this service over HTTPS.
+The admin Email Verify screen is passive and no-send. It checks never-emailed users with:
 
-```bash
-EMAIL_VERIFY_SECRET="change-me" \
-EMAIL_VERIFY_FROM="verify@example.com" \
-EMAIL_VERIFY_HELO="example.com" \
-npm run email:verifier
-```
+- email syntax
+- normalized domain
+- common typo domains
+- disposable or temporary email domains
+- Cloudflare DNS-over-HTTPS MX lookup
+- A/AAAA fallback when MX is absent
 
-Expose the verifier behind HTTPS, then configure the Worker. The same `EMAIL_VERIFY_SECRET` is used for `/health` and `/verify`.
+The screen never sends verification emails and does not perform recipient mailbox probes. Mailbox-not-found, full-inbox and provider rejection decisions come from Cloudflare failed/rejected delivery events after real application mail has been attempted elsewhere.
 
-```bash
-npx wrangler secret put EMAIL_VERIFY_SECRET
-npx wrangler secret put EMAIL_VERIFY_FROM
-npx wrangler secret put EMAIL_VERIFY_HELO
-```
-
-Set `EMAIL_VERIFY_ENDPOINT` as a non-secret dashboard variable. A base URL or `/verify` URL both work:
-
-```text
-EMAIL_VERIFY_ENDPOINT=https://verify.example.com/verify
-```
-
-The admin run button is disabled unless `/health` is reachable. No email content is sent by this verifier. It resolves MX records, falls back to A/AAAA when MX is absent, opens SMTP, runs `EHLO`, `MAIL FROM`, `RCPT TO`, optionally probes catch-all behavior, then quits before `DATA`. Some providers intentionally hide mailbox status or accept all recipients, so those results are marked as review/risky instead of safe.
+Every preflight run writes an `email_events` row, so the same address is treated as already checked and is not re-queued repeatedly. Cloudflare failed/rejected events are synced into local suppressions, and marketing sends are blocked for users who are suppressed, unsubscribed, or marked risky by Email Verify.
 
 ### Public Config Note
 

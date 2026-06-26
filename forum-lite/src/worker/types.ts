@@ -10,10 +10,6 @@ export type Bindings = {
   CF_ACCOUNT_ID?: string;
   CF_EMAIL_API_TOKEN?: string;
   CF_ZONE_ID?: string;
-  EMAIL_VERIFY_ENDPOINT?: string;
-  EMAIL_VERIFY_SECRET?: string;
-  EMAIL_VERIFY_FROM?: string;
-  EMAIL_VERIFY_HELO?: string;
 };
 
 export type Variables = {

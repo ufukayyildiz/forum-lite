@@ -28,17 +28,29 @@ export async function recordEmailSuppression(
     skipCloudflareSync?: boolean;
     forceCloudflareSync?: boolean;
   },
-): Promise<void> {
+): Promise<{ created: boolean; updated: boolean; logged: boolean }> {
   const normalized = normalizeEmailAddress(email);
-  if (!normalized) return;
+  if (!normalized) return { created: false, updated: false, logged: false };
 
   const existing = await db.query.emailSuppressions.findFirst({
     where: eq(schema.emailSuppressions.email, normalized),
-    columns: { cfSuppressionStatus: true, cfSuppressionError: true },
+    columns: {
+      reason: true,
+      source: true,
+      details: true,
+      cfSuppressionStatus: true,
+      cfSuppressionError: true,
+    },
   });
   const keepCloudflareAuthBlock = !opts.skipCloudflareSync && !opts.forceCloudflareSync && existing?.cfSuppressionStatus === "auth_error";
   const now = new Date();
   const details = opts.details ? opts.details.slice(0, 2000) : null;
+  const sameSuppression = Boolean(
+    existing &&
+    existing.reason === opts.reason &&
+    existing.source === opts.source &&
+    (existing.details ?? null) === details,
+  );
   const initialCfStatus = opts.skipCloudflareSync
     ? "synced"
     : keepCloudflareAuthBlock
@@ -47,43 +59,49 @@ export async function recordEmailSuppression(
         ? "pending"
         : "skipped";
 
-  await db
-    .insert(schema.emailSuppressions)
-    .values({
-      email: normalized,
-      reason: opts.reason,
-      source: opts.source,
-      details,
-      cfSuppressionStatus: initialCfStatus,
-      cfSuppressedAt: null,
-      cfSuppressionError: null,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .onConflictDoUpdate({
-      target: schema.emailSuppressions.email,
-      set: {
+  if (!sameSuppression) {
+    await db
+      .insert(schema.emailSuppressions)
+      .values({
+        email: normalized,
         reason: opts.reason,
         source: opts.source,
         details,
         cfSuppressionStatus: initialCfStatus,
-        cfSuppressionError: keepCloudflareAuthBlock ? existing?.cfSuppressionError ?? null : null,
+        cfSuppressedAt: null,
+        cfSuppressionError: null,
+        createdAt: now,
         updatedAt: now,
-      },
-    });
+      })
+      .onConflictDoUpdate({
+        target: schema.emailSuppressions.email,
+        set: {
+          reason: opts.reason,
+          source: opts.source,
+          details,
+          cfSuppressionStatus: initialCfStatus,
+          cfSuppressionError: keepCloudflareAuthBlock ? existing?.cfSuppressionError ?? null : null,
+          updatedAt: now,
+        },
+      });
+  }
 
   await db
     .update(schema.users)
     .set({ emailSuppressedAt: now, emailSuppressionReason: opts.reason })
     .where(eq(schema.users.email, normalized));
 
-  await db.insert(schema.activityLog).values({
-    type: "email_bounce",
-    summary: `Suppressed ${normalized} (${opts.reason}) via ${opts.source}`,
-    createdAt: now,
-  });
+  if (!sameSuppression) {
+    await db.insert(schema.activityLog).values({
+      type: "email_bounce",
+      summary: `Suppressed ${normalized} (${opts.reason}) via ${opts.source}`,
+      createdAt: now,
+    });
+  }
 
-  if (opts.skipCloudflareSync || keepCloudflareAuthBlock) return;
+  if (opts.skipCloudflareSync || keepCloudflareAuthBlock || sameSuppression) {
+    return { created: !existing, updated: Boolean(existing && !sameSuppression), logged: !sameSuppression };
+  }
 
   const promise = addCloudflareSuppression(env, normalized)
     .then(async (result) => {
@@ -111,4 +129,6 @@ export async function recordEmailSuppression(
     });
   if (opts.waitUntil) opts.waitUntil(promise);
   else await promise;
+
+  return { created: !existing, updated: Boolean(existing), logged: true };
 }

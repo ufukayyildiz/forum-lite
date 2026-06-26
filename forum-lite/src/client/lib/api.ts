@@ -169,29 +169,6 @@ export type EmailPreflightResult = {
   errors: string[];
 };
 
-export type SmtpVerifyResult = {
-  provider: "self_hosted_smtp";
-  status: "deliverable" | "undeliverable" | "risky" | "temporary" | "unknown" | "skipped";
-  email: string;
-  reason: string;
-  mxHost?: string | null;
-  smtpCode?: number | null;
-  smtpMessage?: string | null;
-  catchAll?: boolean;
-  mailboxExists?: boolean | null;
-  checks?: string[];
-  error?: string | null;
-};
-
-export type SmtpVerifierStatus = {
-  configured: boolean;
-  ready: boolean;
-  endpoint?: string;
-  healthUrl?: string;
-  reason: string;
-  error?: string | null;
-};
-
 export type AdminEmailVerifyRow = {
   rowType?: "candidate" | "risk";
   email: string;
@@ -217,14 +194,10 @@ export type AdminEmailVerifyRow = {
   subjects: string[];
   details: string;
   preflight: EmailPreflightResult | null;
-  smtpVerify?: SmtpVerifyResult | null;
 };
 
 export type AdminEmailVerifyResponse = {
   configured: boolean;
-  smtpVerifierConfigured?: boolean;
-  smtpVerifierReady?: boolean;
-  smtpVerifierStatus?: SmtpVerifierStatus;
   hours: number;
   errors: string[];
   total: number;
@@ -355,7 +328,7 @@ export const api = {
   adminEmailVerifySuppress: (emails: string[], reason = "admin_email_verify_risky") =>
     post<{ ok: boolean; total: number; suppressed: number; errors: any[]; results: any[] }>("/admin/email-verify/suppress", { emails, reason }),
   adminEmailVerifyRun: (input: { limit?: number; emails?: string[] } = {}) =>
-    post<{ ok: boolean; total: number; remaining: number; okPreflight: number; risky: number; smtpVerified?: number; verifierConfigured?: boolean; verifierReady?: boolean; verifierHealth?: SmtpVerifierStatus; sent: number; skipped: number; suppressed: number; preflightBlocked: number; error: number; results: any[] }>("/admin/email-verify/run", input),
+    post<{ ok: boolean; total: number; remaining: number; okPreflight: number; risky: number; sent: number; skipped: number; suppressed: number; preflightBlocked: number; error: number; results: any[] }>("/admin/email-verify/run", input),
   adminEmailEvents: (page = 1, kind = "") =>
     get<{ events: Array<any & { openCount?: number; clickCount?: number; openedAt?: string | null; clickedAt?: string | null; lastOpenedAt?: string | null; lastClickedAt?: string | null }>; total: number; page: number; perPage: number }>(
       `/admin/email-events?page=${page}${kind ? `&kind=${encodeURIComponent(kind)}` : ""}`
@@ -370,7 +343,7 @@ export const api = {
   }>("/admin/notifications"),
   adminMarketingTemplate: () => get<{ campaignKey: string; name: string; subject: string; text: string; html: string }>("/admin/marketing/template"),
   adminMarketingUsers: (q = "", campaign = "we-are-back") =>
-    get<{ total: number; summary: { subscribed: number; unsubscribed: number; suppressed: number }; users: Array<any & { marketingStatus: "subscribed" | "unsubscribed" | "suppressed"; canReceiveMarketing: boolean; marketingUnsubscribed: boolean; suppressionReason?: string | null; sendCount: number; lastSentAt?: string | null }> }>(`/admin/marketing/users?campaign=${encodeURIComponent(campaign)}&q=${encodeURIComponent(q)}`),
+    get<{ total: number; summary: { subscribed: number; unsubscribed: number; suppressed: number; risk: number }; users: Array<any & { marketingStatus: "subscribed" | "unsubscribed" | "suppressed" | "risk"; canReceiveMarketing: boolean; marketingUnsubscribed: boolean; suppressionReason?: string | null; riskReason?: string | null; riskCheckedAt?: string | null; sendCount: number; lastSentAt?: string | null }> }>(`/admin/marketing/users?campaign=${encodeURIComponent(campaign)}&q=${encodeURIComponent(q)}`),
   adminMarketingSends: (page = 1) => get<{ sends: Array<any & { openCount: number; clickCount: number; openedAt: string | null; clickedAt: string | null; lastOpenedAt: string | null; lastClickedAt: string | null }>; total: number; page: number; perPage: number }>(`/admin/marketing/sends?page=${page}`),
   adminSendMarketing: (b: { campaignKey: string; userId?: number; userIds?: number[]; test?: boolean }) =>
     post<{ ok: boolean; status: string; previousSentAt?: string | null; total?: number; sent?: number; duplicate?: number; skipped?: number; suppressed?: number; error?: number; results?: any[] }>("/admin/marketing/send", b),

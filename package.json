@@ -8,7 +8,6 @@
     "dev": "npm --prefix forum-lite run dev",
     "build": "npm run install:app && npm --prefix forum-lite run build && node scripts/prepare-cloudflare-root-deploy.mjs",
     "preview": "npm --prefix forum-lite run preview",
-    "email:verifier": "node tools/email-verifier-service.mjs",
     "deploy": "npm run install:app && npm --prefix forum-lite run deploy",
     "db:migrate:local": "npm --prefix forum-lite run db:migrate:local",
     "db:migrate:remote": "npm --prefix forum-lite run db:migrate:remote",
