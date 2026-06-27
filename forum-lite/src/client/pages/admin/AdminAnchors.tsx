@@ -11,7 +11,7 @@ export default function AdminAnchors() {
   const [q, setQ] = useState("");
   const [form, setForm] = useState(EMPTY_FORM);
   const [manualTarget, setManualTarget] = useState(false);
-  const [autoLimit, setAutoLimit] = useState(10);
+  const [autoLimit, setAutoLimit] = useState(50);
   const [autoResult, setAutoResult] = useState<{ created: number; skipped: number; found: number } | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const { data, isLoading } = useQuery({
@@ -143,7 +143,7 @@ export default function AdminAnchors() {
             min={1}
             max={50}
             value={autoLimit}
-            onChange={(e) => setAutoLimit(Math.max(1, Math.min(50, Number(e.target.value) || 10)))}
+            onChange={(e) => setAutoLimit(Math.max(1, Math.min(50, Number(e.target.value) || 50)))}
           />
         </label>
         <label className="gb-admin-anchor-check">

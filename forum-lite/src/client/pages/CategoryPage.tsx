@@ -84,7 +84,7 @@ export default function CategoryPage() {
         {showLoading ? (
           <div className="gb-state-pad" style={{ color: "var(--gb-gray)" }}>$ loading...</div>
         ) : (
-          <table className="gb-table">
+          <table className="gb-table gb-topic-table">
             <thead>
               <tr>
                 <th scope="col" style={{ textAlign: "right", paddingRight: 16 }}>#</th>

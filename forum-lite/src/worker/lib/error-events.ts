@@ -21,6 +21,9 @@ type ErrorEventInput = {
 
 let errorEventsSchemaReady = false;
 let errorEventsSchemaPromise: Promise<boolean> | null = null;
+let errorEventsSchemaRetryAfter = 0;
+let errorEventsWritePausedUntil = 0;
+let lastDiagnosticLogAt = 0;
 
 function clip(value: unknown, max = 2000): string | null {
   if (value == null) return null;
@@ -51,6 +54,23 @@ function safeJson(value: unknown): string | null {
   } catch {
     return clip(String(value), 4000);
   }
+}
+
+function errorText(error: unknown): string {
+  if (error instanceof Error) return `${error.name}: ${error.message}`;
+  return String(error ?? "Unknown error");
+}
+
+function isD1BackpressureOrMissingSchema(error: unknown) {
+  return /D1_ERROR: D1 DB is overloaded|Requests queued for too long|database is locked|too many requests|no such table/i.test(errorText(error));
+}
+
+function diagnosticLog(label: string, error: unknown) {
+  if (isD1BackpressureOrMissingSchema(error)) return;
+  const now = Date.now();
+  if (now - lastDiagnosticLogAt < 60_000) return;
+  lastDiagnosticLogAt = now;
+  console.warn(label, clip(errorText(error), 500));
 }
 
 async function createOrRepairErrorEventsSchema(db: D1Database): Promise<boolean> {
@@ -86,13 +106,15 @@ async function createOrRepairErrorEventsSchema(db: D1Database): Promise<boolean>
     await db.prepare("CREATE INDEX IF NOT EXISTS error_events_status_idx ON error_events(status)").run();
     return true;
   } catch (error) {
-    console.error("error_events_schema_unavailable", error);
+    errorEventsSchemaRetryAfter = Date.now() + 60_000;
+    diagnosticLog("error_events_schema_unavailable", error);
     return false;
   }
 }
 
 export async function ensureErrorEventsSchema(db: D1Database): Promise<boolean> {
   if (errorEventsSchemaReady) return true;
+  if (Date.now() < errorEventsSchemaRetryAfter) return false;
   if (!errorEventsSchemaPromise) errorEventsSchemaPromise = createOrRepairErrorEventsSchema(db);
   const ready = await errorEventsSchemaPromise;
   errorEventsSchemaPromise = null;
@@ -116,6 +138,7 @@ export function errorToRecord(error: unknown) {
 }
 
 export async function recordErrorEvent(db: D1Database, input: ErrorEventInput): Promise<void> {
+  if (Date.now() < errorEventsWritePausedUntil) return;
   try {
     if (!(await ensureErrorEventsSchema(db))) return;
     await db.prepare(
@@ -145,7 +168,11 @@ export async function recordErrorEvent(db: D1Database, input: ErrorEventInput): 
       Math.floor(Date.now() / 1000),
     ).run();
   } catch (error) {
-    console.error("error_event_record_failed", error);
+    if (isD1BackpressureOrMissingSchema(error)) {
+      errorEventsWritePausedUntil = Date.now() + 60_000;
+      return;
+    }
+    diagnosticLog("error_event_record_failed", error);
   }
 }
 

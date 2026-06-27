@@ -102,7 +102,7 @@ const anchorBody = z.object({
 
 const anchorAutoBody = z.object({
   term: z.string().trim().min(2).max(80),
-  limit: z.number().int().min(1).max(50).default(10),
+  limit: z.number().int().min(1).max(50).default(50),
   enabled: z.boolean().optional(),
 });
 
@@ -1472,7 +1472,7 @@ app.post("/anchors/auto", zValidator("json", anchorAutoBody), async (c) => {
   const body = c.req.valid("json");
   const term = body.term.trim();
   const needle = `%${term.toLowerCase()}%`;
-  const limit = body.limit ?? 10;
+  const limit = body.limit ?? 50;
 
   const found = await c.env.DB.prepare(
     `WITH matches AS (

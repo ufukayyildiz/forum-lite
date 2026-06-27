@@ -187,30 +187,31 @@ export default function MemberPage() {
       />
 
       {/* Identity row — single line like a file listing */}
-      <div style={{
+      <div className="gb-member-identity" style={{
         display: "flex", alignItems: "center", gap: 12,
         padding: "8px 20px", borderBottom: "1px solid var(--gb-bg2)",
-        background: "var(--gb-bg1)", fontSize: 13,
+        background: "var(--gb-bg1)", fontSize: 13, flexWrap: "wrap",
       }}>
         <DAvatar src={u.avatarUrl} name={u.displayName} size={28} />
-        <span style={{ color: "var(--gb-fg)", fontWeight: 600 }}>{u.displayName}</span>
+        <span className="gb-member-display-name" style={{ color: "var(--gb-fg)", fontWeight: 600 }}>{u.displayName}</span>
         <span style={{ color: ROLE_COLOR[u.role], fontSize: 12, fontWeight: 700 }}>{ROLE_LABEL[u.role]}</span>
         {u.banned && <span style={{ color: "var(--gb-red)", fontSize: 11, border: "1px solid var(--gb-red)", padding: "0 4px" }}>[banned]</span>}
-        <span style={{ color: "var(--gb-gray)", fontSize: 12 }}>@{u.username}</span>
-        <div style={{ flex: 1 }} />
-        <button
-          onClick={() => selectTab("threads")}
-          style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: "var(--gb-fg4)", fontSize: 12, fontFamily: "inherit" }}
-        >
-          {u.threadCount} threads
-        </button>
-        <button
-          onClick={() => selectTab("replies")}
-          style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: "var(--gb-fg4)", fontSize: 12, fontFamily: "inherit" }}
-        >
-          {u.postCount} replies
-        </button>
-        <span style={{ color: "var(--gb-gray)", fontSize: 12 }}>joined {formatDate(u.createdAt)}</span>
+        <span className="gb-member-username" style={{ color: "var(--gb-gray)", fontSize: 12 }}>@{u.username}</span>
+        <div className="gb-member-stats">
+          <button
+            onClick={() => selectTab("threads")}
+            style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: "var(--gb-fg4)", fontSize: 12, fontFamily: "inherit" }}
+          >
+            {u.threadCount} threads
+          </button>
+          <button
+            onClick={() => selectTab("replies")}
+            style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: "var(--gb-fg4)", fontSize: 12, fontFamily: "inherit" }}
+          >
+            {u.postCount} replies
+          </button>
+          <span style={{ color: "var(--gb-gray)", fontSize: 12 }}>joined {formatDate(u.createdAt)}</span>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -226,7 +227,7 @@ export default function MemberPage() {
       {/* THREADS tab */}
       {tab === "threads" && (
         <div className="gb-content">
-          <table className="gb-table">
+          <table className="gb-table gb-member-threads-table">
             <thead>
               <tr>
                 <th style={{ textAlign: "right", paddingRight: 16 }}>#</th>
@@ -290,7 +291,7 @@ export default function MemberPage() {
       {/* REPLIES tab */}
       {tab === "replies" && (
         <div className="gb-content">
-          <table className="gb-table">
+          <table className="gb-table gb-member-replies-table">
             <thead>
               <tr>
                 <th style={{ textAlign: "right", paddingRight: 16 }}>#</th>
@@ -321,7 +322,7 @@ export default function MemberPage() {
                           )}
                         </div>
                       </td>
-                      <td style={{ color: "var(--gb-fg4)", fontSize: 12 }}>
+                      <td className="gb-member-reply-preview" style={{ color: "var(--gb-fg4)", fontSize: 12 }}>
                         {previewText(p.content)}
                       </td>
                       <td style={{ textAlign: "right", paddingRight: 12, color: "var(--gb-gray)", fontSize: 12, whiteSpace: "nowrap" }}>
@@ -356,7 +357,7 @@ export default function MemberPage() {
         <div className="gb-content">
           {editing ? (
             /* Edit form as table */
-            <table className="gb-table">
+            <table className="gb-table gb-member-about-table">
               <thead>
                 <tr>
                   <th style={{ textAlign: "right", paddingRight: 16 }}>#</th>
@@ -455,7 +456,7 @@ export default function MemberPage() {
             </table>
           ) : (
             /* Read-only info table */
-            <table className="gb-table">
+            <table className="gb-table gb-member-about-table">
               <thead>
                 <tr>
                   <th style={{ textAlign: "right", paddingRight: 16 }}>#</th>

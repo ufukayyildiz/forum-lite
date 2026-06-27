@@ -11,6 +11,15 @@ type ClientErrorPayload = {
 let installed = false;
 let sent = 0;
 
+function ignoredClientError(message: string, stack?: string | null, reason?: string | null) {
+  const text = `${message}\n${stack ?? ""}\n${reason ?? ""}`;
+  return [
+    /ResizeObserver loop completed with undelivered notifications/i,
+    /ResizeObserver loop limit exceeded/i,
+    /AbortError: The operation was aborted/i,
+  ].some((pattern) => pattern.test(text));
+}
+
 function viewport() {
   return {
     width: window.innerWidth,
@@ -25,6 +34,7 @@ function normalizeReason(reason: unknown) {
 }
 
 export function reportClientError(input: ClientErrorPayload) {
+  if (ignoredClientError(input.message, input.stack, input.reason)) return;
   if (sent >= 30) return;
   sent += 1;
   const payload = {
@@ -51,6 +61,10 @@ export function installClientErrorReporting() {
   if (installed || typeof window === "undefined") return;
   installed = true;
   window.addEventListener("error", (event) => {
+    if (ignoredClientError(event.message || "", event.error instanceof Error ? event.error.stack ?? null : null)) {
+      event.preventDefault();
+      return;
+    }
     reportClientError({
       kind: "window_error",
       message: event.message || "Window error",
@@ -60,6 +74,10 @@ export function installClientErrorReporting() {
   });
   window.addEventListener("unhandledrejection", (event) => {
     const normalized = normalizeReason(event.reason);
+    if (ignoredClientError(normalized.message, normalized.stack, normalized.reason)) {
+      event.preventDefault();
+      return;
+    }
     reportClientError({
       kind: "unhandled_rejection",
       message: normalized.message,

@@ -78,7 +78,7 @@ export default function MembersPage() {
         {showLoading ? (
           <div className="gb-state-pad" style={{ color: "var(--gb-gray)" }}>$ loading...</div>
         ) : (
-          <table className="gb-table">
+          <table className="gb-table gb-members-table">
             <thead>
               <tr>
                 <th style={{ textAlign: "right", paddingRight: 16 }}>#</th>
@@ -102,16 +102,18 @@ export default function MembersPage() {
                       <td style={{ width: 36, paddingRight: 8 }}>
                         <DAvatar src={m.avatarUrl} name={m.displayName} size={24} />
                       </td>
-                      <td>
-                        <Link to={`/u/${m.username}`} className="gb-col-name" style={{ color: "var(--gb-green)" }}>
-                          {m.displayName}
-                        </Link>
-                        <span style={{ color: "var(--gb-gray)", fontSize: 12, marginLeft: 8 }}>@{m.username}</span>
-                        {ROLE_LABEL[m.role] && (
-                          <span style={{ fontSize: 11, color: ROLE_COLOR[m.role], marginLeft: 6, fontWeight: 700 }}>
-                            {ROLE_LABEL[m.role]}
-                          </span>
-                        )}
+                      <td className="gb-member-name-cell">
+                        <div className="gb-member-name-line">
+                          <Link to={`/u/${m.username}`} className="gb-col-name gb-member-name-link" style={{ color: "var(--gb-green)" }}>
+                            {m.displayName}
+                          </Link>
+                          {ROLE_LABEL[m.role] && (
+                            <span className="gb-member-role-label" style={{ fontSize: 11, color: ROLE_COLOR[m.role], marginLeft: 6, fontWeight: 700 }}>
+                              {ROLE_LABEL[m.role]}
+                            </span>
+                          )}
+                        </div>
+                        <div className="gb-member-handle-line">@{m.username}</div>
                       </td>
                       <td style={{ textAlign: "right", paddingRight: 16, color: "var(--gb-aqua)", fontSize: 13 }}>{m.postCount}</td>
                       <td className="gb-col-threads" style={{ textAlign: "right", paddingRight: 16, color: "var(--gb-fg4)", fontSize: 13 }}>{m.threadCount}</td>

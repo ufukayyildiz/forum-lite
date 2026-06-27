@@ -95,6 +95,7 @@ export function AdSlot({
     let viewObserver: IntersectionObserver | null = null;
     let resizeObserver: ResizeObserver | null = null;
     let fallbackTimer: number | null = null;
+    let adaptRaf: number | null = null;
     const timers: number[] = [];
 
     const setCss = (el: HTMLElement, prop: string, value: string, priority = "") => {
@@ -182,6 +183,13 @@ export function AdSlot({
         setSlotHeight();
         slot?.setAttribute("data-ad-state", "filled");
       }
+    };
+    const scheduleAdaptToCreative = () => {
+      if (adaptRaf !== null) return;
+      adaptRaf = window.requestAnimationFrame(() => {
+        adaptRaf = null;
+        adaptToCreative();
+      });
     };
 
     const commitFallback = (reason: string) => {
@@ -310,7 +318,7 @@ export function AdSlot({
     }
 
     if ("ResizeObserver" in window) {
-      resizeObserver = new ResizeObserver(adaptToCreative);
+      resizeObserver = new ResizeObserver(scheduleAdaptToCreative);
       resizeObserver.observe(mount);
     }
 
@@ -344,6 +352,7 @@ export function AdSlot({
       mutationObserver?.disconnect();
       viewObserver?.disconnect();
       resizeObserver?.disconnect();
+      if (adaptRaf !== null) window.cancelAnimationFrame(adaptRaf);
       for (const timer of timers) window.clearTimeout(timer);
       mount.innerHTML = "";
       slot?.removeAttribute("data-ad-state");

@@ -27,6 +27,11 @@ import { errorToRecord, recordErrorEvent, requestErrorMeta } from "./lib/error-e
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
+function isD1Backpressure(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /D1_ERROR: D1 DB is overloaded|Requests queued for too long|database is locked|too many requests/i.test(message);
+}
+
 app.use("*", logger());
 app.use("/api/*", cors({ origin: "*" }));
 app.use("/api/*", async (c, next) => {
@@ -69,7 +74,8 @@ app.onError((error, c) => {
     stack: record.stack,
     metadata: { name: record.name },
   }));
-  console.error("worker_exception", error);
+  if (isD1Backpressure(error)) console.warn("worker_exception", record.message);
+  else console.error("worker_exception", error);
   return c.json({ error: "Internal server error" }, 500);
 });
 
@@ -123,14 +129,24 @@ app.get("/api/healthz", (c) => c.json({ ok: true, ts: Date.now() }));
 
 app.post("/api/analytics/view", async (c) => {
   const body = await c.req.json().catch(() => ({}));
-  const result = await createAnalyticsPageview(c, body && typeof body === "object" ? body as Record<string, unknown> : {});
-  return c.json(result);
+  try {
+    const result = await createAnalyticsPageview(c, body && typeof body === "object" ? body as Record<string, unknown> : {});
+    return c.json(result);
+  } catch (error) {
+    if (!isD1Backpressure(error)) throw error;
+    return c.json({ ok: false, id: 0, dropped: true, reason: "analytics_backpressure" }, 202);
+  }
 });
 
 app.post("/api/analytics/duration", async (c) => {
   const body = await c.req.json().catch(() => ({}));
-  const result = await updateAnalyticsDuration(c, body && typeof body === "object" ? body as Record<string, unknown> : {});
-  return c.json(result);
+  try {
+    const result = await updateAnalyticsDuration(c, body && typeof body === "object" ? body as Record<string, unknown> : {});
+    return c.json(result);
+  } catch (error) {
+    if (!isD1Backpressure(error)) throw error;
+    return c.json({ ok: false, dropped: true, reason: "analytics_backpressure" }, 202);
+  }
 });
 
 function originFromRequest(url: string): string {

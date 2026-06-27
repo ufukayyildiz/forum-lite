@@ -15,24 +15,24 @@ export function TopicRow({ thread, showCategory = true, lineNum }: Props) {
   const catColor = thread.category.color ?? "var(--gb-fg4)";
 
   return (
-    <tr>
-      <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, width: 48, userSelect: "none", fontSize: 12 }}>{lineNum}</td>
-      <td style={{ paddingRight: 4, width: 20 }}>
+    <tr className="gb-topic-row">
+      <td className="gb-topic-index" style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, width: 48, userSelect: "none", fontSize: 12 }}>{lineNum}</td>
+      <td className="gb-topic-icon" style={{ paddingRight: 4, width: 20 }}>
         {thread.pinned && <Pin size={11} style={{ color: "var(--gb-yellow)" }} />}
         {thread.locked && !thread.pinned && <Lock size={11} style={{ color: "var(--gb-gray)" }} />}
         {!thread.pinned && !thread.locked && <span style={{ color: "var(--gb-green)", fontSize: 13 }}>#</span>}
       </td>
-      <td style={{ minWidth: 0, paddingRight: 12 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+      <td className="gb-topic-main" style={{ minWidth: 0, paddingRight: 12 }}>
+        <div className="gb-topic-heading" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <ThreadLink
             thread={thread}
-            className="gb-col-name"
+            className="gb-col-name gb-topic-title"
             style={{ color: thread.pinned ? "var(--gb-yellow)" : "var(--gb-fg)", fontWeight: thread.pinned ? 600 : 400 }}
           >
             {thread.title}
           </ThreadLink>
         </div>
-        <div style={{ display: "flex", gap: 8, marginTop: 2, alignItems: "center", flexWrap: "wrap" }}>
+        <div className="gb-topic-meta-row" style={{ display: "flex", gap: 8, marginTop: 2, alignItems: "center", flexWrap: "wrap" }}>
           <span style={{ fontSize: 11, color: "var(--gb-gray)" }}>by {thread.author.displayName}</span>
           {showCategory && (
             <Link
@@ -49,15 +49,15 @@ export function TopicRow({ thread, showCategory = true, lineNum }: Props) {
           ))}
         </div>
       </td>
-      <td style={{ textAlign: "right", paddingRight: 16, whiteSpace: "nowrap" }}>
+      <td className="gb-topic-replies" style={{ textAlign: "right", paddingRight: 16, whiteSpace: "nowrap" }}>
         <span style={{ color: thread.replyCount > 0 ? "var(--gb-aqua)" : "var(--gb-gray)", fontSize: 13 }}>{formatCount(thread.replyCount)}</span>
         <div style={{ fontSize: 10, color: "var(--gb-gray)" }}>REPLIES</div>
       </td>
-      <td className="gb-col-views" style={{ textAlign: "right", paddingRight: 16, whiteSpace: "nowrap" }}>
+      <td className="gb-topic-views gb-col-views" style={{ textAlign: "right", paddingRight: 16, whiteSpace: "nowrap" }}>
         <span style={{ color: "var(--gb-fg4)", fontSize: 13 }}>{formatCount(thread.views)}</span>
         <div style={{ fontSize: 10, color: "var(--gb-gray)" }}>VIEWS</div>
       </td>
-      <td className="gb-col-modified" style={{ textAlign: "right", paddingRight: 12, whiteSpace: "nowrap", color: "var(--gb-gray)", fontSize: 12 }}>
+      <td className="gb-topic-modified gb-col-modified" style={{ textAlign: "right", paddingRight: 12, whiteSpace: "nowrap", color: "var(--gb-gray)", fontSize: 12 }}>
         {relativeTime(thread.lastPostAt || thread.createdAt)}
       </td>
     </tr>
