@@ -6,6 +6,7 @@ import { schema } from "../db";
 import { requireAuth } from "../lib/middleware";
 import { safeISO } from "../lib/auth";
 import { toPublicUser, type AppEnv } from "../types";
+import { notifyAdminNewPost } from "../lib/admin-alerts";
 import { likeNotificationEmail, loadEmailSettings, replyNotificationEmail, sendManagedEmail } from "../lib/notifications";
 
 const app = new Hono<AppEnv>();
@@ -108,6 +109,16 @@ app.post("/", requireAuth, zValidator("json", createBody), async (c) => {
     .update(schema.users)
     .set({ postCount: sql`${schema.users.postCount} + 1` })
     .where(eq(schema.users.id, user.id));
+
+  notifyAdminNewPost(c.env, c.executionCtx, {
+    postId: post.id,
+    threadPublicId: thread.publicId,
+    threadTitle: thread.title,
+    content: body.content,
+    username: user.username,
+    displayName: user.displayName,
+    email: user.email,
+  });
 
   if (thread.userId !== user.id) {
     const recipient = await db.query.users.findFirst({ where: eq(schema.users.id, thread.userId) });

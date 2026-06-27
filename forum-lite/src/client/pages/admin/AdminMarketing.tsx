@@ -56,6 +56,22 @@ function sameNumberList(a: number[], b: number[]) {
   return a.length === b.length && a.every((value, index) => value === b[index]);
 }
 
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error || "send failed");
+}
+
+function withFailedPending(results: BulkResult[], message: string) {
+  return results.map((row) => row.status === "sending" ? { ...row, status: "error", error: message } : row);
+}
+
+function summarizeBulk(results: BulkResult[], total: number) {
+  const counts = results.reduce<Record<string, number>>((acc, row) => {
+    acc[row.status] = (acc[row.status] ?? 0) + 1;
+    return acc;
+  }, {});
+  return `${results.filter((row) => row.status !== "sending").length}/${total} processed: ${counts.sent ?? 0} sent, ${counts.duplicate ?? 0} duplicate, ${counts.skipped ?? 0} skipped, ${counts.suppressed ?? 0} suppressed, ${counts.error ?? 0} failed`;
+}
+
 const MarketingUserRow = memo(function MarketingUserRow({
   user,
   index,
@@ -115,6 +131,7 @@ export default function AdminMarketing() {
     recipients: [],
     results: [],
   });
+  const [bulkSending, setBulkSending] = useState(false);
 
   const template = useQuery({ queryKey: ["admin-marketing-template"], queryFn: api.adminMarketingTemplate });
   const users = useQuery({
@@ -254,23 +271,101 @@ export default function AdminMarketing() {
       else toast.warning(`Email ${res.status}`);
     },
     onError: (e: any) => {
-      toast.error(e.message);
-      setBulkLog((current) => current.open ? { ...current, phase: "error", message: e.message } : current);
+      const message = errorMessage(e);
+      toast.error(message);
+      setBulkLog((current) => current.open ? {
+        ...current,
+        phase: "error",
+        message,
+        results: withFailedPending(current.results, message),
+      } : current);
     },
   });
 
-  function sendChecked() {
-    if (!activeCheckedIds.length || send.isPending) return;
+  async function sendChecked() {
+    if (!activeCheckedIds.length || send.isPending || bulkSending) return;
     const recipients = checkedUsers;
-    if (recipients.length > 2) {
-      setBulkLog({
-        open: true,
-        phase: "sending",
-        recipients,
-        results: recipients.map((user) => ({ userId: user.id, username: user.username, email: user.email, status: "sending" })),
-      });
+    if (!recipients.length) return;
+
+    const campaignKey = template.data?.campaignKey ?? "we-are-back";
+    const initialResults = recipients.map((user) => ({
+      userId: user.id,
+      username: user.username,
+      email: user.email,
+      status: "sending",
+    }));
+    setBulkSending(true);
+    setBulkLog({
+      open: true,
+      phase: "sending",
+      recipients,
+      results: initialResults,
+      message: `${recipients.length} recipients queued`,
+    });
+
+    const results: BulkResult[] = [...initialResults];
+    let requestFailed = "";
+    for (let index = 0; index < recipients.length; index += 1) {
+      const user = recipients[index];
+      try {
+        const res = await api.adminSendMarketing({ campaignKey, userId: user.id });
+        const row = (res.results?.[0] as BulkResult | undefined) ?? {
+          userId: user.id,
+          username: user.username,
+          email: user.email,
+          status: res.status || "done",
+          previousSentAt: res.previousSentAt ?? null,
+        };
+        results[index] = {
+          userId: user.id,
+          username: user.username,
+          email: user.email,
+          ...row,
+          status: row.status || res.status || "done",
+        };
+        setBulkLog((current) => ({
+          ...current,
+          open: true,
+          phase: "sending",
+          results: [...results],
+          message: summarizeBulk(results, recipients.length),
+        }));
+      } catch (error) {
+        requestFailed = errorMessage(error);
+        results[index] = {
+          userId: user.id,
+          username: user.username,
+          email: user.email,
+          status: "error",
+          error: requestFailed,
+        };
+        for (let rest = index + 1; rest < results.length; rest += 1) {
+          if (results[rest].status === "sending") {
+            results[rest] = { ...results[rest], status: "error", error: "not sent after request failed" };
+          }
+        }
+        break;
+      }
     }
-    send.mutate({ userIds: activeCheckedIds });
+
+    const finalResults = withFailedPending(results, requestFailed || "send stopped");
+    const finalMessage = requestFailed
+      ? `${requestFailed}. ${summarizeBulk(finalResults, recipients.length)}`
+      : summarizeBulk(finalResults, recipients.length);
+    const hasFailures = finalResults.some((row) => row.status === "error");
+    setBulkLog((current) => ({
+      ...current,
+      open: true,
+      phase: hasFailures ? "error" : "done",
+      results: finalResults,
+      message: finalMessage,
+    }));
+    setBulkSending(false);
+    setCheckedIds([]);
+    qc.invalidateQueries({ queryKey: ["admin-marketing-users"] });
+    qc.invalidateQueries({ queryKey: ["admin-marketing-sends"] });
+    qc.invalidateQueries({ queryKey: ["admin-email-events"] });
+    hasFailures ? toast.error(finalMessage) : toast.success(finalMessage);
   }
 
   const toggleChecked = useCallback((user: MarketingUser) => {
@@ -329,17 +424,17 @@ export default function AdminMarketing() {
               $ duplicate block {duplicateBlockEnabled ? "on" : "off"}
             </button>
             <button className="gb-btn" type="button" onClick={() => setPreviewOpen(true)}>$ preview template</button>
-            <button className="gb-btn" disabled={send.isPending} onClick={() => send.mutate({ test: true })}>$ send test to me</button>
+            <button className="gb-btn" disabled={send.isPending || bulkSending} onClick={() => send.mutate({ test: true })}>$ send test to me</button>
             <button
               className="gb-btn gb-btn-primary"
-              disabled={!activeCheckedIds.length || send.isPending}
+              disabled={!activeCheckedIds.length || send.isPending || bulkSending}
               onClick={sendChecked}
             >
               $ send checked ({activeCheckedIds.length})
             </button>
             <button
               className="gb-btn gb-btn-primary"
-              disabled={!selectedUser || !selectedUser.canReceiveMarketing || (duplicateBlockEnabled && Boolean(selectedUser.sendCount)) || send.isPending}
+              disabled={!selectedUser || !selectedUser.canReceiveMarketing || (duplicateBlockEnabled && Boolean(selectedUser.sendCount)) || send.isPending || bulkSending}
               onClick={() => selectedUser && send.mutate({ userId: selectedUser.id })}
             >
               $ send selected

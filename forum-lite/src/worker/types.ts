@@ -7,6 +7,8 @@ export type Bindings = {
   BUCKET?: R2Bucket;
   ASSETS: Fetcher;
   SEND_EMAIL: SendEmail;
+  ADMIN_EMAIL?: string;
+  SITE_URL?: string;
   CF_ACCOUNT_ID?: string;
   CF_EMAIL_API_TOKEN?: string;
   CF_ZONE_ID?: string;

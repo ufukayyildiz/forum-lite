@@ -1,6 +1,7 @@
 import { reportClientError } from "./error-reporting";
 
 const BASE = "/api";
+const API_TIMEOUT_MS = 8_000;
 
 function isBenignNetworkError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
@@ -15,11 +16,15 @@ function shouldReportApiStatus(status: number) {
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
+  const controller = init?.signal ? null : new AbortController();
+  const timeout = controller ? globalThis.setTimeout(() => controller.abort(), API_TIMEOUT_MS) : undefined;
   try {
+    const { signal: _signal, ...restInit } = init ?? {};
     res = await fetch(`${BASE}${path}`, {
       credentials: "include",
       headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
-      ...init,
+      ...restInit,
+      signal: init?.signal ?? controller?.signal,
     });
   } catch (error) {
     if (!isBenignNetworkError(error)) {
@@ -31,6 +36,8 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
       });
     }
     throw error;
+  } finally {
+    if (timeout) globalThis.clearTimeout(timeout);
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -474,6 +481,7 @@ export const api = {
   },
   adminLogsExportUrl: (params: { type?: string; format?: "csv" | "json" } = {}) =>
     `/api/admin/logs/export?${new URLSearchParams({ type: params.type ?? "", format: params.format ?? "csv" }).toString()}`,
+  adminClearLogs: () => del<{ ok: boolean; deleted: number }>("/admin/logs"),
   adminErrorEvents: (params: { page?: number; level?: string; source?: string; q?: string; perPage?: number } = {}) =>
     get<AdminErrorEventsResponse>(
       `/admin/error-events?${new URLSearchParams({
@@ -491,6 +499,7 @@ export const api = {
       q: params.q ?? "",
       format: params.format ?? "csv",
     }).toString()}`,
+  adminClearErrorEvents: () => del<{ ok: boolean; deleted: number }>("/admin/error-events"),
   adminEmailSuppressions: (params: { page?: number; q?: string; perPage?: number } | number = 1) => {
     const page = typeof params === "number" ? params : params.page ?? 1;
     const q = typeof params === "number" ? "" : params.q ?? "";

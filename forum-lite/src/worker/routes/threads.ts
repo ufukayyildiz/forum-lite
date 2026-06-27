@@ -7,6 +7,7 @@ import { requireAuth, requireRole } from "../lib/middleware";
 import { slugify, safeISO, generatePublicId } from "../lib/auth";
 import { toPublicUser, type AppEnv } from "../types";
 import type { DB } from "../db";
+import { notifyAdminNewThread } from "../lib/admin-alerts";
 
 const app = new Hono<AppEnv>();
 const PUBLIC_ID_ATTEMPTS = 20;
@@ -203,6 +204,16 @@ app.post("/", requireAuth, zValidator("json", createBody), async (c) => {
     .update(schema.users)
     .set({ threadCount: sql`${schema.users.threadCount} + 1` })
     .where(eq(schema.users.id, user.id));
+
+  notifyAdminNewThread(c.env, c.executionCtx, {
+    publicId: thread.publicId,
+    title: thread.title,
+    content: body.content,
+    categoryId: body.categoryId,
+    username: user.username,
+    displayName: user.displayName,
+    email: user.email,
+  });
 
   return c.json({ id: thread.id, publicId: thread.publicId, slug: thread.slug }, 201);
 });

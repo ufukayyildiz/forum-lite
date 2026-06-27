@@ -1,5 +1,7 @@
 let coreSchemaReady = false;
 let coreSchemaPromise: Promise<boolean> | null = null;
+let coreSchemaRetryAfter = 0;
+const CORE_SCHEMA_RETRY_MS = 30_000;
 
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 
@@ -344,7 +346,7 @@ async function repairColumns(db: D1Database) {
   await addColumnIfMissing(db, "anchor_links", "updated_at", "updated_at INTEGER");
 }
 
-async function backfillCoreData(db: D1Database) {
+export async function backfillCoreData(db: D1Database) {
   const now = nowSeconds();
   await run(db, "UPDATE users SET public_id = lower(username) WHERE public_id IS NULL OR public_id = ''");
   await run(db, "UPDATE categories SET public_id = printf('%04d', id) WHERE public_id IS NULL OR public_id = ''");
@@ -361,7 +363,6 @@ async function createOrRepairCoreSchema(db: D1Database): Promise<boolean> {
     await createCoreTables(db);
     await createFeatureTables(db);
     await repairColumns(db);
-    await backfillCoreData(db);
     return true;
   } catch (error) {
     console.error("core_schema_unavailable", error);
@@ -371,9 +372,11 @@ async function createOrRepairCoreSchema(db: D1Database): Promise<boolean> {
 
 export async function ensureCoreSchema(db: D1Database) {
   if (coreSchemaReady) return true;
+  if (Date.now() < coreSchemaRetryAfter) return false;
   if (!coreSchemaPromise) coreSchemaPromise = createOrRepairCoreSchema(db);
   const ready = await coreSchemaPromise;
   coreSchemaPromise = null;
   coreSchemaReady = ready;
+  if (!ready) coreSchemaRetryAfter = Date.now() + CORE_SCHEMA_RETRY_MS;
   return ready;
 }

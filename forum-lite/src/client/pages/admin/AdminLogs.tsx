@@ -113,6 +113,8 @@ export default function AdminLogs() {
   const [source, setSource] = useState("");
   const [q, setQ] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [clearing, setClearing] = useState<"errors" | "activity" | null>(null);
+  const [clearMessage, setClearMessage] = useState("");
 
   const errorParams = useMemo(() => ({ page: errorPage, level, source, q, perPage: 50 }), [errorPage, level, source, q]);
   const errors = useQuery({
@@ -140,6 +142,35 @@ export default function AdminLogs() {
     setSelectedId(null);
   };
 
+  const clearErrors = async () => {
+    if (!window.confirm("Delete all error logs?")) return;
+    setClearing("errors");
+    setClearMessage("");
+    try {
+      const result = await api.adminClearErrorEvents();
+      setSelectedId(null);
+      setErrorPage(1);
+      await errors.refetch();
+      setClearMessage(`deleted ${result.deleted} error events`);
+    } finally {
+      setClearing(null);
+    }
+  };
+
+  const clearActivity = async () => {
+    if (!window.confirm("Delete all activity logs?")) return;
+    setClearing("activity");
+    setClearMessage("");
+    try {
+      const result = await api.adminClearLogs();
+      setActivityPage(1);
+      await activity.refetch();
+      setClearMessage(`deleted ${result.deleted} activity log entries`);
+    } finally {
+      setClearing(null);
+    }
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
@@ -165,14 +196,26 @@ export default function AdminLogs() {
             </select>
             <a className="gb-btn" href={api.adminErrorEventsExportUrl({ level, source, q, format: "csv" })} download>$ csv</a>
             <a className="gb-btn" href={api.adminErrorEventsExportUrl({ level, source, q, format: "json" })} download>$ json</a>
+            <button type="button" className="gb-btn" onClick={clearErrors} disabled={clearing !== null}>
+              {clearing === "errors" ? "$ clearing..." : "$ clear errors"}
+            </button>
           </div>
         ) : (
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <a className="gb-btn" href={api.adminLogsExportUrl({ format: "csv" })} download>$ csv</a>
             <a className="gb-btn" href={api.adminLogsExportUrl({ format: "json" })} download>$ json</a>
+            <button type="button" className="gb-btn" onClick={clearActivity} disabled={clearing !== null}>
+              {clearing === "activity" ? "$ clearing..." : "$ clear activity"}
+            </button>
           </div>
         )}
       </div>
+
+      {clearMessage && (
+        <div style={{ fontSize: 11, color: "var(--gb-green)", letterSpacing: ".06em" }}>
+          " {clearMessage}
+        </div>
+      )}
 
       {tab === "errors" ? (
         <>

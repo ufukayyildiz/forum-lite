@@ -17,6 +17,7 @@ import { requireAuth } from "../lib/middleware";
 import { toPublicUser, type AppEnv } from "../types";
 import type { DB } from "../db";
 import { accountCreatedPasswordEmail, newPasswordEmail } from "../lib/email";
+import { notifyAdminLogin } from "../lib/admin-alerts";
 import { isEmailSuppressed, normalizeEmailAddress } from "../lib/email-suppression";
 import { loadEmailSettings, sendManagedEmail } from "../lib/notifications";
 
@@ -258,6 +259,14 @@ app.post("/login", zValidator("json", loginSchema), async (c) => {
     expiresAt: new Date(Date.now() + SESSION_TTL_MS),
   });
   setSessionCookie(c, token);
+  notifyAdminLogin(c.env, c.executionCtx, {
+    username: user.username,
+    displayName: user.displayName,
+    email: user.email,
+    ip,
+    country: c.req.header("CF-IPCountry") ?? "",
+    userAgent: c.req.header("user-agent") ?? "",
+  });
   return c.json({ user: toPublicUser(user) });
 });
 

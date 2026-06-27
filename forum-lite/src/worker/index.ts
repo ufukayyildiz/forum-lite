@@ -33,6 +33,38 @@ function isD1Backpressure(error: unknown) {
   return /D1_ERROR: D1 DB is overloaded|Requests queued for too long|database is locked|too many requests/i.test(message);
 }
 
+const API_SCHEMA_TIMEOUT_MS = 1_200;
+const ADS_SETTINGS_TIMEOUT_MS = 800;
+const API_LIGHT_PATHS = new Set([
+  "/api/ads",
+  "/api/client-errors",
+  "/api/analytics/view",
+  "/api/analytics/duration",
+  "/api/healthz",
+]);
+
+function requestPath(url: string) {
+  return new URL(url).pathname;
+}
+
+function isLightApiPath(path: string) {
+  return API_LIGHT_PATHS.has(path);
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((resolve) => {
+        timer = setTimeout(() => resolve(fallback), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 app.use("*", logger());
 app.use("/api/*", cors({ origin: "*" }));
 app.use("/api/*", async (c, next) => {
@@ -41,16 +73,32 @@ app.use("/api/*", async (c, next) => {
 });
 app.use("/api/*", withDb);
 app.use("/api/*", async (c, next) => {
-  const ready = await ensureCoreSchema(c.env.DB);
-  if (!ready) return c.json({ error: "Database schema is updating. Try again shortly." }, 503);
+  const path = requestPath(c.req.url);
+  if (isLightApiPath(path)) return next();
+
+  const ready = await withTimeout(ensureCoreSchema(c.env.DB), API_SCHEMA_TIMEOUT_MS, false);
+  if (!ready) {
+    if (c.req.method === "GET" && !path.startsWith("/api/admin")) {
+      await next();
+      return;
+    }
+    return c.json({ error: "Database is busy. Try again shortly." }, 503);
+  }
   await next();
 });
-app.use("/api/*", loadUser);
+app.use("/api/*", async (c, next) => {
+  if (isLightApiPath(requestPath(c.req.url))) {
+    c.set("user", null);
+    await next();
+    return;
+  }
+  await loadUser(c, next);
+});
 app.use("/api/*", async (c, next) => {
   const startedAt = Date.now();
   await next();
   const status = c.res.status;
-  const path = new URL(c.req.url).pathname;
+  const path = requestPath(c.req.url);
   if (status >= 400 && path !== "/api/client-errors") {
     c.executionCtx.waitUntil(recordErrorEvent(c.env.DB, {
       ...requestErrorMeta(c),
@@ -192,10 +240,13 @@ function shouldEnsureCoreSchema(path: string) {
 }
 
 app.use("*", async (c, next) => {
-  const path = new URL(c.req.url).pathname;
+  const path = requestPath(c.req.url);
   if (!shouldEnsureCoreSchema(path)) return next();
-  const ready = await ensureCoreSchema(c.env.DB);
-  if (!ready) return c.text("Database schema is updating. Please retry shortly.", 503);
+  const ready = await withTimeout(ensureCoreSchema(c.env.DB), API_SCHEMA_TIMEOUT_MS, false);
+  if (!ready) {
+    await next();
+    return;
+  }
   await next();
 });
 
@@ -311,7 +362,7 @@ function adsConfigFromSettings(settings: Record<string, string>) {
 app.get("/api/ads", async (c) => {
   c.header("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
   try {
-    const settings = await loadSettings(c.env);
+    const settings = await withTimeout(loadSettings(c.env), ADS_SETTINGS_TIMEOUT_MS, {});
     return c.json(adsConfigFromSettings(settings));
   } catch (error) {
     const record = errorToRecord(error);
@@ -448,7 +499,7 @@ app.get("/sitemap-tags.xml", async (c) => {
 });
 
 app.get("/ads.txt", async (c) => {
-  const settings = await loadSettings(c.env);
+  const settings = await withTimeout(loadSettings(c.env), ADS_SETTINGS_TIMEOUT_MS, {});
   const custom = settings["ads_txt"]?.trim();
   if (custom) return c.text(`${custom}\n`, 200, { "Content-Type": "text/plain; charset=utf-8" });
 

@@ -1098,6 +1098,13 @@ app.get("/logs", async (c) => {
   });
 });
 
+app.delete("/logs", async (c) => {
+  const db = c.get("db");
+  const total = await db.$count(schema.activityLog);
+  await db.delete(schema.activityLog);
+  return c.json({ ok: true, deleted: total });
+});
+
 app.get("/logs/export", async (c) => {
   const db = c.get("db");
   const type = c.req.query("type") ?? "";
@@ -1160,6 +1167,13 @@ app.get("/error-events", async (c) => {
     page,
     perPage,
   });
+});
+
+app.delete("/error-events", async (c) => {
+  if (!(await ensureErrorEventsSchema(c.env.DB))) return c.json({ ok: true, deleted: 0 });
+  const total = await c.env.DB.prepare("SELECT COUNT(*) AS total FROM error_events").first<{ total: number }>();
+  await c.env.DB.prepare("DELETE FROM error_events").run();
+  return c.json({ ok: true, deleted: Number(total?.total ?? 0) });
 });
 
 app.get("/error-events/export", async (c) => {

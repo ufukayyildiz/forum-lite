@@ -5,7 +5,14 @@ import { toast } from "sonner";
 export function useMe() {
   return useQuery({
     queryKey: ["me"],
-    queryFn: () => api.me().then((r) => r.user),
+    queryFn: async () => {
+      try {
+        return (await api.me()).user;
+      } catch {
+        return null;
+      }
+    },
+    retry: false,
     staleTime: 60_000,
   });
 }
