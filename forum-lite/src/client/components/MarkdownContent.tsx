@@ -1,20 +1,22 @@
 import { useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { X, ExternalLink } from "lucide-react";
-import { renderMarkdown } from "../lib/sanitize";
+import { renderMarkdown, type InternalMarkdownLink } from "../lib/sanitize";
 
 type PdfState = { url: string; title: string };
 
 export function MarkdownContent({
   content,
+  internalLinks,
   className = "gb-post-content",
   style,
 }: {
   content: string;
+  internalLinks?: InternalMarkdownLink[];
   className?: string;
   style?: CSSProperties;
 }) {
-  const html = useMemo(() => renderMarkdown(content), [content]);
+  const html = useMemo(() => renderMarkdown(content, { internalLinks }), [content, internalLinks]);
   const [pdf, setPdf] = useState<PdfState | null>(null);
 
   function onClick(e: React.MouseEvent<HTMLDivElement>) {

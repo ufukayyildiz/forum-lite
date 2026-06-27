@@ -100,7 +100,7 @@ export default function MembersPage() {
                         {new Date(m.createdAt).toLocaleDateString("en-GB")}
                       </td>
                     </tr>
-                    {shouldShowListAd(adsConfig, position, list.length) && (
+                    {shouldShowListAd(adsConfig, position, list.length, "user") && (
                       <ListAdRow config={adsConfig} index={position} colSpan={6} />
                     )}
                   </Fragment>

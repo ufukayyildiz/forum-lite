@@ -11,6 +11,7 @@ import { SEOHead } from "../components/SEOHead";
 import { AdSlot } from "../components/AdSlot";
 import { MarkdownContent } from "../components/MarkdownContent";
 import { categoryPath, threadPath } from "../lib/routes";
+import { activeAdInterval } from "../lib/ads";
 import { toast } from "sonner";
 import { useConfirm } from "../components/ConfirmDialog";
 
@@ -112,9 +113,10 @@ function useAttachmentUploader(
   return { trigger, uploading, input };
 }
 
-function PostItem({ post, threadId, onQuote }: {
+function PostItem({ post, threadId, onQuote, internalLinks }: {
   post: Post; threadId: number;
   onQuote: (content: string, author: string) => void;
+  internalLinks?: Thread["internalLinks"];
 }) {
   const { data: me } = useMe();
   const qc = useQueryClient();
@@ -193,7 +195,7 @@ function PostItem({ post, threadId, onQuote }: {
             </div>
           </div>
         ) : (
-          <MarkdownContent content={post.content} />
+          <MarkdownContent content={post.content} internalLinks={internalLinks} />
         )}
 
         <div className="gb-post-actions">
@@ -327,7 +329,7 @@ export default function ThreadPage() {
   }
 
   const canMod = me && (me.role === "admin" || me.role === "moderator");
-  const adInterval = Math.max(1, Math.min(20, Number(adsConfig?.postInterval ?? 3)));
+  const adInterval = activeAdInterval(adsConfig, "post");
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
 
@@ -450,18 +452,11 @@ export default function ThreadPage() {
           ))}
         </div>
 
-        {thread.internalLinks?.length ? (
-          <nav className="gb-related-links" aria-label="Related technical topics">
-            <span className="gb-related-label">related</span>
-            {thread.internalLinks.map((link) => (
-              <Link key={`${link.term}:${link.publicId}`} to={link.path} className="gb-related-link" title={link.title}>
-                <span className="gb-related-term"># {link.term}</span>
-                <span className="gb-related-title">{link.title}</span>
-                {link.categoryName && <span className="gb-related-category">| {link.categoryName}</span>}
-              </Link>
-            ))}
-          </nav>
-        ) : null}
+        {adsConfig?.enabled && (
+          <div className="gb-thread-sticky-ad">
+            <AdSlot config={adsConfig} index={0} height={100} />
+          </div>
+        )}
 
         {/* OP post */}
         <div style={{ borderBottom: "1px solid var(--gb-bg2)" }}>
@@ -521,7 +516,7 @@ export default function ThreadPage() {
               ) : isPlaceholderData && !thread.content ? (
                 <div style={{ minHeight: 24 }} aria-busy="true" />
               ) : (
-                <MarkdownContent content={thread.content || ""} />
+                <MarkdownContent content={thread.content || ""} internalLinks={thread.internalLinks} />
               )}
               <div className="gb-post-actions">
                 {me && !thread.locked && (
@@ -553,7 +548,7 @@ export default function ThreadPage() {
               const absolutePostNumber = 2 + i;
               return (
                 <div key={p.id}>
-                  <PostItem post={p} threadId={thread.id} onQuote={handleQuote} />
+                  <PostItem post={p} threadId={thread.id} onQuote={handleQuote} internalLinks={thread.internalLinks} />
                   {adsConfig?.enabled && absolutePostNumber % adInterval === 0 && (
                     <AdSlot config={adsConfig} index={absolutePostNumber} />
                   )}

@@ -105,7 +105,7 @@ export default function TagDetailPage() {
                 return (
                   <Fragment key={t.id}>
                     <TopicRow thread={t} lineNum={position} />
-                    {shouldShowListAd(adsConfig, position, threads.length) && (
+                    {shouldShowListAd(adsConfig, position, threads.length, "topic") && (
                       <ListAdRow config={adsConfig} index={position} colSpan={6} />
                     )}
                   </Fragment>

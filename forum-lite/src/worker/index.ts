@@ -141,7 +141,25 @@ async function loadSettings(env: Bindings): Promise<Record<string, string>> {
 }
 
 function adsConfigFromSettings(settings: Record<string, string>) {
-  const postInterval = Math.max(1, Math.min(20, Number(settings["ads_post_interval"] || 3) || 3));
+  const interval = (key: string, fallback: number) => {
+    const value = Number(settings[key] || fallback);
+    return Math.max(1, Math.min(50, Number.isFinite(value) ? value : fallback));
+  };
+  const desktopHtml = settings["ad_desktop_html"] || settings["ad_thread_html"] || "";
+  const mobileHtml = settings["ad_mobile_html"] || desktopHtml;
+  const postInterval = interval("ads_post_interval", 3);
+  const desktopIntervals = {
+    post: postInterval,
+    topic: interval("ads_topic_interval", 7),
+    user: interval("ads_user_interval", 7),
+    tag: interval("ads_tag_interval", 7),
+  };
+  const mobileIntervals = {
+    post: interval("ads_mobile_post_interval", desktopIntervals.post),
+    topic: interval("ads_mobile_topic_interval", desktopIntervals.topic),
+    user: interval("ads_mobile_user_interval", desktopIntervals.user),
+    tag: interval("ads_mobile_tag_interval", desktopIntervals.tag),
+  };
   return {
     enabled: settings["ads_enabled"] === "true",
     postInterval,
@@ -149,7 +167,15 @@ function adsConfigFromSettings(settings: Record<string, string>) {
     adsenseSlot: "",
     adsenseFormat: "",
     fullWidthResponsive: true,
-    html: settings["ad_thread_html"] || "",
+    html: desktopHtml,
+    desktop: {
+      html: desktopHtml,
+      intervals: desktopIntervals,
+    },
+    mobile: {
+      html: mobileHtml,
+      intervals: mobileIntervals,
+    },
   };
 }
 
@@ -282,7 +308,8 @@ app.get("/ads.txt", async (c) => {
   const custom = settings["ads_txt"]?.trim();
   if (custom) return c.text(`${custom}\n`, 200, { "Content-Type": "text/plain; charset=utf-8" });
 
-  const publisherFromCode = settings["ad_thread_html"]?.match(/ca-pub-\d+/)?.[0].replace(/^ca-/, "") ?? "";
+  const publisherFromCode = (settings["ad_desktop_html"] || settings["ad_thread_html"] || settings["ad_mobile_html"])
+    ?.match(/ca-pub-\d+/)?.[0].replace(/^ca-/, "") ?? "";
   const publisher = (settings["adsense_client"] || publisherFromCode).replace(/^ca-/, "").trim();
   const body = publisher
     ? `google.com, ${publisher}, DIRECT, f08c47fec0942fa0\n`

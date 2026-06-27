@@ -81,6 +81,14 @@ export type AdsConfig = {
   adsenseFormat: string;
   fullWidthResponsive: boolean;
   html: string;
+  desktop: {
+    html: string;
+    intervals: { post: number; topic: number; user: number; tag: number };
+  };
+  mobile: {
+    html: string;
+    intervals: { post: number; topic: number; user: number; tag: number };
+  };
 };
 export type MemberActivityResponse = {
   user: PublicUser;

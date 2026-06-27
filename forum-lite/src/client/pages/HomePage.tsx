@@ -89,7 +89,7 @@ export default function HomePage() {
                 return (
                   <Fragment key={t.id}>
                     <TopicRow thread={t} showCategory lineNum={position} />
-                    {shouldShowListAd(adsConfig, position, list.length) && (
+                    {shouldShowListAd(adsConfig, position, list.length, "topic") && (
                       <ListAdRow config={adsConfig} index={position} colSpan={6} />
                     )}
                   </Fragment>

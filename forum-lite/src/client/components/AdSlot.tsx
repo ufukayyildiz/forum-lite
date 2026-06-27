@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react";
+import type { CSSProperties } from "react";
 import type { AdsConfig } from "../lib/api";
+import { activeAdHtml } from "../lib/ads";
 
 declare global {
   interface Window {
@@ -11,7 +13,7 @@ const FALLBACK_DELAY_MS = 3000;
 const ADSENSE_STABLE_VISIBLE_MS = 1000;
 const VIEWABLE_THRESHOLD = 1;
 const VIEWPORT_TOLERANCE_PX = 1;
-const RESERVED_AD_HEIGHT = 160;
+const DEFAULT_AD_HEIGHT = 160;
 
 const HOUSE_ADS = [
   {
@@ -66,16 +68,26 @@ function houseAdHtml(variant: number, reason: string) {
   `;
 }
 
-export function AdSlot({ config, index }: { config?: AdsConfig; index: number }) {
+export function AdSlot({
+  config,
+  index,
+  height = DEFAULT_AD_HEIGHT,
+}: {
+  config?: AdsConfig;
+  index: number;
+  height?: number;
+}) {
   const htmlRef = useRef<HTMLDivElement>(null);
   const houseVariantRef = useRef<number | null>(null);
-  const html = config?.html?.trim() ?? "";
+  const html = activeAdHtml(config);
+  const reservedHeight = Math.max(60, Math.min(DEFAULT_AD_HEIGHT, Math.round(Number(height) || DEFAULT_AD_HEIGHT)));
 
   useEffect(() => {
     const mount = htmlRef.current;
     if (!config?.enabled || !mount) return;
 
     const slot = mount.closest<HTMLElement>(".gb-ad-slot");
+    if (slot && slot.getClientRects().length === 0) return;
     let fallbackApplied = false;
     let adRequested = false;
     let fallbackVisibleStartedAt = 0;
@@ -92,10 +104,10 @@ export function AdSlot({ config, index }: { config?: AdsConfig; index: number })
     };
 
     const setSlotHeight = () => {
-      slot?.style.setProperty("--gb-ad-height", `${RESERVED_AD_HEIGHT}px`);
-      slot?.style.setProperty("height", `${RESERVED_AD_HEIGHT}px`, "important");
-      slot?.style.setProperty("min-height", `${RESERVED_AD_HEIGHT}px`, "important");
-      slot?.style.setProperty("max-height", `${RESERVED_AD_HEIGHT}px`, "important");
+      slot?.style.setProperty("--gb-ad-height", `${reservedHeight}px`);
+      slot?.style.setProperty("height", `${reservedHeight}px`, "important");
+      slot?.style.setProperty("min-height", `${reservedHeight}px`, "important");
+      slot?.style.setProperty("max-height", `${reservedHeight}px`, "important");
     };
 
     const slotFullyVisible = () => {
@@ -115,9 +127,11 @@ export function AdSlot({ config, index }: { config?: AdsConfig; index: number })
     const normalizeAdMarkup = () => {
       setCss(mount, "align-items", "center");
       setCss(mount, "display", "flex");
-      setCss(mount, "height", `${RESERVED_AD_HEIGHT}px`, "important");
+      setCss(mount, "height", `${reservedHeight}px`, "important");
       setCss(mount, "justify-content", "center");
-      setCss(mount, "max-height", `${RESERVED_AD_HEIGHT}px`, "important");
+      setCss(mount, "margin-left", "auto");
+      setCss(mount, "margin-right", "auto");
+      setCss(mount, "max-height", `${reservedHeight}px`, "important");
       setCss(mount, "max-width", "100%");
       setCss(mount, "overflow", "hidden", "important");
       setCss(mount, "width", "100%");
@@ -126,18 +140,18 @@ export function AdSlot({ config, index }: { config?: AdsConfig; index: number })
         el.setAttribute("data-ad-format", "horizontal");
         el.setAttribute("data-full-width-responsive", "false");
         setCss(el, "display", "block", "important");
-        setCss(el, "height", `${RESERVED_AD_HEIGHT}px`, "important");
-        setCss(el, "max-height", `${RESERVED_AD_HEIGHT}px`, "important");
+        setCss(el, "height", `${reservedHeight}px`, "important");
+        setCss(el, "max-height", `${reservedHeight}px`, "important");
         setCss(el, "max-width", "100%", "important");
-        setCss(el, "min-height", `${RESERVED_AD_HEIGHT}px`, "important");
+        setCss(el, "min-height", `${reservedHeight}px`, "important");
         setCss(el, "overflow", "hidden", "important");
         setCss(el, "width", "100%", "important");
       }
 
       for (const frame of Array.from(mount.querySelectorAll<HTMLIFrameElement>("iframe"))) {
         setCss(frame, "display", "block", "important");
-        setCss(frame, "height", `${RESERVED_AD_HEIGHT}px`, "important");
-        setCss(frame, "max-height", `${RESERVED_AD_HEIGHT}px`, "important");
+        setCss(frame, "height", `${reservedHeight}px`, "important");
+        setCss(frame, "max-height", `${reservedHeight}px`, "important");
         setCss(frame, "max-width", "100%", "important");
         setCss(frame, "overflow", "hidden", "important");
         frame.scrolling = "no";
@@ -332,12 +346,17 @@ export function AdSlot({ config, index }: { config?: AdsConfig; index: number })
       slot?.style.removeProperty("min-height");
       slot?.style.removeProperty("max-height");
     };
-  }, [config?.enabled, html, index]);
+  }, [config?.enabled, html, index, reservedHeight]);
 
   if (!config?.enabled) return null;
 
   return (
-    <div className="gb-ad-slot" data-ad-index={index}>
+    <div
+      className="gb-ad-slot"
+      data-ad-index={index}
+      data-ad-compact={reservedHeight < DEFAULT_AD_HEIGHT ? "true" : undefined}
+      style={{ "--gb-ad-height": `${reservedHeight}px` } as CSSProperties}
+    >
       <div ref={htmlRef} className="gb-ad-frame" />
     </div>
   );

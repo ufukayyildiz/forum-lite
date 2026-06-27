@@ -104,7 +104,7 @@ export default function CategoryPage() {
                 return (
                   <Fragment key={t.id}>
                     <TopicRow thread={t} showCategory={false} lineNum={position} />
-                    {shouldShowListAd(adsConfig, position, list.length) && (
+                    {shouldShowListAd(adsConfig, position, list.length, "topic") && (
                       <ListAdRow config={adsConfig} index={position} colSpan={6} />
                     )}
                   </Fragment>

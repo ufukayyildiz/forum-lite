@@ -68,7 +68,7 @@ export default function TagsPage() {
                       <td style={{ textAlign: "right", paddingRight: 16, color: "var(--gb-fg4)", fontSize: 13 }}>{t.threadCount}</td>
                       <td colSpan={2} />
                     </tr>
-                    {shouldShowListAd(adsConfig, position, tags.length) && (
+                    {shouldShowListAd(adsConfig, position, tags.length, "tag") && (
                       <ListAdRow config={adsConfig} index={position} colSpan={6} />
                     )}
                   </Fragment>

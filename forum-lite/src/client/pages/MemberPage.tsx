@@ -264,7 +264,7 @@ export default function MemberPage() {
                         {relativeTime(t.activityAt ?? t.lastPostAt ?? t.createdAt)}
                       </td>
                     </tr>
-                    {shouldShowListAd(adsConfig, position, threads.length) && (
+                    {shouldShowListAd(adsConfig, position, threads.length, "topic") && (
                       <ListAdRow config={adsConfig} index={position} colSpan={5} />
                     )}
                   </Fragment>
@@ -328,7 +328,7 @@ export default function MemberPage() {
                         {relativeTime(p.createdAt)}
                       </td>
                     </tr>
-                    {shouldShowListAd(adsConfig, position, replies.length) && (
+                    {shouldShowListAd(adsConfig, position, replies.length, "post") && (
                       <ListAdRow config={adsConfig} index={position} colSpan={5} />
                     )}
                   </Fragment>
