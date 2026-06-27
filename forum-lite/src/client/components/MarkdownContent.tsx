@@ -7,6 +7,17 @@ import { renderMarkdown } from "../lib/sanitize";
 type PdfState = { url: string; title: string };
 type AnchorState = { url: string; title: string };
 
+function anchorPreviewUrl(url: string) {
+  try {
+    const next = new URL(url, window.location.origin);
+    if (next.origin !== window.location.origin) return url;
+    next.searchParams.set("embed", "1");
+    return `${next.pathname}${next.search}${next.hash}`;
+  } catch {
+    return url;
+  }
+}
+
 export function MarkdownContent({
   content,
   anchors,
@@ -87,7 +98,7 @@ export function MarkdownContent({
                 <X size={16} />
               </button>
             </div>
-            <iframe className="gb-anchor-frame" src={anchorDialog.url} title={anchorDialog.title} />
+            <iframe className="gb-anchor-frame" src={anchorPreviewUrl(anchorDialog.url)} title={anchorDialog.title} />
           </div>
         </div>
       )}

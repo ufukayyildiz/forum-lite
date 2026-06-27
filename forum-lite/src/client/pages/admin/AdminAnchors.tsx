@@ -12,7 +12,7 @@ export default function AdminAnchors() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [manualTarget, setManualTarget] = useState(false);
   const [autoLimit, setAutoLimit] = useState(50);
-  const [autoResult, setAutoResult] = useState<{ created: number; skipped: number; found: number } | null>(null);
+  const [autoResult, setAutoResult] = useState<{ created: number; skipped: number; found: number; details?: string[] } | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const { data, isLoading } = useQuery({
     queryKey: ["admin-anchors", q],
@@ -67,7 +67,7 @@ export default function AdminAnchors() {
       return api.adminAutoAnchors({ term, limit: autoLimit, enabled: form.enabled });
     },
     onSuccess: async (result) => {
-      setAutoResult({ created: result.created, skipped: result.skipped, found: result.found });
+      setAutoResult({ created: result.created, skipped: result.skipped, found: result.found, details: result.details ?? [] });
       setForm((f) => ({ ...f, url: "", title: "" }));
       await refresh();
       toast.success(`Auto anchors: ${result.created} created, ${result.skipped} skipped`);
@@ -194,7 +194,7 @@ export default function AdminAnchors() {
 
       <div className="gb-admin-anchor-result-row">
         <span>
-          auto links one term to the best matching internal thread targets; duplicates are skipped
+          auto links 1-3 word terms to matching post/reply targets; duplicates and overlapping targets are skipped
         </span>
         {autoResult && (
           <span className="gb-admin-anchor-result">
@@ -202,6 +202,13 @@ export default function AdminAnchors() {
           </span>
         )}
       </div>
+      {!!autoResult?.details?.length && (
+        <div className="gb-admin-anchor-details">
+          {autoResult.details.map((detail, index) => (
+            <div key={`${detail}-${index}`}>{detail}</div>
+          ))}
+        </div>
+      )}
 
       <div style={{ color: "var(--gb-gray)", fontSize: 12 }}>
         {isLoading ? "$ loading..." : `${anchors.length} anchors listed`}

@@ -10,6 +10,7 @@ type ClientErrorPayload = {
 
 let installed = false;
 let sent = 0;
+const sentKeys = new Map<string, number>();
 
 function ignoredClientError(message: string, stack?: string | null, reason?: string | null) {
   const text = `${message}\n${stack ?? ""}\n${reason ?? ""}`;
@@ -18,6 +19,36 @@ function ignoredClientError(message: string, stack?: string | null, reason?: str
     /ResizeObserver loop limit exceeded/i,
     /AbortError: The operation was aborted/i,
   ].some((pattern) => pattern.test(text));
+}
+
+function metadataNumber(metadata: Record<string, unknown> | undefined, key: string) {
+  const value = metadata?.[key];
+  return typeof value === "number" ? value : null;
+}
+
+function shouldReportClientError(input: ClientErrorPayload) {
+  if (ignoredClientError(input.message, input.stack, input.reason)) return false;
+
+  if (input.kind === "api_network_error" && /failed to fetch|load failed|network request failed/i.test(input.message)) {
+    return false;
+  }
+
+  const status = metadataNumber(input.metadata, "status");
+  if (input.kind === "api_error_response" && status && status < 500 && status !== 429) {
+    return false;
+  }
+
+  const key = [
+    input.kind,
+    input.message.slice(0, 120),
+    input.metadata?.path,
+    input.metadata?.status,
+  ].join("|");
+  const now = Date.now();
+  const lastSentAt = sentKeys.get(key) ?? 0;
+  if (now - lastSentAt < 60_000) return false;
+  sentKeys.set(key, now);
+  return true;
 }
 
 function viewport() {
@@ -34,7 +65,7 @@ function normalizeReason(reason: unknown) {
 }
 
 export function reportClientError(input: ClientErrorPayload) {
-  if (ignoredClientError(input.message, input.stack, input.reason)) return;
+  if (!shouldReportClientError(input)) return;
   if (sent >= 30) return;
   sent += 1;
   const payload = {

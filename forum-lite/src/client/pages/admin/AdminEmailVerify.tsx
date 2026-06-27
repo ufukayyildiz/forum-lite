@@ -67,6 +67,8 @@ export default function AdminEmailVerify() {
   const query = useQuery({
     queryKey: ["admin-email-verify", hours, q, risk, action, verifyLimit],
     queryFn: () => api.adminEmailVerify({ hours, q, risk, action, candidateLimit: verifyLimit }),
+    retry: false,
+    refetchOnWindowFocus: false,
   });
 
   const rows = query.data?.rows ?? [];
@@ -92,6 +94,16 @@ export default function AdminEmailVerify() {
     qc.invalidateQueries({ queryKey: ["admin-marketing-users"] });
     qc.invalidateQueries({ queryKey: ["admin-marketing-sends"] });
   };
+
+  const scanCf = useMutation({
+    mutationFn: () => api.adminSyncEmailSuppressions(hours),
+    onSuccess: (result) => {
+      refreshAll();
+      toast.success(`CF sync: ${result.deliveryFailures} failures, ${result.localUpdates} local updates, ${result.cfSuppressions} suppressions`);
+      if (result.errors?.length) toast.warning(result.errors[0]);
+    },
+    onError: (error: any) => toast.error(error.message || "CF sync failed"),
+  });
 
   const suppress = useMutation({
     mutationFn: (emails: string[]) => api.adminEmailVerifySuppress(emails),
@@ -179,15 +191,15 @@ export default function AdminEmailVerify() {
           <div>
             <h2 style={{ margin: "0 0 6px", color: "var(--gb-yellow)", fontSize: 15 }}>$ email verify</h2>
             <p style={{ margin: 0, color: "var(--gb-gray)", maxWidth: 920 }}>
-              Scans Cloudflare failed/rejected events, then checks never-emailed users with syntax, typo, disposable, MX and A/AAAA preflight.
+              Shows locally synced Cloudflare failed/rejected events, then checks never-emailed users with syntax, typo, disposable, MX and A/AAAA preflight.
             </p>
             <p style={{ margin: "6px 0 0", color: "var(--gb-yellow)", maxWidth: 920 }}>
               No email is sent from this screen. Mailbox existence and inbox quota are classified only after Cloudflare returns a failed/rejected delivery event.
             </p>
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-            <button className="gb-btn" type="button" disabled={query.isFetching} onClick={() => query.refetch()}>
-              $ scan cf
+            <button className="gb-btn" type="button" disabled={scanCf.isPending} onClick={() => scanCf.mutate()}>
+              {scanCf.isPending ? "$ scanning cf..." : "$ scan cf"}
             </button>
             <button className="gb-btn" type="button" disabled={!candidateRows.length} onClick={selectCandidates}>
               $ select unverified ({Math.min(candidateRows.length, MAX_PREFLIGHT)})
@@ -287,6 +299,13 @@ export default function AdminEmailVerify() {
             <tr>
               <td style={{ color: "var(--gb-gray)" }}>~</td>
               <td colSpan={5} style={{ color: "var(--gb-gray)" }}>$ loading...</td>
+            </tr>
+          ) : query.isError ? (
+            <tr>
+              <td style={{ color: "var(--gb-red)" }}>!</td>
+              <td colSpan={5} style={{ color: "var(--gb-red)" }}>
+                {query.error instanceof Error ? query.error.message : "email verify list failed"}
+              </td>
             </tr>
           ) : rows.length ? rows.map((row) => (
             <tr key={row.email} style={{ opacity: row.suppressed ? .55 : 1 }}>

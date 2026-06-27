@@ -56,6 +56,15 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
   min-height: 100dvh;
   overflow: hidden;
 }
+.gb-shell-embedded {
+  background: var(--gb-bg);
+}
+.gb-main-embedded {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  overflow: auto;
+}
 
 /* ── Tabline (top bar) ──────────────────────────────────── */
 .gb-tabline {
@@ -1777,6 +1786,17 @@ textarea.gb-input {
 .gb-admin-anchor-result {
   color: var(--gb-green);
   white-space: nowrap;
+}
+.gb-admin-anchor-details {
+  border: 1px solid var(--gb-border);
+  background: var(--gb-bg);
+  color: var(--gb-gray);
+  font-size: 11px;
+  line-height: 1.45;
+  padding: 8px 10px;
+  max-height: 128px;
+  overflow: auto;
+  white-space: pre-wrap;
 }
 
 /* ── Composer toolbar ────────────────────────────────────── */

@@ -2,6 +2,16 @@ import { reportClientError } from "./error-reporting";
 
 const BASE = "/api";
 
+function isBenignNetworkError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  const name = error instanceof Error ? error.name : "";
+  return name === "AbortError" || /failed to fetch|load failed|network request failed|cancelled/i.test(message);
+}
+
+function shouldReportApiStatus(status: number) {
+  return status >= 500 || status === 429;
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
@@ -11,21 +21,23 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
       ...init,
     });
   } catch (error) {
-    reportClientError({
-      kind: "api_network_error",
-      message: error instanceof Error ? error.message : "Network request failed",
-      stack: error instanceof Error ? error.stack ?? null : null,
-      metadata: { path, method: init?.method ?? "GET" },
-    });
+    if (!isBenignNetworkError(error)) {
+      reportClientError({
+        kind: "api_network_error",
+        message: error instanceof Error ? error.message : "Network request failed",
+        stack: error instanceof Error ? error.stack ?? null : null,
+        metadata: { path, method: init?.method ?? "GET" },
+      });
+    }
     throw error;
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     const message = (body as any).error ?? res.statusText;
-    if (path !== "/client-errors") {
+    if (path !== "/client-errors" && shouldReportApiStatus(res.status)) {
       reportClientError({
         kind: "api_error_response",
-        message,
+        message: `API ${path} returned ${res.status}: ${message || "unknown status code"}`,
         metadata: { path, method: init?.method ?? "GET", status: res.status, body },
       });
     }
@@ -513,7 +525,7 @@ export const api = {
   adminCreateAnchor: (b: { term: string; url: string; title?: string; enabled?: boolean }) =>
     post<{ anchor: AnchorLink }>("/admin/anchors", b),
   adminAutoAnchors: (b: { term: string; limit?: number; enabled?: boolean }) =>
-    post<{ anchors: AnchorLink[]; created: number; skipped: number; found: number }>("/admin/anchors/auto", b),
+    post<{ anchors: AnchorLink[]; created: number; skipped: number; found: number; details?: string[] }>("/admin/anchors/auto", b),
   adminUpdateAnchor: (id: number, b: Partial<{ term: string; url: string; title: string; enabled: boolean }>) =>
     patch<{ anchor: AnchorLink }>(`/admin/anchors/${id}`, b),
   adminDeleteAnchor: (id: number) => del<{ ok: boolean }>(`/admin/anchors/${id}`),

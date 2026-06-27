@@ -79,16 +79,41 @@ app.onError((error, c) => {
   return c.json({ error: "Internal server error" }, 500);
 });
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function ignoredClientErrorEvent(body: Record<string, unknown>) {
+  const kind = typeof body.kind === "string" ? body.kind : "";
+  const message = typeof body.message === "string" ? body.message : "";
+  const metadata = isRecord(body.metadata) ? body.metadata : {};
+  const status = typeof metadata.status === "number" ? metadata.status : null;
+
+  if (kind === "api_network_error" && /failed to fetch|load failed|network request failed|cancelled/i.test(message)) {
+    return true;
+  }
+  if (kind === "api_error_response" && /<unknown status code>|forbidden/i.test(message) && !status) {
+    return true;
+  }
+  if (kind === "api_error_response" && status !== null && status < 500 && status !== 429) {
+    return true;
+  }
+  return false;
+}
+
 app.post("/api/client-errors", async (c) => {
   const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  if (ignoredClientErrorEvent(body)) return c.json({ ok: true, ignored: true });
   const source = body.source === "react" ? "react" : "client";
   const kind = typeof body.kind === "string" ? body.kind : "client_error";
   const message = typeof body.message === "string" ? body.message : "Client error";
   const stack = typeof body.stack === "string" ? body.stack : null;
+  const metadata = isRecord(body.metadata) ? body.metadata : {};
+  const status = typeof metadata.status === "number" ? metadata.status : null;
   c.executionCtx.waitUntil(recordErrorEvent(c.env.DB, {
     ...requestErrorMeta(c),
     source,
-    level: "error",
+    level: status !== null && status < 500 ? "warn" : "error",
     kind,
     message,
     stack,

@@ -52,8 +52,10 @@ function Statusbar() {
 export function Layout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const shellRef = useRef<HTMLDivElement>(null);
-  const { pathname } = useLocation();
-  useEffect(() => { setSidebarOpen(false); }, [pathname]);
+  const { pathname, search } = useLocation();
+  const embedded = new URLSearchParams(search).get("embed") === "1";
+
+  useEffect(() => { setSidebarOpen(false); }, [pathname, embedded]);
   useEffect(() => {
     const shell = shellRef.current;
     if (!shell || typeof MutationObserver === "undefined") return;
@@ -82,6 +84,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
       window.removeEventListener("resize", lockShell);
     };
   }, []);
+
+  if (embedded) {
+    return (
+      <div ref={shellRef} className="gb-shell gb-shell-embedded">
+        <div className="gb-main gb-main-embedded">{children}</div>
+      </div>
+    );
+  }
 
   return (
     <div ref={shellRef} className="gb-shell">

@@ -9,8 +9,8 @@ import { toPublicUser, type AppEnv } from "../types";
 import { loadEmailSettings, sendManagedEmail, weAreBackEmail } from "../lib/notifications";
 import { ensureAnchorLinksSchema } from "../lib/anchor-links";
 import { ensureErrorEventsSchema } from "../lib/error-events";
-import { cloudflareEmailApiConfigured, listCloudflareDeliveryFailures, type CloudflareEmailFailure } from "../lib/email";
-import { classifyCloudflareEmailFailure, failureDetail, type EmailFailureClassification } from "../lib/email-classification";
+import { cloudflareEmailApiConfigured, type CloudflareEmailFailure } from "../lib/email";
+import { classifyCloudflareEmailFailure, type EmailFailureClassification } from "../lib/email-classification";
 import { classificationForPreflight, preflightEmail, type EmailPreflightResult } from "../lib/email-preflight";
 import { isEmailSuppressed, normalizeEmailAddress, recordEmailSuppression } from "../lib/email-suppression";
 import { syncCloudflareEmailSuppressions } from "../lib/email-sync";
@@ -106,6 +106,34 @@ const anchorAutoBody = z.object({
   enabled: z.boolean().optional(),
 });
 
+function normalizeAnchorTerm(term: string): string {
+  return term.trim().replace(/\s+/g, " ");
+}
+
+function anchorTermWords(term: string): string[] {
+  return normalizeAnchorTerm(term).toLowerCase().split(/\s+/).filter(Boolean);
+}
+
+function escapeAnchorRegExp(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function anchorTermPattern(term: string): RegExp {
+  const words = anchorTermWords(term).map(escapeAnchorRegExp);
+  return new RegExp(`(^|[^\\p{L}\\p{N}_])(${words.join("\\s+")})(?=$|[^\\p{L}\\p{N}_])`, "iu");
+}
+
+function contentHasAnchorTerm(content: string, term: string): boolean {
+  return anchorTermPattern(term).test(content);
+}
+
+function anchorTermsOverlap(existingTerm: string, nextTerm: string): boolean {
+  const existingWords = new Set(anchorTermWords(existingTerm));
+  const nextWords = anchorTermWords(nextTerm);
+  if (!existingWords.size || !nextWords.length) return false;
+  return nextWords.some((word) => existingWords.has(word));
+}
+
 async function marketingDuplicateBlockingEnabled(db: AppEnv["Variables"]["db"]) {
   const setting = await db.query.settings.findFirst({
     where: eq(schema.settings.key, MARKETING_BLOCK_DUPLICATE_SENDS_KEY),
@@ -119,12 +147,6 @@ function riskRank(risk: string): number {
   if (risk === "medium") return 3;
   if (risk === "system") return 2;
   return 1;
-}
-
-function msFromCfDate(value: string | undefined): number {
-  if (!value) return 0;
-  const ms = Date.parse(value);
-  return Number.isFinite(ms) ? ms : 0;
 }
 
 function classifyLocalEmailError(email: string, detail: string): EmailFailureClassification {
@@ -490,7 +512,6 @@ app.post("/email-suppressions/sync", zValidator("json", z.object({
 });
 
 app.get("/email-verify", async (c) => {
-  const db = c.get("db");
   const hours = Math.max(1, Math.min(720, Number(c.req.query("hours") ?? 72) || 72));
   const q = (c.req.query("q") ?? "").trim().toLowerCase();
   const riskFilter = (c.req.query("risk") ?? "all").trim().toLowerCase();
@@ -511,55 +532,6 @@ app.get("/email-verify", async (c) => {
     details: string;
     preflight?: EmailPreflightResult | null;
   }>();
-
-  if (configured) {
-    try {
-      const { from } = await loadEmailSettings(db, c.req.url);
-      const sendingDomain = from.replace(/^.*@/, "").toLowerCase();
-      const failures = await listCloudflareDeliveryFailures(c.env, { sendingDomain, hours });
-      for (const row of failures) {
-        const email = String(row.to ?? "").trim().toLowerCase();
-        if (!email) continue;
-        const classification = classifyCloudflareEmailFailure(row);
-        const seenMs = msFromCfDate(row.datetime);
-        const existing = groups.get(email);
-        if (!existing) {
-          groups.set(email, {
-            email,
-            classification,
-            attempts: 1,
-            firstSeenMs: seenMs,
-            lastSeenMs: seenMs,
-            statuses: new Set([row.status, row.eventType, row.errorCause].filter(Boolean).map(String)),
-            subjects: new Set(row.subject ? [row.subject] : []),
-            latest: row,
-            details: failureDetail(row),
-          });
-          continue;
-        }
-        existing.attempts += 1;
-        existing.firstSeenMs = existing.firstSeenMs ? Math.min(existing.firstSeenMs, seenMs || existing.firstSeenMs) : seenMs;
-        existing.lastSeenMs = Math.max(existing.lastSeenMs, seenMs);
-        if (row.status) existing.statuses.add(row.status);
-        if (row.eventType) existing.statuses.add(row.eventType);
-        if (row.errorCause) existing.statuses.add(row.errorCause);
-        if (row.subject) existing.subjects.add(row.subject);
-        if (seenMs >= existing.lastSeenMs) {
-          existing.latest = row;
-          existing.details = failureDetail(row);
-        }
-        const currentRank = riskRank(existing.classification.risk);
-        const nextRank = riskRank(classification.risk);
-        if (nextRank > currentRank || (nextRank === currentRank && classification.score > existing.classification.score)) {
-          existing.classification = classification;
-        }
-      }
-    } catch (error) {
-      errors.push(error instanceof Error ? error.message : "Cloudflare delivery failure scan failed");
-    }
-  } else {
-    errors.push("CF_ACCOUNT_ID / CF_EMAIL_API_TOKEN missing in Worker secrets");
-  }
 
   const [users, suppressions, localVerifyErrors, candidateTotal, candidates] = await Promise.all([
     c.env.DB.prepare(
@@ -1470,7 +1442,11 @@ app.post("/anchors/auto", zValidator("json", anchorAutoBody), async (c) => {
   const db = c.get("db");
   const me = c.get("user");
   const body = c.req.valid("json");
-  const term = body.term.trim();
+  const term = normalizeAnchorTerm(body.term);
+  const termWords = anchorTermWords(term);
+  if (termWords.length > 3) {
+    return c.json({ error: "Anchor terms support up to 3 words" }, 400);
+  }
   const needle = `%${term.toLowerCase()}%`;
   const limit = body.limit ?? 50;
 
@@ -1492,6 +1468,8 @@ app.post("/anchors/auto", zValidator("json", anchorAutoBody), async (c) => {
       t.id,
       t.public_id AS publicId,
       t.title,
+      t.content,
+      COALESCE((SELECT group_concat(p.content, '\n') FROM posts p WHERE p.thread_id = t.id), '') AS repliesText,
       MAX(matches.score) AS score,
       MAX(matches.touched_at) AS touchedAt
     FROM matches
@@ -1503,30 +1481,61 @@ app.post("/anchors/auto", zValidator("json", anchorAutoBody), async (c) => {
     id: number;
     publicId: string;
     title: string;
+    content: string | null;
+    repliesText: string | null;
     score: number;
     touchedAt: number | string | null;
   }>();
 
+  const details: string[] = [];
   const targets = (found.results ?? [])
     .filter((row) => row.publicId && row.title)
-    .map((row) => ({
-      term,
-      url: `/t/${row.publicId}`,
-      title: row.title,
-      enabled: body.enabled ?? true,
-    }));
+    .map((row) => {
+      const url = `/t/${row.publicId}`;
+      const visibleContent = `${row.content ?? ""}\n${row.repliesText ?? ""}`;
+      const visible = contentHasAnchorTerm(visibleContent, term);
+      return {
+        term,
+        url,
+        title: row.title,
+        enabled: body.enabled ?? true,
+        visible,
+      };
+    });
 
   const existing = await db
-    .select({ url: schema.anchorLinks.url })
+    .select({ term: schema.anchorLinks.term, url: schema.anchorLinks.url })
     .from(schema.anchorLinks)
-    .where(sql`lower(${schema.anchorLinks.term}) = ${term.toLowerCase()}`);
-  const existingUrls = new Set(existing.map((row) => row.url.toLowerCase()));
+    .where(eq(schema.anchorLinks.enabled, true));
+  const existingSameTermUrls = new Set(
+    existing
+      .filter((row) => normalizeAnchorTerm(row.term).toLowerCase() === term.toLowerCase())
+      .map((row) => row.url.toLowerCase()),
+  );
   const created: typeof schema.anchorLinks.$inferSelect[] = [];
   let skipped = 0;
 
   for (const target of targets) {
-    if (existingUrls.has(target.url.toLowerCase())) {
+    const targetUrl = target.url.toLowerCase();
+    if (!target.visible) {
       skipped++;
+      details.push(`skip ${target.url}: phrase is title-only or not visible in post/reply content`);
+      continue;
+    }
+    if (existingSameTermUrls.has(targetUrl)) {
+      skipped++;
+      details.push(`skip ${target.url}: duplicate target for "${term}"`);
+      continue;
+    }
+    const overlap = existing.find((row) => {
+      if (row.url.toLowerCase() !== targetUrl) return false;
+      const existingTerm = normalizeAnchorTerm(row.term);
+      if (existingTerm.toLowerCase() === term.toLowerCase()) return false;
+      return anchorTermsOverlap(existingTerm, term);
+    });
+    if (overlap) {
+      skipped++;
+      details.push(`skip ${target.url}: overlaps existing "${overlap.term}" on the same target`);
       continue;
     }
     const [row] = await db
@@ -1540,14 +1549,17 @@ app.post("/anchors/auto", zValidator("json", anchorAutoBody), async (c) => {
       .returning();
     if (row) {
       created.push(row);
-      existingUrls.add(target.url.toLowerCase());
+      existing.push({ term, url: target.url });
+      existingSameTermUrls.add(targetUrl);
     }
   }
 
   await db.insert(schema.activityLog).values({
     userId: me?.id ?? null,
     type: "anchor",
-    summary: `Auto-created ${created.length} anchors for "${term}" (${skipped} skipped, ${targets.length} found)`,
+    summary: `Auto-created ${created.length} anchors for "${term}" (${skipped} skipped, ${targets.length} found)${
+      details.length ? `; ${details.slice(0, 3).join("; ")}` : ""
+    }`,
   });
 
   return c.json({
@@ -1555,6 +1567,7 @@ app.post("/anchors/auto", zValidator("json", anchorAutoBody), async (c) => {
     created: created.length,
     skipped,
     found: targets.length,
+    details: details.slice(0, 20),
   });
 });
 

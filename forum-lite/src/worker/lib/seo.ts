@@ -1409,8 +1409,16 @@ function staticSidebarHtml(pathname: string, categories: ApiCategory[]): string 
   ].join("");
 }
 
-function staticShellHtml(contentHtml: string, pathname: string, categories: ApiCategory[]): string {
+function staticShellHtml(contentHtml: string, pathname: string, categories: ApiCategory[], embedded = false): string {
   const page = pathname === "/" ? "threads" : pathname.replace("/", "").split("/")[0] || "threads";
+  if (embedded) {
+    return [
+      '<div class="gb-shell gb-shell-embedded" data-server-rendered="seo-shell">',
+      `<div class="gb-main gb-main-embedded">${contentHtml}</div>`,
+      "</div>",
+    ].join("");
+  }
+
   return [
     '<div class="gb-shell" data-server-rendered="seo-shell">',
     '<div class="gb-tabline">',
@@ -1445,6 +1453,7 @@ function criticalShellCss(): string {
     ".gb-tabline{display:flex;align-items:center;justify-content:space-between;height:36px;padding:0 16px 0 0;flex-shrink:0;background:var(--gb-bg1);border-bottom:1px solid var(--gb-bg2)}",
     ".gb-tab{display:flex;align-items:center;height:100%;padding:0 18px;color:var(--gb-fg4);border-right:1px solid var(--gb-bg2);font-size:12px}.gb-tab.active{color:var(--gb-yellow);font-weight:700}",
     ".gb-body{display:flex;flex:1 1 auto;min-height:0;overflow:hidden}.gb-sidebar{width:240px;flex:0 0 240px;overflow:hidden;background:var(--gb-bg1);border-right:1px solid var(--gb-bg2)}.gb-main{flex:1 1 auto;min-width:0;overflow:auto;background:var(--gb-bg)}",
+    ".gb-shell-embedded{background:var(--gb-bg)}.gb-main-embedded{width:100%;height:100%;max-width:none;overflow:auto}",
     ".gb-statusbar{display:flex;height:22px;align-items:center;gap:8px;padding:0 8px;flex-shrink:0;background:var(--gb-bg1);border-top:1px solid var(--gb-bg2);color:var(--gb-gray);font-size:11px}",
     "</style>",
   ].join("");
@@ -1479,7 +1488,7 @@ function injectHtml(indexHtml: string, payload: SeoPayload, base: string, url: U
   const content = payload.contentHtml ?? seoBlock(SITE_NAME, payload.description);
   return withMeta.replace(
     /<div id="root"><\/div>/,
-    `<div id="root">${staticShellHtml(content, url.pathname, bootstrap.categories)}</div>\n    ${bootstrapScript}`,
+    `<div id="root">${staticShellHtml(content, url.pathname, bootstrap.categories, url.searchParams.get("embed") === "1")}</div>\n    ${bootstrapScript}`,
   );
 }
 
