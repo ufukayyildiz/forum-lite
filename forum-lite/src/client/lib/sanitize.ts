@@ -28,7 +28,19 @@ export type AnchorMarkdownLink = {
 
 type RenderMarkdownOptions = {
   anchors?: AnchorMarkdownLink[];
+  currentPath?: string;
 };
+
+type PreparedAnchorGroup = {
+  key: string;
+  term: string;
+  pattern: RegExp;
+  links: AnchorMarkdownLink[];
+};
+
+const MAX_ANCHOR_TERMS_PER_RENDER = 80;
+const MAX_ANCHOR_TARGETS_PER_TERM = 20;
+const MAX_ANCHORS_PER_DOCUMENT = 8;
 
 function escapeHtmlAttr(input: string): string {
   return input
@@ -52,16 +64,41 @@ function isSafeAnchorUrl(url: string): boolean {
   }
 }
 
-function prepareAnchorLinks(links: AnchorMarkdownLink[] | undefined): AnchorMarkdownLink[] {
+function normalizeInternalPath(url: string | undefined): string {
+  if (!url) return "";
+  try {
+    if (url.startsWith("/") && !url.startsWith("//")) {
+      const path = url.split("#")[0].split("?")[0];
+      return path.length > 1 ? path.replace(/\/+$/, "") : path;
+    }
+    const parsed = new URL(url);
+    return parsed.pathname.length > 1 ? parsed.pathname.replace(/\/+$/, "") : parsed.pathname;
+  } catch {
+    return "";
+  }
+}
+
+function hashString(input: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function prepareAnchorGroups(links: AnchorMarkdownLink[] | undefined, currentPath?: string): PreparedAnchorGroup[] {
   const seen = new Set<string>();
-  return (links ?? [])
+  const current = normalizeInternalPath(currentPath);
+  const prepared = (links ?? [])
     .map((link) => ({
       id: Number(link.id) || undefined,
       term: String(link.term ?? "").trim(),
       title: String(link.title ?? "").trim(),
       url: String(link.url ?? "").trim(),
     }))
-    .filter((link) => link.term.length >= 2 && isSafeAnchorUrl(link.url))
+    .filter((link) => link.term.length >= 3 && isSafeAnchorUrl(link.url))
+    .filter((link) => normalizeInternalPath(link.url) !== current)
     .filter((link) => {
       const key = `${link.term.toLowerCase()}:${link.url}`;
       if (seen.has(key)) return false;
@@ -69,28 +106,47 @@ function prepareAnchorLinks(links: AnchorMarkdownLink[] | undefined): AnchorMark
       return true;
     })
     .sort((a, b) => b.term.length - a.term.length || a.term.localeCompare(b.term));
+
+  const groups = new Map<string, AnchorMarkdownLink[]>();
+  for (const link of prepared) {
+    const key = link.term.toLowerCase();
+    const bucket = groups.get(key) ?? [];
+    if (bucket.length < MAX_ANCHOR_TARGETS_PER_TERM) {
+      bucket.push(link);
+      groups.set(key, bucket);
+    }
+  }
+
+  return Array.from(groups.entries())
+    .map(([key, bucket]) => ({
+      key,
+      term: bucket[0].term,
+      pattern: internalTermPattern(bucket[0].term),
+      links: bucket,
+    }))
+    .sort((a, b) => b.term.length - a.term.length || a.term.localeCompare(b.term))
+    .slice(0, MAX_ANCHOR_TERMS_PER_RENDER);
 }
 
 function internalTermPattern(term: string): RegExp {
   return new RegExp(`(^|[^A-Za-z0-9])(${escapeRegExp(term).replace(/\s+/g, "\\s+")})(?=$|[^A-Za-z0-9])`, "i");
 }
 
-function linkTextChunk(text: string, links: AnchorMarkdownLink[], used: Set<string>): string {
+function linkTextChunk(text: string, groups: PreparedAnchorGroup[], usedTerms: Set<string>): string {
   let remaining = text;
   let out = "";
 
-  while (remaining) {
-    let best: { link: AnchorMarkdownLink; start: number; end: number; text: string } | null = null;
+  while (remaining && usedTerms.size < MAX_ANCHORS_PER_DOCUMENT) {
+    let best: { group: PreparedAnchorGroup; start: number; end: number; text: string } | null = null;
 
-    for (const link of links) {
-      const key = `${link.term.toLowerCase()}:${link.url}`;
-      if (used.has(key)) continue;
-      const match = internalTermPattern(link.term).exec(remaining);
+    for (const group of groups) {
+      if (usedTerms.has(group.key)) continue;
+      const match = group.pattern.exec(remaining);
       if (!match) continue;
       const start = match.index + match[1].length;
       const end = start + match[2].length;
       if (!best || start < best.start || (start === best.start && match[2].length > best.text.length)) {
-        best = { link, start, end, text: match[2] };
+        best = { group, start, end, text: match[2] };
       }
     }
 
@@ -99,22 +155,24 @@ function linkTextChunk(text: string, links: AnchorMarkdownLink[], used: Set<stri
       break;
     }
 
-    const key = `${best.link.term.toLowerCase()}:${best.link.url}`;
-    used.add(key);
+    usedTerms.add(best.group.key);
+    const candidates = best.group.links;
+    const link = candidates[hashString(`${text}:${best.text}:${best.start}`) % candidates.length];
     out += remaining.slice(0, best.start);
-    const idAttr = best.link.id ? ` data-anchor-id="${best.link.id}"` : "";
-    out += `<a class="gb-internal-anchor" href="${escapeHtmlAttr(best.link.url)}"${idAttr} title="${escapeHtmlAttr(best.link.title || best.link.term)}">${best.text}</a>`;
+    const idAttr = link.id ? ` data-anchor-id="${link.id}"` : "";
+    out += `<a class="gb-internal-anchor" href="${escapeHtmlAttr(link.url)}"${idAttr} title="${escapeHtmlAttr(link.title || link.term)}">${best.text}</a>`;
     remaining = remaining.slice(best.end);
   }
 
+  if (remaining) out += remaining;
   return out;
 }
 
-function injectAnchorLinks(html: string, rawLinks: AnchorMarkdownLink[] | undefined): string {
-  const links = prepareAnchorLinks(rawLinks);
-  if (!links.length || !html) return html;
+function injectAnchorLinks(html: string, rawLinks: AnchorMarkdownLink[] | undefined, currentPath?: string): string {
+  const groups = prepareAnchorGroups(rawLinks, currentPath);
+  if (!groups.length || !html) return html;
 
-  const used = new Set<string>();
+  const usedTerms = new Set<string>();
   const skipTags = new Set(["a", "code", "pre", "script", "style", "h1", "h2", "h3", "h4", "h5", "h6"]);
   const skipStack: string[] = [];
   let out = "";
@@ -124,7 +182,7 @@ function injectAnchorLinks(html: string, rawLinks: AnchorMarkdownLink[] | undefi
 
   while ((match = tagRe.exec(html))) {
     const text = html.slice(last, match.index);
-    out += skipStack.length ? text : linkTextChunk(text, links, used);
+    out += skipStack.length ? text : linkTextChunk(text, groups, usedTerms);
 
     const tag = match[0];
     out += tag;
@@ -143,11 +201,11 @@ function injectAnchorLinks(html: string, rawLinks: AnchorMarkdownLink[] | undefi
     }
 
     last = tagRe.lastIndex;
-    if (used.size >= links.length) break;
+    if (usedTerms.size >= MAX_ANCHORS_PER_DOCUMENT) break;
   }
 
   const tail = html.slice(last);
-  out += skipStack.length ? tail : linkTextChunk(tail, links, used);
+  out += skipStack.length ? tail : linkTextChunk(tail, groups, usedTerms);
   return out;
 }
 
@@ -196,7 +254,7 @@ function legacyQuotesToMarkdown(md: string): string {
 export function renderMarkdown(md: string, options: RenderMarkdownOptions = {}): string {
   const raw = marked.parse(legacyQuotesToMarkdown(md)) as string;
   const clean = DOMPurify.sanitize(raw, PURIFY_CONFIG) as string;
-  const linked = injectAnchorLinks(clean, options.anchors);
+  const linked = injectAnchorLinks(clean, options.anchors, options.currentPath);
 
   if (typeof document === "undefined" || typeof window === "undefined") {
     return addExternalTargetAttributes(linked);

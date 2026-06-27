@@ -25,6 +25,18 @@
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23282828'/><text x='4' y='24' font-family='monospace' font-size='22' fill='%23fabd2f'>f</text></svg>" />
 
     <title>FSTDESK Forum</title>
+    <style id="fstdesk-critical-css">
+      :root{--gb-bg:#282828;--gb-bg1:#3c3836;--gb-bg2:#504945;--gb-fg:#ebdbb2;--gb-fg4:#c7b99e;--gb-gray:#bdae93;--gb-yellow:#fabd2f;--gb-green:#b8bb26;--gb-blue:#95c7c0;--gb-red:#fb4934}
+      *,*::before,*::after{box-sizing:border-box}
+      html,body,#root{width:100%;height:100%;margin:0;overflow:hidden;background:var(--gb-bg);color:var(--gb-fg)}
+      body{font-family:'JetBrains Mono','Fira Code','Courier New',monospace;font-size:13px;line-height:1.4;-webkit-font-smoothing:antialiased}
+      a{color:var(--gb-blue);text-decoration:none}
+      .gb-shell{position:fixed;inset:0;display:flex;flex-direction:column;width:100vw;height:100vh;height:100dvh;overflow:hidden;background:var(--gb-bg);color:var(--gb-fg)}
+      .gb-tabline{display:flex;align-items:center;justify-content:space-between;height:36px;padding:0 16px 0 0;flex-shrink:0;background:var(--gb-bg1);border-bottom:1px solid var(--gb-bg2)}
+      .gb-tab{display:flex;align-items:center;height:100%;padding:0 18px;color:var(--gb-fg4);border-right:1px solid var(--gb-bg2);font-size:12px}.gb-tab.active{color:var(--gb-yellow);font-weight:700}
+      .gb-body{display:flex;flex:1 1 auto;min-height:0;overflow:hidden}.gb-sidebar{width:240px;flex:0 0 240px;overflow:hidden;background:var(--gb-bg1);border-right:1px solid var(--gb-bg2)}.gb-main{flex:1 1 auto;min-width:0;overflow:auto;background:var(--gb-bg)}
+      .gb-statusbar{display:flex;height:22px;align-items:center;gap:8px;padding:0 8px;flex-shrink:0;background:var(--gb-bg1);border-top:1px solid var(--gb-bg2);color:var(--gb-gray);font-size:11px}
+    </style>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   </head>

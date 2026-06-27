@@ -1,14 +1,35 @@
+import { reportClientError } from "./error-reporting";
+
 const BASE = "/api";
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    credentials: "include",
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
-    ...init,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      credentials: "include",
+      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+      ...init,
+    });
+  } catch (error) {
+    reportClientError({
+      kind: "api_network_error",
+      message: error instanceof Error ? error.message : "Network request failed",
+      stack: error instanceof Error ? error.stack ?? null : null,
+      metadata: { path, method: init?.method ?? "GET" },
+    });
+    throw error;
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw Object.assign(new Error((body as any).error ?? res.statusText), { status: res.status });
+    const message = (body as any).error ?? res.statusText;
+    if (path !== "/client-errors") {
+      reportClientError({
+        kind: "api_error_response",
+        message,
+        metadata: { path, method: init?.method ?? "GET", status: res.status, body },
+      });
+    }
+    throw Object.assign(new Error(message), { status: res.status });
   }
   return res.json() as Promise<T>;
 }
@@ -266,6 +287,44 @@ export type AdminEmailSuppressionsResponse = {
   perPage: number;
 };
 
+export type AdminActivityLog = {
+  id: number;
+  type: string;
+  userId: number | null;
+  summary: string;
+  createdAt: string;
+};
+
+export type AdminErrorEvent = {
+  id: number;
+  requestId: string | null;
+  source: "worker" | "api" | "client" | "react" | string;
+  level: "error" | "warn" | "info" | string;
+  kind: string;
+  message: string;
+  stack: string | null;
+  status: number | null;
+  method: string | null;
+  path: string | null;
+  url: string | null;
+  userId: number | null;
+  username: string | null;
+  ip: string | null;
+  country: string | null;
+  colo: string | null;
+  userAgent: string | null;
+  referrer: string | null;
+  metadata: string | null;
+  createdAt: string;
+};
+
+export type AdminErrorEventsResponse = {
+  events: AdminErrorEvent[];
+  total: number;
+  page: number;
+  perPage: number;
+};
+
 export type ContactMessageInput = {
   name: string;
   email: string;
@@ -373,7 +432,33 @@ export const api = {
   adminEditUser: (id: number, data: { displayName?: string; email?: string; bio?: string; avatarUrl?: string }) =>
     patch<{ ok: boolean; user: PublicUser }>(`/admin/users/${id}`, data),
   adminDeleteUser: (id: number) => del<{ ok: boolean }>(`/admin/users/${id}`),
-  adminLogs: (page = 1) => get<{ logs: any[]; total: number; page: number; perPage: number }>(`/admin/logs?page=${page}`),
+  adminLogs: (params: number | { page?: number; type?: string; perPage?: number } = 1) => {
+    const page = typeof params === "number" ? params : params.page ?? 1;
+    const type = typeof params === "number" ? "" : params.type ?? "";
+    const perPage = typeof params === "number" ? 30 : params.perPage ?? 50;
+    return get<{ logs: AdminActivityLog[]; total: number; page: number; perPage: number }>(
+      `/admin/logs?${new URLSearchParams({ page: String(page), type, perPage: String(perPage) }).toString()}`,
+    );
+  },
+  adminLogsExportUrl: (params: { type?: string; format?: "csv" | "json" } = {}) =>
+    `/api/admin/logs/export?${new URLSearchParams({ type: params.type ?? "", format: params.format ?? "csv" }).toString()}`,
+  adminErrorEvents: (params: { page?: number; level?: string; source?: string; q?: string; perPage?: number } = {}) =>
+    get<AdminErrorEventsResponse>(
+      `/admin/error-events?${new URLSearchParams({
+        page: String(params.page ?? 1),
+        perPage: String(params.perPage ?? 50),
+        level: params.level ?? "",
+        source: params.source ?? "",
+        q: params.q ?? "",
+      }).toString()}`,
+    ),
+  adminErrorEventsExportUrl: (params: { level?: string; source?: string; q?: string; format?: "csv" | "json" } = {}) =>
+    `/api/admin/error-events/export?${new URLSearchParams({
+      level: params.level ?? "",
+      source: params.source ?? "",
+      q: params.q ?? "",
+      format: params.format ?? "csv",
+    }).toString()}`,
   adminEmailSuppressions: (params: { page?: number; q?: string; perPage?: number } | number = 1) => {
     const page = typeof params === "number" ? params : params.page ?? 1;
     const q = typeof params === "number" ? "" : params.q ?? "";
@@ -426,6 +511,8 @@ export const api = {
     get<{ anchors: AnchorLink[]; total: number }>(`/admin/anchors${q ? `?q=${encodeURIComponent(q)}` : ""}`),
   adminCreateAnchor: (b: { term: string; url: string; title?: string; enabled?: boolean }) =>
     post<{ anchor: AnchorLink }>("/admin/anchors", b),
+  adminAutoAnchors: (b: { term: string; limit?: number; enabled?: boolean }) =>
+    post<{ anchors: AnchorLink[]; created: number; skipped: number; found: number }>("/admin/anchors/auto", b),
   adminUpdateAnchor: (id: number, b: Partial<{ term: string; url: string; title: string; enabled: boolean }>) =>
     patch<{ anchor: AnchorLink }>(`/admin/anchors/${id}`, b),
   adminDeleteAnchor: (id: number) => del<{ ok: boolean }>(`/admin/anchors/${id}`),

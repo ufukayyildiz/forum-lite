@@ -10,6 +10,8 @@ export default function AdminAnchors() {
   const qc = useQueryClient();
   const [q, setQ] = useState("");
   const [form, setForm] = useState(EMPTY_FORM);
+  const [autoLimit, setAutoLimit] = useState(10);
+  const [autoResult, setAutoResult] = useState<{ created: number; skipped: number; found: number } | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const { data, isLoading } = useQuery({
     queryKey: ["admin-anchors", q],
@@ -56,6 +58,20 @@ export default function AdminAnchors() {
     onError: (error: any) => toast.error(error?.message ?? "Anchor save failed"),
   });
 
+  const autoFind = useMutation({
+    mutationFn: () => {
+      const term = form.term.trim();
+      if (!term) throw new Error("Term is required");
+      return api.adminAutoAnchors({ term, limit: autoLimit, enabled: form.enabled });
+    },
+    onSuccess: async (result) => {
+      setAutoResult({ created: result.created, skipped: result.skipped, found: result.found });
+      await refresh();
+      toast.success(`Auto anchors: ${result.created} created, ${result.skipped} skipped`);
+    },
+    onError: (error: any) => toast.error(error?.message ?? "Auto anchor search failed"),
+  });
+
   const remove = useMutation({
     mutationFn: (id: number) => api.adminDeleteAnchor(id),
     onSuccess: async () => {
@@ -82,7 +98,7 @@ export default function AdminAnchors() {
         <div>
           <h3 style={{ margin: 0, color: "var(--gb-yellow)", fontSize: 14 }}>$ anchors</h3>
           <p style={{ margin: "8px 0 0", color: "var(--gb-gray)", fontSize: 12 }}>
-            Manual internal anchors only. Right-click selected text as admin to add the current page as a target.
+            Type a term, auto-find matching threads/posts, and link those pages to each other. Manual internal targets are still supported.
           </p>
         </div>
         <input
@@ -137,6 +153,30 @@ export default function AdminAnchors() {
           {editingId ? "$ update" : "$ add"}
         </button>
         {editingId && <button className="gb-btn" onClick={resetForm}>cancel</button>}
+      </div>
+
+      <div className="gb-admin-anchor-auto">
+        <span>$ auto target finder</span>
+        <span>scan thread titles, first posts and replies for the term above</span>
+        <label>
+          <span>LIMIT</span>
+          <input
+            className="gb-input"
+            type="number"
+            min={1}
+            max={50}
+            value={autoLimit}
+            onChange={(e) => setAutoLimit(Math.max(1, Math.min(50, Number(e.target.value) || 10)))}
+          />
+        </label>
+        <button className="gb-btn gb-btn-primary" onClick={() => autoFind.mutate()} disabled={autoFind.isPending || !form.term.trim()}>
+          {autoFind.isPending ? "$ finding..." : "$ find & add targets"}
+        </button>
+        {autoResult && (
+          <span className="gb-admin-anchor-result">
+            {autoResult.created} created / {autoResult.skipped} skipped / {autoResult.found} found
+          </span>
+        )}
       </div>
 
       <div style={{ color: "var(--gb-gray)", fontSize: 12 }}>

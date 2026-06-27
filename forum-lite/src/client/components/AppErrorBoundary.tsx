@@ -1,4 +1,5 @@
 import React from "react";
+import { reportClientError } from "../lib/error-reporting";
 
 type State = {
   error: Error | null;
@@ -13,6 +14,13 @@ export class AppErrorBoundary extends React.Component<React.PropsWithChildren, S
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error("FSTDESK client render failed", error, info);
+    reportClientError({
+      source: "react",
+      kind: "render_error",
+      message: error.message || "React render error",
+      stack: error.stack ?? null,
+      componentStack: info.componentStack,
+    });
   }
 
   render() {

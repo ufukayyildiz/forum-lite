@@ -1596,6 +1596,35 @@ textarea.gb-input {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.gb-admin-anchor-auto {
+  display: grid;
+  grid-template-columns: auto minmax(220px, 1fr) 96px auto auto;
+  gap: 8px;
+  align-items: end;
+  padding: 10px 12px;
+  border: 1px solid var(--gb-bg2);
+  background: var(--gb-bg);
+  color: var(--gb-gray);
+  font-size: 12px;
+}
+.gb-admin-anchor-auto > span:first-child {
+  color: var(--gb-yellow);
+  font-weight: 700;
+}
+.gb-admin-anchor-auto label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.gb-admin-anchor-auto label span {
+  color: var(--gb-gray);
+  font-size: 10px;
+  letter-spacing: .08em;
+}
+.gb-admin-anchor-result {
+  color: var(--gb-green);
+  white-space: nowrap;
+}
 
 /* ── Composer toolbar ────────────────────────────────────── */
 .gb-composer-bar {
@@ -1808,7 +1837,8 @@ textarea.gb-input {
   .gb-admin-marketing-controls,
   .gb-admin-marketing-recipient,
   .gb-admin-anchor-head,
-  .gb-admin-anchor-form {
+  .gb-admin-anchor-form,
+  .gb-admin-anchor-auto {
     grid-template-columns: 1fr;
   }
   .gb-anchor-overlay {

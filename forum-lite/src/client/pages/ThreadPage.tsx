@@ -2,7 +2,7 @@ import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useState, useRef } from "react";
 import { Heart, Reply, Pin, Lock, Star, Edit, Trash2, Paperclip } from "lucide-react";
-import { api, type Post, type Thread } from "../lib/api";
+import { api, type AnchorLink, type Post, type Thread } from "../lib/api";
 import { DAvatar } from "../components/DAvatar";
 import { useMe } from "../lib/useAuth";
 import { relativeTime, formatDate } from "../lib/utils";
@@ -113,9 +113,11 @@ function useAttachmentUploader(
   return { trigger, uploading, input };
 }
 
-function PostItem({ post, threadId, onQuote }: {
+function PostItem({ post, threadId, onQuote, anchors, currentPath }: {
   post: Post; threadId: number;
   onQuote: (content: string, author: string) => void;
+  anchors?: AnchorLink[];
+  currentPath?: string;
 }) {
   const { data: me } = useMe();
   const qc = useQueryClient();
@@ -194,7 +196,7 @@ function PostItem({ post, threadId, onQuote }: {
             </div>
           </div>
         ) : (
-          <MarkdownContent content={post.content} />
+          <MarkdownContent content={post.content} anchors={anchors} currentPath={currentPath} />
         )}
 
         <div className="gb-post-actions">
@@ -267,6 +269,12 @@ export default function ThreadPage() {
   const { data: adsConfig } = useQuery({
     queryKey: ["ads-config"],
     queryFn: api.adsConfig,
+  });
+  const { data: anchors = [] } = useQuery({
+    queryKey: ["anchors"],
+    queryFn: api.anchors,
+    staleTime: 10 * 60 * 1000,
+    retry: false,
   });
   const postReply = useMutation({
     mutationFn: () => api.createPost({ threadId: thread!.id, content: reply }),
@@ -514,7 +522,7 @@ export default function ThreadPage() {
               ) : isPlaceholderData && !thread.content ? (
                 <div style={{ minHeight: 24 }} aria-busy="true" />
               ) : (
-                <MarkdownContent content={thread.content || ""} />
+                <MarkdownContent content={thread.content || ""} anchors={anchors} currentPath={currentThreadPath} />
               )}
               <div className="gb-post-actions">
                 {me && !thread.locked && (
@@ -546,7 +554,7 @@ export default function ThreadPage() {
               const absolutePostNumber = 2 + i;
               return (
                 <div key={p.id}>
-                  <PostItem post={p} threadId={thread.id} onQuote={handleQuote} />
+                  <PostItem post={p} threadId={thread.id} onQuote={handleQuote} anchors={anchors} currentPath={currentThreadPath} />
                   {adsConfig?.enabled && absolutePostNumber % adInterval === 0 && (
                     <AdSlot config={adsConfig} index={absolutePostNumber} />
                   )}

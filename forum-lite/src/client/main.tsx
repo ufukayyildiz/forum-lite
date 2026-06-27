@@ -40,6 +40,9 @@ import AdminEmailVerify from "./pages/admin/AdminEmailVerify";
 import AdminSuppressions from "./pages/admin/AdminSuppressions";
 import AdminAnchors from "./pages/admin/AdminAnchors";
 import { AnalyticsTracker } from "./components/AnalyticsTracker";
+import { installClientErrorReporting } from "./lib/error-reporting";
+
+installClientErrorReporting();
 
 try {
   primeQueryClientFromBootstrap(queryClient);

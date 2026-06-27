@@ -7,6 +7,8 @@ import { requireRole } from "../lib/middleware";
 import { safeISO } from "../lib/auth";
 import { toPublicUser, type AppEnv } from "../types";
 import { loadEmailSettings, sendManagedEmail, weAreBackEmail } from "../lib/notifications";
+import { ensureAnchorLinksSchema } from "../lib/anchor-links";
+import { ensureErrorEventsSchema } from "../lib/error-events";
 import { cloudflareEmailApiConfigured, listCloudflareDeliveryFailures, type CloudflareEmailFailure } from "../lib/email";
 import { classifyCloudflareEmailFailure, failureDetail, type EmailFailureClassification } from "../lib/email-classification";
 import { classificationForPreflight, preflightEmail, type EmailPreflightResult } from "../lib/email-preflight";
@@ -18,6 +20,40 @@ const WE_ARE_BACK_CAMPAIGN = "we-are-back";
 const MARKETING_BLOCK_DUPLICATE_SENDS_KEY = "marketing_block_duplicate_sends";
 
 app.use("/*", requireRole("admin"));
+
+function csvCell(value: unknown): string {
+  const text = value == null ? "" : String(value);
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function csvRows(headers: string[], rows: Array<Record<string, unknown>>): string {
+  return [
+    headers.map(csvCell).join(","),
+    ...rows.map((row) => headers.map((header) => csvCell(row[header])).join(",")),
+  ].join("\n");
+}
+
+function downloadText(c: any, filename: string, body: string, contentType: string) {
+  c.header("Content-Type", contentType);
+  c.header("Content-Disposition", `attachment; filename="${filename}"`);
+  c.header("Cache-Control", "private, no-store");
+  return c.body(body);
+}
+
+function errorEventSearch(q: string) {
+  if (!q) return { clause: "", bindings: [] as string[] };
+  const like = `%${q.toLowerCase()}%`;
+  return {
+    clause: `AND (
+      LOWER(message) LIKE ?
+      OR LOWER(kind) LIKE ?
+      OR LOWER(COALESCE(path, '')) LIKE ?
+      OR LOWER(COALESCE(username, '')) LIKE ?
+      OR LOWER(COALESCE(metadata, '')) LIKE ?
+    )`,
+    bindings: [like, like, like, like, like],
+  };
+}
 
 function toAdminUser(u: typeof schema.users.$inferSelect) {
   return {
@@ -48,6 +84,12 @@ const anchorBody = z.object({
   term: z.string().trim().min(2).max(80),
   url: z.string().trim().min(1).max(500),
   title: z.string().trim().max(160).optional(),
+  enabled: z.boolean().optional(),
+});
+
+const anchorAutoBody = z.object({
+  term: z.string().trim().min(2).max(80),
+  limit: z.number().int().min(1).max(50).default(10),
   enabled: z.boolean().optional(),
 });
 
@@ -320,11 +362,6 @@ app.get("/email-suppressions", async (c) => {
     perPage,
   });
 });
-
-function csvCell(value: unknown): string {
-  const text = String(value ?? "");
-  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
 
 app.get("/email-suppressions/export", async (c) => {
   const rows = await c.env.DB.prepare(
@@ -846,8 +883,8 @@ app.get("/logs", async (c) => {
   const db = c.get("db");
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
   const type = c.req.query("type") ?? "";
+  const perPage = Math.min(200, Math.max(10, Number(c.req.query("perPage") ?? 30)));
   const where = type ? eq(schema.activityLog.type, type) : undefined;
-  const perPage = 30;
   const rows = await db
     .select()
     .from(schema.activityLog)
@@ -860,6 +897,111 @@ app.get("/logs", async (c) => {
     logs: rows.map((r) => ({ ...r, createdAt: safeISO(r.createdAt) })),
     total, page, perPage,
   });
+});
+
+app.get("/logs/export", async (c) => {
+  const db = c.get("db");
+  const type = c.req.query("type") ?? "";
+  const format = c.req.query("format") === "json" ? "json" : "csv";
+  const where = type ? eq(schema.activityLog.type, type) : undefined;
+  const rows = await db
+    .select()
+    .from(schema.activityLog)
+    .where(where)
+    .orderBy(desc(schema.activityLog.createdAt))
+    .limit(5000);
+  const mapped = rows.map((row) => ({
+    id: row.id,
+    type: row.type,
+    userId: row.userId,
+    summary: row.summary,
+    createdAt: safeISO(row.createdAt),
+  }));
+  if (format === "json") {
+    return downloadText(c, "fstdesk-activity-logs.json", JSON.stringify(mapped, null, 2), "application/json; charset=utf-8");
+  }
+  return downloadText(c, "fstdesk-activity-logs.csv", csvRows(["id", "type", "userId", "summary", "createdAt"], mapped), "text/csv; charset=utf-8");
+});
+
+app.get("/error-events", async (c) => {
+  if (!(await ensureErrorEventsSchema(c.env.DB))) return c.json({ events: [], total: 0, page: 1, perPage: 50 });
+  const page = Math.max(1, Number(c.req.query("page") ?? 1));
+  const perPage = Math.min(200, Math.max(10, Number(c.req.query("perPage") ?? 50)));
+  const level = (c.req.query("level") ?? "").trim().toLowerCase();
+  const source = (c.req.query("source") ?? "").trim().toLowerCase();
+  const q = (c.req.query("q") ?? "").trim().toLowerCase();
+  const search = errorEventSearch(q);
+  const clauses = ["1=1"];
+  const bindings: Array<string | number> = [];
+  if (level) {
+    clauses.push("level = ?");
+    bindings.push(level);
+  }
+  if (source) {
+    clauses.push("source = ?");
+    bindings.push(source);
+  }
+  if (search.clause) {
+    clauses.push(search.clause.replace(/^AND\s+/i, ""));
+    bindings.push(...search.bindings);
+  }
+  const where = clauses.join(" AND ");
+  const rows = await c.env.DB.prepare(
+    `SELECT id, request_id AS requestId, source, level, kind, message, stack, status, method, path, url,
+            user_id AS userId, username, ip, country, colo, user_agent AS userAgent, referrer, metadata, created_at AS createdAt
+     FROM error_events
+     WHERE ${where}
+     ORDER BY created_at DESC
+     LIMIT ? OFFSET ?`,
+  ).bind(...bindings, perPage, (page - 1) * perPage).all();
+  const total = await c.env.DB.prepare(`SELECT COUNT(*) AS total FROM error_events WHERE ${where}`).bind(...bindings).first<{ total: number }>();
+  return c.json({
+    events: (rows.results ?? []).map((row: any) => ({ ...row, createdAt: safeISO(row.createdAt) })),
+    total: Number(total?.total ?? 0),
+    page,
+    perPage,
+  });
+});
+
+app.get("/error-events/export", async (c) => {
+  if (!(await ensureErrorEventsSchema(c.env.DB))) return downloadText(c, "fstdesk-error-events.csv", "", "text/csv; charset=utf-8");
+  const level = (c.req.query("level") ?? "").trim().toLowerCase();
+  const source = (c.req.query("source") ?? "").trim().toLowerCase();
+  const q = (c.req.query("q") ?? "").trim().toLowerCase();
+  const format = c.req.query("format") === "json" ? "json" : "csv";
+  const search = errorEventSearch(q);
+  const clauses = ["1=1"];
+  const bindings: Array<string | number> = [];
+  if (level) {
+    clauses.push("level = ?");
+    bindings.push(level);
+  }
+  if (source) {
+    clauses.push("source = ?");
+    bindings.push(source);
+  }
+  if (search.clause) {
+    clauses.push(search.clause.replace(/^AND\s+/i, ""));
+    bindings.push(...search.bindings);
+  }
+  const rows = await c.env.DB.prepare(
+    `SELECT id, request_id AS requestId, source, level, kind, message, stack, status, method, path, url,
+            user_id AS userId, username, ip, country, colo, user_agent AS userAgent, referrer, metadata, created_at AS createdAt
+     FROM error_events
+     WHERE ${clauses.join(" AND ")}
+     ORDER BY created_at DESC
+     LIMIT 10000`,
+  ).bind(...bindings).all();
+  const mapped = (rows.results ?? []).map((row: any) => ({ ...row, createdAt: safeISO(row.createdAt) }));
+  if (format === "json") {
+    return downloadText(c, "fstdesk-error-events.json", JSON.stringify(mapped, null, 2), "application/json; charset=utf-8");
+  }
+  return downloadText(
+    c,
+    "fstdesk-error-events.csv",
+    csvRows(["id", "createdAt", "level", "source", "kind", "status", "method", "path", "message", "username", "ip", "country", "colo", "requestId", "metadata", "stack"], mapped),
+    "text/csv; charset=utf-8",
+  );
 });
 
 app.get("/email-events", async (c) => {
@@ -1273,6 +1415,8 @@ app.get("/marketing/sends", async (c) => {
 });
 
 app.get("/anchors", async (c) => {
+  const schemaReady = await ensureAnchorLinksSchema(c.env.DB);
+  if (!schemaReady) return c.json({ anchors: [], total: 0, warning: "anchor_schema_unavailable" });
   const db = c.get("db");
   const q = (c.req.query("q") ?? "").trim().toLowerCase();
   const rows = await db
@@ -1288,7 +1432,103 @@ app.get("/anchors", async (c) => {
   return c.json({ anchors: rows.map(toAdminAnchor), total: rows.length });
 });
 
+app.post("/anchors/auto", zValidator("json", anchorAutoBody), async (c) => {
+  const schemaReady = await ensureAnchorLinksSchema(c.env.DB);
+  if (!schemaReady) return c.json({ error: "anchor_schema_unavailable" }, 503);
+  const db = c.get("db");
+  const me = c.get("user");
+  const body = c.req.valid("json");
+  const term = body.term.trim();
+  const needle = `%${term.toLowerCase()}%`;
+  const limit = body.limit ?? 10;
+
+  const found = await c.env.DB.prepare(
+    `WITH matches AS (
+      SELECT id AS thread_id, 3 AS score, updated_at AS touched_at
+      FROM threads
+      WHERE lower(title) LIKE ?
+      UNION ALL
+      SELECT id AS thread_id, 2 AS score, updated_at AS touched_at
+      FROM threads
+      WHERE lower(content) LIKE ?
+      UNION ALL
+      SELECT thread_id, 1 AS score, created_at AS touched_at
+      FROM posts
+      WHERE lower(content) LIKE ?
+    )
+    SELECT
+      t.id,
+      t.public_id AS publicId,
+      t.title,
+      MAX(matches.score) AS score,
+      MAX(matches.touched_at) AS touchedAt
+    FROM matches
+    JOIN threads t ON t.id = matches.thread_id
+    GROUP BY t.id
+    ORDER BY score DESC, touchedAt DESC
+    LIMIT ?`,
+  ).bind(needle, needle, needle, limit).all<{
+    id: number;
+    publicId: string;
+    title: string;
+    score: number;
+    touchedAt: number | string | null;
+  }>();
+
+  const targets = (found.results ?? [])
+    .filter((row) => row.publicId && row.title)
+    .map((row) => ({
+      term,
+      url: `/t/${row.publicId}`,
+      title: row.title,
+      enabled: body.enabled ?? true,
+    }));
+
+  const existing = await db
+    .select({ url: schema.anchorLinks.url })
+    .from(schema.anchorLinks)
+    .where(sql`lower(${schema.anchorLinks.term}) = ${term.toLowerCase()}`);
+  const existingUrls = new Set(existing.map((row) => row.url.toLowerCase()));
+  const created: typeof schema.anchorLinks.$inferSelect[] = [];
+  let skipped = 0;
+
+  for (const target of targets) {
+    if (existingUrls.has(target.url.toLowerCase())) {
+      skipped++;
+      continue;
+    }
+    const [row] = await db
+      .insert(schema.anchorLinks)
+      .values({
+        ...target,
+        createdByUserId: me?.id ?? null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .returning();
+    if (row) {
+      created.push(row);
+      existingUrls.add(target.url.toLowerCase());
+    }
+  }
+
+  await db.insert(schema.activityLog).values({
+    userId: me?.id ?? null,
+    type: "anchor",
+    summary: `Auto-created ${created.length} anchors for "${term}" (${skipped} skipped, ${targets.length} found)`,
+  });
+
+  return c.json({
+    anchors: created.map(toAdminAnchor),
+    created: created.length,
+    skipped,
+    found: targets.length,
+  });
+});
+
 app.post("/anchors", zValidator("json", anchorBody), async (c) => {
+  const schemaReady = await ensureAnchorLinksSchema(c.env.DB);
+  if (!schemaReady) return c.json({ error: "anchor_schema_unavailable" }, 503);
   const db = c.get("db");
   const me = c.get("user");
   const body = c.req.valid("json");
@@ -1313,6 +1553,8 @@ app.post("/anchors", zValidator("json", anchorBody), async (c) => {
 });
 
 app.patch("/anchors/:id", zValidator("json", anchorBody.partial()), async (c) => {
+  const schemaReady = await ensureAnchorLinksSchema(c.env.DB);
+  if (!schemaReady) return c.json({ error: "anchor_schema_unavailable" }, 503);
   const db = c.get("db");
   const id = Number(c.req.param("id"));
   if (!Number.isInteger(id) || id <= 0) return c.json({ error: "Invalid anchor" }, 400);
@@ -1332,6 +1574,8 @@ app.patch("/anchors/:id", zValidator("json", anchorBody.partial()), async (c) =>
 });
 
 app.delete("/anchors/:id", async (c) => {
+  const schemaReady = await ensureAnchorLinksSchema(c.env.DB);
+  if (!schemaReady) return c.json({ error: "anchor_schema_unavailable" }, 503);
   const db = c.get("db");
   const id = Number(c.req.param("id"));
   if (!Number.isInteger(id) || id <= 0) return c.json({ error: "Invalid anchor" }, 400);

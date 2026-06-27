@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { eq, desc, sql } from "drizzle-orm";
 import { schema } from "../db";
+import { ensureAnchorLinksSchema } from "../lib/anchor-links";
 import { safeISO } from "../lib/auth";
 import type { AppEnv } from "../types";
 
@@ -21,6 +22,11 @@ function mapAnchor(row: typeof schema.anchorLinks.$inferSelect) {
 
 app.get("/", async (c) => {
   try {
+    const schemaReady = await ensureAnchorLinksSchema(c.env.DB);
+    if (!schemaReady) {
+      c.header("Cache-Control", "public, max-age=30, stale-while-revalidate=300");
+      return c.json([]);
+    }
     const db = c.get("db");
     const rows = await db
       .select()
@@ -39,6 +45,8 @@ app.get("/", async (c) => {
 
 app.post("/:id/click", async (c) => {
   try {
+    const schemaReady = await ensureAnchorLinksSchema(c.env.DB);
+    if (!schemaReady) return c.json({ ok: false, skipped: true });
     const db = c.get("db");
     const id = Number(c.req.param("id"));
     if (!Number.isInteger(id) || id <= 0) return c.json({ error: "Invalid anchor" }, 400);

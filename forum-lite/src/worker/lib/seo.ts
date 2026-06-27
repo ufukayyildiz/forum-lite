@@ -1433,8 +1433,44 @@ function staticShellHtml(contentHtml: string, pathname: string, categories: ApiC
   ].join("");
 }
 
+function criticalShellCss(): string {
+  return [
+    '<style id="fstdesk-critical-css">',
+    ":root{--gb-bg:#282828;--gb-bg1:#3c3836;--gb-bg2:#504945;--gb-fg:#ebdbb2;--gb-fg4:#c7b99e;--gb-gray:#bdae93;--gb-yellow:#fabd2f;--gb-green:#b8bb26;--gb-blue:#95c7c0;--gb-red:#fb4934}",
+    "*,*::before,*::after{box-sizing:border-box}",
+    "html,body,#root{width:100%;height:100%;margin:0;overflow:hidden;background:var(--gb-bg);color:var(--gb-fg)}",
+    "body{font-family:'JetBrains Mono','Fira Code','Courier New',monospace;font-size:13px;line-height:1.4;-webkit-font-smoothing:antialiased}",
+    "a{color:var(--gb-blue);text-decoration:none}",
+    ".gb-shell{position:fixed;inset:0;display:flex;flex-direction:column;width:100vw;height:100vh;height:100dvh;overflow:hidden;background:var(--gb-bg);color:var(--gb-fg)}",
+    ".gb-tabline{display:flex;align-items:center;justify-content:space-between;height:36px;padding:0 16px 0 0;flex-shrink:0;background:var(--gb-bg1);border-bottom:1px solid var(--gb-bg2)}",
+    ".gb-tab{display:flex;align-items:center;height:100%;padding:0 18px;color:var(--gb-fg4);border-right:1px solid var(--gb-bg2);font-size:12px}.gb-tab.active{color:var(--gb-yellow);font-weight:700}",
+    ".gb-body{display:flex;flex:1 1 auto;min-height:0;overflow:hidden}.gb-sidebar{width:240px;flex:0 0 240px;overflow:hidden;background:var(--gb-bg1);border-right:1px solid var(--gb-bg2)}.gb-main{flex:1 1 auto;min-width:0;overflow:auto;background:var(--gb-bg)}",
+    ".gb-statusbar{display:flex;height:22px;align-items:center;gap:8px;padding:0 8px;flex-shrink:0;background:var(--gb-bg1);border-top:1px solid var(--gb-bg2);color:var(--gb-gray);font-size:11px}",
+    "</style>",
+  ].join("");
+}
+
+function prioritizeStylesheets(indexHtml: string): string {
+  const stylesheetTags: string[] = [];
+  let html = indexHtml.replace(/\s*<link\s+[^>]*rel=["']stylesheet["'][^>]*>\s*/gi, (tag) => {
+    stylesheetTags.push(tag.trim());
+    return "\n";
+  });
+  const hasCriticalCss = /id=["']fstdesk-critical-css["']/i.test(html);
+  const preloadTags = stylesheetTags
+    .map((tag) => {
+      const href = /href=["']([^"']+)["']/i.exec(tag)?.[1];
+      if (!href) return "";
+      const crossorigin = /\scrossorigin(?:\s|=|>)/i.test(tag) ? " crossorigin" : "";
+      return `<link rel="preload" as="style" href="${escapeHtml(href)}"${crossorigin} />`;
+    })
+    .filter(Boolean);
+  const block = [hasCriticalCss ? "" : criticalShellCss(), ...preloadTags, ...stylesheetTags].filter(Boolean).join("\n    ");
+  return html.replace("<head>", `<head>\n    ${block}`);
+}
+
 function injectHtml(indexHtml: string, payload: SeoPayload, base: string, url: URL, bootstrap: BootstrapBuild): string {
-  const withCleanHead = stripFallbackHead(indexHtml);
+  const withCleanHead = prioritizeStylesheets(stripFallbackHead(indexHtml));
   const seoMeta = metaHtml(payload, base);
   const bootstrapScript = `<script id="__FSTDESK_BOOTSTRAP__" type="application/json">${escapeJsonScript(bootstrap.payload)}</script>`;
   const withMeta = /<meta\s+name="theme-color"[^>]*>\s*/i.test(withCleanHead)

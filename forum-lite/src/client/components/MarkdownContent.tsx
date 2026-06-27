@@ -1,21 +1,25 @@
 import { useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { X, ExternalLink } from "lucide-react";
+import { api, type AnchorLink } from "../lib/api";
 import { renderMarkdown } from "../lib/sanitize";
 
 type PdfState = { url: string; title: string };
 
 export function MarkdownContent({
   content,
+  anchors,
+  currentPath,
   className = "gb-post-content",
   style,
 }: {
   content: string;
-  anchors?: unknown[];
+  anchors?: AnchorLink[];
+  currentPath?: string;
   className?: string;
   style?: CSSProperties;
 }) {
-  const html = useMemo(() => renderMarkdown(content), [content]);
+  const html = useMemo(() => renderMarkdown(content, { anchors, currentPath }), [content, anchors, currentPath]);
   const [pdf, setPdf] = useState<PdfState | null>(null);
 
   function onClick(e: React.MouseEvent<HTMLDivElement>) {
@@ -27,6 +31,13 @@ export function MarkdownContent({
         url: link.dataset.pdfUrl || link.href,
         title: link.textContent?.trim() || "PDF attachment",
       });
+      return;
+    }
+
+    const anchor = target.closest<HTMLAnchorElement>("a[data-anchor-id]");
+    if (anchor) {
+      const id = Number(anchor.dataset.anchorId);
+      if (Number.isInteger(id) && id > 0) void api.trackAnchorClick(id).catch(() => undefined);
     }
   }
 

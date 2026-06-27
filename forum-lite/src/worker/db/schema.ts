@@ -207,6 +207,41 @@ export const activityLog = sqliteTable("activity_log", {
     .$defaultFn(() => new Date()),
 });
 
+export const errorEvents = sqliteTable(
+  "error_events",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    requestId: text("request_id"),
+    source: text("source").notNull(),
+    level: text("level").notNull().default("error"),
+    kind: text("kind").notNull(),
+    message: text("message").notNull(),
+    stack: text("stack"),
+    status: integer("status"),
+    method: text("method"),
+    path: text("path"),
+    url: text("url"),
+    userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
+    username: text("username"),
+    ip: text("ip"),
+    country: text("country"),
+    colo: text("colo"),
+    userAgent: text("user_agent"),
+    referrer: text("referrer"),
+    metadata: text("metadata"),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => ({
+    createdAtIdx: index("error_events_created_at_idx").on(t.createdAt),
+    levelIdx: index("error_events_level_idx").on(t.level),
+    sourceIdx: index("error_events_source_idx").on(t.source),
+    pathIdx: index("error_events_path_idx").on(t.path),
+    statusIdx: index("error_events_status_idx").on(t.status),
+  }),
+);
+
 export const settings = sqliteTable("settings", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),

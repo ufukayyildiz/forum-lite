@@ -23,6 +23,7 @@ import { recordEmailSuppression } from "./lib/email-suppression";
 import { unsubscribeByToken } from "./lib/notifications";
 import { createAnalyticsPageview, updateAnalyticsDuration } from "./lib/analytics";
 import { syncCloudflareEmailSuppressions } from "./lib/email-sync";
+import { errorToRecord, recordErrorEvent, requestErrorMeta } from "./lib/error-events";
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -34,6 +35,66 @@ app.use("/api/*", async (c, next) => {
 });
 app.use("/api/*", withDb);
 app.use("/api/*", loadUser);
+app.use("/api/*", async (c, next) => {
+  const startedAt = Date.now();
+  await next();
+  const status = c.res.status;
+  const path = new URL(c.req.url).pathname;
+  if (status >= 400 && path !== "/api/client-errors") {
+    c.executionCtx.waitUntil(recordErrorEvent(c.env.DB, {
+      ...requestErrorMeta(c),
+      source: "api",
+      level: status >= 500 ? "error" : "warn",
+      kind: "api_response",
+      status,
+      message: `API ${c.req.method} ${path} returned ${status}`,
+      metadata: {
+        durationMs: Date.now() - startedAt,
+        cacheControl: c.res.headers.get("cache-control"),
+        contentType: c.res.headers.get("content-type"),
+      },
+    }));
+  }
+});
+
+app.onError((error, c) => {
+  const record = errorToRecord(error);
+  c.executionCtx.waitUntil(recordErrorEvent(c.env.DB, {
+    ...requestErrorMeta(c),
+    source: "worker",
+    level: "error",
+    kind: "exception",
+    status: 500,
+    message: record.message,
+    stack: record.stack,
+    metadata: { name: record.name },
+  }));
+  console.error("worker_exception", error);
+  return c.json({ error: "Internal server error" }, 500);
+});
+
+app.post("/api/client-errors", async (c) => {
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  const source = body.source === "react" ? "react" : "client";
+  const kind = typeof body.kind === "string" ? body.kind : "client_error";
+  const message = typeof body.message === "string" ? body.message : "Client error";
+  const stack = typeof body.stack === "string" ? body.stack : null;
+  c.executionCtx.waitUntil(recordErrorEvent(c.env.DB, {
+    ...requestErrorMeta(c),
+    source,
+    level: "error",
+    kind,
+    message,
+    stack,
+    metadata: {
+      href: typeof body.href === "string" ? body.href : undefined,
+      componentStack: typeof body.componentStack === "string" ? body.componentStack : undefined,
+      reason: typeof body.reason === "string" ? body.reason : undefined,
+      viewport: body.viewport,
+    },
+  }));
+  return c.json({ ok: true });
+});
 
 app.get("/api/stats", async (c) => {
   const db = c.get("db");
