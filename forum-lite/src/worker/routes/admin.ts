@@ -150,7 +150,25 @@ async function existingSuppressionEmails(db: D1Database, emails: string[]): Prom
     const rows = await db.prepare(
       `SELECT LOWER(email) AS email
        FROM email_suppressions
-       WHERE LOWER(email) IN (${placeholders})`,
+       WHERE email IN (${placeholders})`,
+    ).bind(...chunk).all<{ email: string }>();
+    for (const row of rows.results ?? []) {
+      const email = String(row.email ?? "").trim().toLowerCase();
+      if (email) existing.add(email);
+    }
+  }
+  return existing;
+}
+
+async function existingEmailEventEmails(db: D1Database, emails: string[]): Promise<Set<string>> {
+  const existing = new Set<string>();
+  for (const chunk of chunksOf(emails, SQLITE_IN_CHUNK_SIZE)) {
+    if (!chunk.length) continue;
+    const placeholders = chunk.map(() => "?").join(",");
+    const rows = await db.prepare(
+      `SELECT DISTINCT email
+       FROM email_events
+       WHERE email IN (${placeholders})`,
     ).bind(...chunk).all<{ email: string }>();
     for (const row of rows.results ?? []) {
       const email = String(row.email ?? "").trim().toLowerCase();
@@ -321,30 +339,55 @@ function emailVerifyCandidateSearchSql(q: string) {
 }
 
 async function emailVerifyCandidates(c: any, limit: number, q = "") {
+  const target = Math.max(1, Math.min(100, limit));
   const search = emailVerifyCandidateSearchSql(q);
-  const rows = await c.env.DB.prepare(
-    `SELECT u.id, u.username, u.display_name AS displayName, u.email
-     FROM users u
-     LEFT JOIN email_suppressions es ON LOWER(es.email) = LOWER(u.email)
-     WHERE u.banned = 0
-       AND u.email IS NOT NULL
-       AND TRIM(u.email) != ''
-       AND u.email_suppressed_at IS NULL
-       AND es.email IS NULL
-       AND NOT EXISTS (
-         SELECT 1 FROM email_events ee
-         WHERE LOWER(ee.email) = LOWER(u.email)
-       )
-       ${search.clause}
-     ORDER BY u.created_at ASC
-     LIMIT ?`,
-  ).bind(...search.bindings, limit).all<{
+  const candidates: Array<{
     id: number;
     username: string;
     displayName: string;
     email: string;
-  }>();
-  return rows.results ?? [];
+  }> = [];
+  const batchSize = Math.min(600, Math.max(200, target * 5));
+  let offset = 0;
+
+  for (let attempts = 0; attempts < 20 && candidates.length < target; attempts += 1) {
+    const rows = await c.env.DB.prepare(
+      `SELECT u.id, u.username, u.display_name AS displayName, u.email
+       FROM users u
+       WHERE u.banned = 0
+         AND u.email IS NOT NULL
+         AND TRIM(u.email) != ''
+         AND u.email_suppressed_at IS NULL
+         ${search.clause}
+       ORDER BY u.created_at ASC
+       LIMIT ? OFFSET ?`,
+    ).bind(...search.bindings, batchSize, offset).all<{
+      id: number;
+      username: string;
+      displayName: string;
+      email: string;
+    }>();
+    const users = rows.results ?? [];
+    if (!users.length) break;
+
+    const emails = users.map((user) => String(user.email ?? "").trim().toLowerCase()).filter(Boolean);
+    const [suppressedEmails, eventEmails] = await Promise.all([
+      existingSuppressionEmails(c.env.DB, emails),
+      existingEmailEventEmails(c.env.DB, emails),
+    ]);
+
+    for (const user of users) {
+      const email = String(user.email ?? "").trim().toLowerCase();
+      if (!email || suppressedEmails.has(email) || eventEmails.has(email)) continue;
+      candidates.push({ ...user, email });
+      if (candidates.length >= target) break;
+    }
+
+    offset += users.length;
+    if (users.length < batchSize) break;
+  }
+
+  return candidates;
 }
 
 async function emailVerifyCandidatesByEmails(c: any, emails: string[]) {
@@ -354,16 +397,10 @@ async function emailVerifyCandidatesByEmails(c: any, emails: string[]) {
   const rows = await c.env.DB.prepare(
     `SELECT u.id, u.username, u.display_name AS displayName, u.email
      FROM users u
-     LEFT JOIN email_suppressions es ON LOWER(es.email) = LOWER(u.email)
      WHERE u.banned = 0
        AND u.email IS NOT NULL
        AND TRIM(u.email) != ''
        AND u.email_suppressed_at IS NULL
-       AND es.email IS NULL
-       AND NOT EXISTS (
-         SELECT 1 FROM email_events ee
-         WHERE LOWER(ee.email) = LOWER(u.email)
-       )
        AND LOWER(u.email) IN (${placeholders})
      ORDER BY u.created_at ASC`,
   ).bind(...normalized).all<{
@@ -372,7 +409,15 @@ async function emailVerifyCandidatesByEmails(c: any, emails: string[]) {
     displayName: string;
     email: string;
   }>();
-  return rows.results ?? [];
+  const users = rows.results ?? [];
+  const userEmails = users.map((user) => String(user.email ?? "").trim().toLowerCase()).filter(Boolean);
+  const [suppressedEmails, eventEmails] = await Promise.all([
+    existingSuppressionEmails(c.env.DB, userEmails),
+    existingEmailEventEmails(c.env.DB, userEmails),
+  ]);
+  return users
+    .map((user) => ({ ...user, email: String(user.email ?? "").trim().toLowerCase() }))
+    .filter((user) => user.email && !suppressedEmails.has(user.email) && !eventEmails.has(user.email));
 }
 
 async function emailVerifyCandidateCount(c: any, q = ""): Promise<number> {
@@ -380,16 +425,10 @@ async function emailVerifyCandidateCount(c: any, q = ""): Promise<number> {
   const row = await c.env.DB.prepare(
     `SELECT COUNT(*) AS count
      FROM users u
-     LEFT JOIN email_suppressions es ON LOWER(es.email) = LOWER(u.email)
      WHERE u.banned = 0
        AND u.email IS NOT NULL
        AND TRIM(u.email) != ''
        AND u.email_suppressed_at IS NULL
-       AND es.email IS NULL
-       AND NOT EXISTS (
-         SELECT 1 FROM email_events ee
-         WHERE LOWER(ee.email) = LOWER(u.email)
-       )
        ${search.clause}`,
   ).bind(...search.bindings).first<{ count: number }>();
   return Number(row?.count ?? 0);

@@ -176,6 +176,12 @@ export function AdSlot({
       });
       return hasGoogleFrame ? "filled" : "pending";
     };
+    const pendingAdsenseElements = () =>
+      Array.from(mount.querySelectorAll<HTMLElement>("ins.adsbygoogle")).filter((el) => (
+        el.dataset.gbAdsPushed !== "true" &&
+        !el.getAttribute("data-adsbygoogle-status") &&
+        !el.getAttribute("data-ad-status")
+      ));
 
     const adaptToCreative = () => {
       normalizeAdMarkup();
@@ -253,16 +259,34 @@ export function AdSlot({
       mount.setAttribute("data-ad-requested", "true");
       normalizeAdMarkup();
 
-      if (mount.querySelector(".adsbygoogle")) {
+      const pendingAds = pendingAdsenseElements();
+      if (pendingAds.length > 0) {
         window.adsbygoogle = window.adsbygoogle || [];
         requestAnimationFrame(() => {
+          const stillPending = pendingAds.filter((el) => (
+            el.isConnected &&
+            el.dataset.gbAdsPushed !== "true" &&
+            !el.getAttribute("data-adsbygoogle-status") &&
+            !el.getAttribute("data-ad-status")
+          ));
+          if (!stillPending.length) {
+            scheduleFallback("already-requested");
+            return;
+          }
           try {
             window.dispatchEvent(new Event("resize"));
-            window.adsbygoogle?.push({});
+            for (const el of stillPending) {
+              el.dataset.gbAdsPushed = "true";
+              window.adsbygoogle?.push({});
+            }
           } catch {
             // Adsense can reject duplicate pushes for the same slot.
           }
         });
+      } else if (adsenseState() === "filled") {
+        adaptToCreative();
+      } else {
+        scheduleFallback("already-requested");
       }
 
       scheduleFallback("pending");

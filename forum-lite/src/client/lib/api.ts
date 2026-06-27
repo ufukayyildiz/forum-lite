@@ -9,6 +9,7 @@ function isBenignNetworkError(error: unknown) {
 }
 
 function shouldReportApiStatus(status: number) {
+  if (status === 599) return false;
   return status >= 500 || status === 429;
 }
 

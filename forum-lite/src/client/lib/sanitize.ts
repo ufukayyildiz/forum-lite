@@ -152,6 +152,7 @@ function linkTextChunk(text: string, groups: PreparedAnchorGroup[], usedTerms: S
 
     if (!best) {
       out += remaining;
+      remaining = "";
       break;
     }
 
@@ -251,8 +252,43 @@ function legacyQuotesToMarkdown(md: string): string {
   return next;
 }
 
+function moveTrailingLegacyQuoteToFront(input: string): string {
+  const match = input.match(/([\s\S]*?)(\n*\[quote(?:=(?:"[^"]*"|'[^']*'|[^\]]+))?\][\s\S]*?\[\/quote\]\s*)$/i);
+  if (!match) return input;
+
+  const before = match[1].trim();
+  const quote = match[2].trim();
+  if (!before || before.startsWith("[quote")) return input;
+  return `${quote}\n\n${before}`;
+}
+
+export function normalizeQuoteFirstMarkdown(md: string): string {
+  const input = String(md ?? "").replace(/\r\n/g, "\n");
+  const withLegacyQuoteFirst = moveTrailingLegacyQuoteToFront(input);
+  const lines = withLegacyQuoteFirst.split("\n");
+  let end = lines.length;
+
+  while (end > 0 && !lines[end - 1].trim()) end--;
+  if (end <= 0 || !lines[end - 1].trim().startsWith(">")) return withLegacyQuoteFirst;
+
+  let start = end - 1;
+  while (start > 0) {
+    const previous = lines[start - 1].trim();
+    if (!previous || previous.startsWith(">")) {
+      start--;
+      continue;
+    }
+    break;
+  }
+
+  const before = lines.slice(0, start).join("\n").trim();
+  const quote = lines.slice(start, end).join("\n").trim();
+  if (!before || before.startsWith(">")) return withLegacyQuoteFirst;
+  return `${quote}\n\n${before}`;
+}
+
 export function renderMarkdown(md: string, options: RenderMarkdownOptions = {}): string {
-  const raw = marked.parse(legacyQuotesToMarkdown(md)) as string;
+  const raw = marked.parse(legacyQuotesToMarkdown(normalizeQuoteFirstMarkdown(md))) as string;
   const clean = DOMPurify.sanitize(raw, PURIFY_CONFIG) as string;
   const linked = injectAnchorLinks(clean, options.anchors, options.currentPath);
 

@@ -12,6 +12,7 @@ import { AdSlot } from "../components/AdSlot";
 import { MarkdownContent } from "../components/MarkdownContent";
 import { categoryPath, threadPath } from "../lib/routes";
 import { activeAdInterval } from "../lib/ads";
+import { normalizeQuoteFirstMarkdown } from "../lib/sanitize";
 import { toast } from "sonner";
 import { useConfirm } from "../components/ConfirmDialog";
 
@@ -122,7 +123,7 @@ function PostItem({ post, threadId, onQuote, anchors, currentPath }: {
   const { data: me } = useMe();
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
-  const [content, setContent] = useState(post.content);
+  const [content, setContent] = useState(() => normalizeQuoteFirstMarkdown(post.content));
   const taRef = useRef<HTMLTextAreaElement>(null);
   const { ask: askConfirm, dialog: confirmDialog } = useConfirm();
 
@@ -132,7 +133,7 @@ function PostItem({ post, threadId, onQuote, anchors, currentPath }: {
     onError: (e: any) => toast.error(e.message ?? "Like failed"),
   });
   const update = useMutation({
-    mutationFn: () => api.updatePost(post.id, content),
+    mutationFn: () => api.updatePost(post.id, normalizeQuoteFirstMarkdown(content)),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["posts", threadId, "all"] }); setEditing(false); toast.success("Updated"); },
     onError: (e: any) => toast.error(e.message),
   });
@@ -150,6 +151,11 @@ function PostItem({ post, threadId, onQuote, anchors, currentPath }: {
     const sel = content.slice(s, e);
     setContent(content.slice(0, s) + before + sel + after + content.slice(e));
     setTimeout(() => { ta.selectionStart = s + before.length; ta.selectionEnd = s + before.length + sel.length; ta.focus(); }, 0);
+  }
+
+  function startPostEdit() {
+    setContent(normalizeQuoteFirstMarkdown(post.content));
+    setEditing(true);
   }
 
   return (
@@ -192,7 +198,7 @@ function PostItem({ post, threadId, onQuote, anchors, currentPath }: {
             <textarea ref={taRef} className="gb-input" value={content} onChange={(e) => setContent(e.target.value)} rows={6} />
             <div style={{ display: "flex", gap: 6 }}>
               <button className="gb-btn gb-btn-primary" style={{ padding: "3px 12px" }} onClick={() => update.mutate()}>save</button>
-              <button className="gb-btn" style={{ padding: "3px 12px" }} onClick={() => { setEditing(false); setContent(post.content); }}>cancel</button>
+              <button className="gb-btn" style={{ padding: "3px 12px" }} onClick={() => { setEditing(false); setContent(normalizeQuoteFirstMarkdown(post.content)); }}>cancel</button>
             </div>
           </div>
         ) : (
@@ -217,7 +223,7 @@ function PostItem({ post, threadId, onQuote, anchors, currentPath }: {
           )}
           {canEdit && !editing && (
             <>
-              <button className="gb-post-action" onClick={() => setEditing(true)}><Edit size={12} /> edit</button>
+              <button className="gb-post-action" onClick={startPostEdit}><Edit size={12} /> edit</button>
               <button className="gb-post-action" style={{ color: "var(--gb-red)" }}
                 onClick={() => askConfirm("Delete this post?", () => del.mutate(), { danger: true, confirmLabel: "delete" })}>
                 <Trash2 size={12} /> del
@@ -277,7 +283,7 @@ export default function ThreadPage() {
     retry: false,
   });
   const postReply = useMutation({
-    mutationFn: () => api.createPost({ threadId: thread!.id, content: reply }),
+    mutationFn: () => api.createPost({ threadId: thread!.id, content: normalizeQuoteFirstMarkdown(reply) }),
     onSuccess: () => {
       setReply(""); setComposerOpen(false);
       qc.invalidateQueries({ queryKey: ["posts", thread?.id] });
@@ -287,7 +293,7 @@ export default function ThreadPage() {
     onError: (e: any) => toast.error(e.message),
   });
   const updateThread = useMutation({
-    mutationFn: () => api.updateThread(thread!.publicId, { title: editTitle, content: editContent }),
+    mutationFn: () => api.updateThread(thread!.publicId, { title: editTitle, content: normalizeQuoteFirstMarkdown(editContent) }),
     onSuccess: () => {
       setThreadEditing(false);
       qc.invalidateQueries({ queryKey: ["thread", id] });
@@ -307,22 +313,22 @@ export default function ThreadPage() {
   function startThreadEdit() {
     if (!thread) return;
     setEditTitle(thread.title);
-    setEditContent(thread.content || "");
+    setEditContent(normalizeQuoteFirstMarkdown(thread.content || ""));
     setThreadEditing(true);
     setTimeout(() => threadEditRef.current?.focus(), 50);
   }
 
   function handleQuote(content: string, author: string) {
-    const q = `> **${author}:**\n> ${content.split("\n").join("\n> ")}\n\n`;
+    const quotedContent = normalizeQuoteFirstMarkdown(content).trim();
+    const q = `> **${author}:**\n> ${quotedContent.split("\n").join("\n> ")}\n\n`;
     setReply((prev) => {
-      // Quote goes at the bottom; user types above it
-      if (!prev.trim()) return "\n\n" + q;
-      return prev.trimEnd() + "\n\n" + q;
+      const body = normalizeQuoteFirstMarkdown(prev).trim();
+      return body ? `${q}${body}` : q;
     });
     setComposerOpen(true);
     setTimeout(() => {
       const ta = replyRef.current;
-      if (ta) { ta.focus(); ta.selectionStart = 0; ta.selectionEnd = 0; }
+      if (ta) { ta.focus(); ta.selectionStart = q.length; ta.selectionEnd = q.length; }
     }, 100);
   }
 

@@ -265,7 +265,7 @@ export default function AdminEmailVerify() {
       {query.data && (
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", color: "var(--gb-gray)", fontSize: 12 }}>
           <span><strong style={{ color: "var(--gb-yellow)" }}>{query.data.total}</strong> visible rows</span>
-          <span><strong style={{ color: "var(--gb-yellow)" }}>{query.data.candidateTotal}</strong> never emailed total</span>
+          <span><strong style={{ color: "var(--gb-yellow)" }}>{query.data.candidateTotal}</strong> unchecked pool</span>
           <span><strong style={{ color: "var(--gb-green)" }}>{candidateRows.length}</strong> selectable now</span>
           <span><strong style={{ color: "var(--gb-yellow)" }}>{selectedCandidateRows.length}/{MAX_PREFLIGHT}</strong> selected for preflight</span>
           <span><strong style={{ color: "var(--gb-red)" }}>{selectedSuppressRows.length}/{MAX_SUPPRESS}</strong> selected for suppression</span>

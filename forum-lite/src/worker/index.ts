@@ -101,6 +101,9 @@ function ignoredClientErrorEvent(body: Record<string, unknown>) {
   if (kind === "api_error_response" && /<unknown status code>|forbidden/i.test(message) && !status) {
     return true;
   }
+  if (kind === "api_error_response" && status === 599) {
+    return true;
+  }
   if (kind === "api_error_response" && status !== null && status < 500 && status !== 429) {
     return true;
   }
@@ -306,9 +309,24 @@ function adsConfigFromSettings(settings: Record<string, string>) {
 }
 
 app.get("/api/ads", async (c) => {
-  const settings = await loadSettings(c.env);
   c.header("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
-  return c.json(adsConfigFromSettings(settings));
+  try {
+    const settings = await loadSettings(c.env);
+    return c.json(adsConfigFromSettings(settings));
+  } catch (error) {
+    const record = errorToRecord(error);
+    c.executionCtx.waitUntil(recordErrorEvent(c.env.DB, {
+      ...requestErrorMeta(c),
+      source: "worker",
+      level: "error",
+      kind: "ads_config_fallback",
+      status: 200,
+      message: `Ads config fallback: ${record.message}`,
+      stack: record.stack,
+      metadata: { name: record.name },
+    }));
+    return c.json(adsConfigFromSettings({}));
+  }
 });
 
 app.get("/robots.txt", (c) => {

@@ -18,6 +18,7 @@ function ignoredClientError(message: string, stack?: string | null, reason?: str
     /ResizeObserver loop completed with undelivered notifications/i,
     /ResizeObserver loop limit exceeded/i,
     /AbortError: The operation was aborted/i,
+    /adsbygoogle\.push\(\) error: All 'ins' elements .* already have ads in them/i,
   ].some((pattern) => pattern.test(text));
 }
 
@@ -34,6 +35,7 @@ function shouldReportClientError(input: ClientErrorPayload) {
   }
 
   const status = metadataNumber(input.metadata, "status");
+  if (input.kind === "api_error_response" && status === 599) return false;
   if (input.kind === "api_error_response" && status && status < 500 && status !== 429) {
     return false;
   }
