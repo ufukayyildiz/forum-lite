@@ -139,9 +139,12 @@ function chunksOf<T>(items: T[], size: number): T[][] {
   return chunks;
 }
 
+const SQLITE_IN_CHUNK_SIZE = 80;
+const SUPPRESSION_INSERT_BATCH_SIZE = 50;
+
 async function existingSuppressionEmails(db: D1Database, emails: string[]): Promise<Set<string>> {
   const existing = new Set<string>();
-  for (const chunk of chunksOf(emails, 400)) {
+  for (const chunk of chunksOf(emails, SQLITE_IN_CHUNK_SIZE)) {
     if (!chunk.length) continue;
     const placeholders = chunk.map(() => "?").join(",");
     const rows = await db.prepare(
@@ -164,7 +167,7 @@ async function markEmailsSuppressedEverywhere(
   message: string,
   now: number,
 ) {
-  for (const chunk of chunksOf(emails, 400)) {
+  for (const chunk of chunksOf(emails, SQLITE_IN_CHUNK_SIZE)) {
     if (!chunk.length) continue;
     const placeholders = chunk.map(() => "?").join(",");
     await db.prepare(
@@ -581,7 +584,7 @@ app.post("/email-suppressions/import", zValidator("json", emailSuppressionImport
     results.push({ email, status: existing.has(email) ? "skipped_existing" : "added" });
   }
 
-  for (const chunk of chunksOf(toAdd, 100)) {
+  for (const chunk of chunksOf(toAdd, SUPPRESSION_INSERT_BATCH_SIZE)) {
     try {
       await c.env.DB.batch(
         chunk.map((email) => c.env.DB.prepare(
