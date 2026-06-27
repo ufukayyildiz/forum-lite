@@ -137,7 +137,6 @@ export default function AdminAnalytics() {
             <Metric label="ANONYMOUS" value={fmt(summary.anonymousViews)} sub={pct(summary.anonymousViews, activeTotal)} color="var(--gb-aqua)" />
             <Metric label="REPEAT" value={fmt(summary.repeatViews)} sub={pct(summary.repeatViews, activeTotal)} color="var(--gb-purple)" />
             <Metric label="AVG TIME" value={duration(summary.avgDurationMs)} sub={summary.lastSeenAt ? `last ${relativeTime(summary.lastSeenAt)}` : "no visits"} color="var(--gb-orange)" />
-            <Metric label="BOT" value={fmt(summary.botViews)} sub={pct(summary.botViews, activeTotal)} color="var(--gb-red)" />
           </section>
 
           <section className="gb-analytics-panel">

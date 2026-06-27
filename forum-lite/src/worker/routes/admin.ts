@@ -55,12 +55,25 @@ function errorEventSearch(q: string) {
   };
 }
 
-function toAdminUser(u: typeof schema.users.$inferSelect) {
+function timestampSeconds(value: Date | number | string | null | undefined): number {
+  if (!value) return 0;
+  if (value instanceof Date) return Number.isFinite(value.getTime()) ? Math.floor(value.getTime() / 1000) : 0;
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? Math.floor(parsed / 1000) : 0;
+}
+
+function toAdminUser(u: typeof schema.users.$inferSelect, analyticsLastSeenAt?: Date | number | string | null) {
+  const lastActiveSeconds = Math.max(
+    timestampSeconds(analyticsLastSeenAt),
+    timestampSeconds(u.lastLoginAt),
+  );
   return {
     ...toPublicUser(u),
     email: u.email,
     emailVerifiedAt: u.emailVerifiedAt ? safeISO(u.emailVerifiedAt) : null,
     lastLoginAt: u.lastLoginAt ? safeISO(u.lastLoginAt) : null,
+    lastActiveAt: lastActiveSeconds ? safeISO(lastActiveSeconds) : null,
     emailSuppressedAt: u.emailSuppressedAt ? safeISO(u.emailSuppressedAt) : null,
     emailSuppressionReason: u.emailSuppressionReason ?? null,
   };
@@ -305,8 +318,21 @@ app.get("/users", async (c) => {
     .orderBy(desc(schema.users.createdAt))
     .limit(perPage)
     .offset((page - 1) * perPage);
+  const lastSeenByUser = new Map<number, number>();
+  if (rows.length) {
+    const placeholders = rows.map(() => "?").join(",");
+    const seenRows = await c.env.DB.prepare(
+      `SELECT user_id AS userId, MAX(last_seen_at) AS lastSeenAt
+       FROM analytics_pageviews
+       WHERE user_id IN (${placeholders})
+       GROUP BY user_id`,
+    ).bind(...rows.map((row) => row.id)).all<{ userId: number; lastSeenAt: number }>();
+    for (const row of seenRows.results ?? []) {
+      lastSeenByUser.set(Number(row.userId), Number(row.lastSeenAt ?? 0));
+    }
+  }
   const total = await db.$count(schema.users);
-  return c.json({ users: rows.map(toAdminUser), total, page, perPage });
+  return c.json({ users: rows.map((row) => toAdminUser(row, lastSeenByUser.get(row.id))), total, page, perPage });
 });
 
 app.get("/email-suppressions", async (c) => {
@@ -1083,26 +1109,32 @@ app.get("/analytics", async (c) => {
     bindSince(
       `SELECT
         COUNT(*) AS pageviews,
-        COUNT(DISTINCT visitor_id) AS visitors,
-        SUM(CASE WHEN user_id IS NOT NULL THEN 1 ELSE 0 END) AS userViews,
-        SUM(CASE WHEN user_id IS NULL THEN 1 ELSE 0 END) AS anonymousViews,
-        SUM(CASE WHEN is_repeat = 1 THEN 1 ELSE 0 END) AS repeatViews,
-        SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) AS botViews,
-        AVG(NULLIF(duration_ms, 0)) AS avgDurationMs,
-        MAX(created_at) AS lastSeenAt
-       FROM analytics_pageviews
-       WHERE created_at >= ?`,
+        COUNT(DISTINCT ap.visitor_id) AS visitors,
+        SUM(CASE WHEN ap.user_id IS NOT NULL THEN 1 ELSE 0 END) AS userViews,
+        SUM(CASE WHEN ap.user_id IS NULL THEN 1 ELSE 0 END) AS anonymousViews,
+        SUM(CASE WHEN ap.is_repeat = 1 THEN 1 ELSE 0 END) AS repeatViews,
+        0 AS botViews,
+        AVG(NULLIF(ap.duration_ms, 0)) AS avgDurationMs,
+        MAX(ap.created_at) AS lastSeenAt
+       FROM analytics_pageviews ap
+       LEFT JOIN users u ON u.id = ap.user_id
+       WHERE ap.created_at >= ?
+        AND COALESCE(ap.is_bot, 0) = 0
+        AND (u.id IS NULL OR COALESCE(u.role, 'member') != 'admin')`,
     ).first<Record<string, unknown>>(),
     c.env.DB.prepare(
       `SELECT
-        COUNT(DISTINCT visitor_id) AS onlineVisitors,
-        COUNT(DISTINCT CASE WHEN user_id IS NOT NULL THEN visitor_id END) AS onlineSignedIn,
-        COUNT(DISTINCT CASE WHEN user_id IS NULL THEN visitor_id END) AS onlineAnonymous,
-        COUNT(DISTINCT CASE WHEN is_repeat = 1 THEN visitor_id END) AS onlineRepeat,
-        COUNT(DISTINCT CASE WHEN is_bot = 1 THEN visitor_id END) AS onlineBots,
-        MAX(last_seen_at) AS lastSeenAt
-       FROM analytics_pageviews
-       WHERE last_seen_at >= ?`,
+        COUNT(DISTINCT ap.visitor_id) AS onlineVisitors,
+        COUNT(DISTINCT CASE WHEN ap.user_id IS NOT NULL THEN ap.visitor_id END) AS onlineSignedIn,
+        COUNT(DISTINCT CASE WHEN ap.user_id IS NULL THEN ap.visitor_id END) AS onlineAnonymous,
+        COUNT(DISTINCT CASE WHEN ap.is_repeat = 1 THEN ap.visitor_id END) AS onlineRepeat,
+        0 AS onlineBots,
+        MAX(ap.last_seen_at) AS lastSeenAt
+       FROM analytics_pageviews ap
+       LEFT JOIN users u ON u.id = ap.user_id
+       WHERE ap.last_seen_at >= ?
+        AND COALESCE(ap.is_bot, 0) = 0
+        AND (u.id IS NULL OR COALESCE(u.role, 'member') != 'admin')`,
     ).bind(onlineSince).first<Record<string, unknown>>(),
     bindSince(
       `SELECT source, medium, COUNT(*) AS views, COUNT(DISTINCT visitor_id) AS visitors, AVG(NULLIF(duration_ms, 0)) AS avgDurationMs

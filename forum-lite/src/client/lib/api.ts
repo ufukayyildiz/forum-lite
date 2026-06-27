@@ -63,6 +63,7 @@ export type AdminUser = PublicUser & {
   email: string;
   emailVerifiedAt: string | null;
   lastLoginAt: string | null;
+  lastActiveAt: string | null;
   emailSuppressedAt: string | null;
   emailSuppressionReason: string | null;
 };

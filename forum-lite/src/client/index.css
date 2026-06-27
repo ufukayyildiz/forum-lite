@@ -1567,7 +1567,7 @@ textarea.gb-input {
 }
 .gb-admin-anchor-form {
   display: grid;
-  grid-template-columns: minmax(120px, 200px) minmax(220px, 1fr) minmax(160px, 260px) auto auto auto;
+  grid-template-columns: minmax(140px, 220px) minmax(240px, 1fr) 92px auto auto auto auto;
   gap: 8px;
   align-items: end;
 }
@@ -1589,16 +1589,28 @@ textarea.gb-input {
   color: var(--gb-fg4);
   font-size: 12px;
 }
-.gb-admin-anchor-url {
-  max-width: 420px;
+.gb-admin-anchor-target {
+  min-width: 0;
+}
+.gb-admin-anchor-target div {
+  max-width: 760px;
   overflow: hidden;
-  color: var(--gb-blue);
+  color: var(--gb-fg);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.gb-admin-anchor-auto {
+.gb-admin-anchor-target a {
+  display: block;
+  max-width: 760px;
+  overflow: hidden;
+  color: var(--gb-blue);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gb-admin-anchor-manual {
   display: grid;
-  grid-template-columns: auto minmax(220px, 1fr) 96px auto auto;
+  grid-template-columns: auto minmax(220px, 1fr) minmax(180px, 320px) auto;
   gap: 8px;
   align-items: end;
   padding: 10px 12px;
@@ -1607,19 +1619,26 @@ textarea.gb-input {
   color: var(--gb-gray);
   font-size: 12px;
 }
-.gb-admin-anchor-auto > span:first-child {
+.gb-admin-anchor-manual > span:first-child {
   color: var(--gb-yellow);
   font-weight: 700;
 }
-.gb-admin-anchor-auto label {
+.gb-admin-anchor-manual label {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
-.gb-admin-anchor-auto label span {
+.gb-admin-anchor-manual label span {
   color: var(--gb-gray);
   font-size: 10px;
   letter-spacing: .08em;
+}
+.gb-admin-anchor-result-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--gb-gray);
+  font-size: 12px;
 }
 .gb-admin-anchor-result {
   color: var(--gb-green);
@@ -1838,8 +1857,11 @@ textarea.gb-input {
   .gb-admin-marketing-recipient,
   .gb-admin-anchor-head,
   .gb-admin-anchor-form,
-  .gb-admin-anchor-auto {
+  .gb-admin-anchor-manual {
     grid-template-columns: 1fr;
+  }
+  .gb-admin-anchor-result-row {
+    flex-direction: column;
   }
   .gb-anchor-overlay {
     padding: 8px;

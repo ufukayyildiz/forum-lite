@@ -10,6 +10,7 @@ export default function AdminAnchors() {
   const qc = useQueryClient();
   const [q, setQ] = useState("");
   const [form, setForm] = useState(EMPTY_FORM);
+  const [manualTarget, setManualTarget] = useState(false);
   const [autoLimit, setAutoLimit] = useState(10);
   const [autoResult, setAutoResult] = useState<{ created: number; skipped: number; found: number } | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -29,6 +30,7 @@ export default function AdminAnchors() {
       title: editing.title,
       enabled: editing.enabled,
     });
+    setManualTarget(true);
   }, [editing]);
 
   const refresh = async () => {
@@ -66,6 +68,7 @@ export default function AdminAnchors() {
     },
     onSuccess: async (result) => {
       setAutoResult({ created: result.created, skipped: result.skipped, found: result.found });
+      setForm((f) => ({ ...f, url: "", title: "" }));
       await refresh();
       toast.success(`Auto anchors: ${result.created} created, ${result.skipped} skipped`);
     },
@@ -89,6 +92,8 @@ export default function AdminAnchors() {
 
   function resetForm() {
     setEditingId(null);
+    setManualTarget(false);
+    setAutoResult(null);
     setForm(EMPTY_FORM);
   }
 
@@ -98,7 +103,7 @@ export default function AdminAnchors() {
         <div>
           <h3 style={{ margin: 0, color: "var(--gb-yellow)", fontSize: 14 }}>$ anchors</h3>
           <p style={{ margin: "8px 0 0", color: "var(--gb-gray)", fontSize: 12 }}>
-            Type a term, auto-find matching threads/posts, and link those pages to each other. Manual internal targets are still supported.
+            Type a term and FSTDESK finds matching threads/posts automatically. Manual URL is optional.
           </p>
         </div>
         <input
@@ -122,42 +127,14 @@ export default function AdminAnchors() {
           />
         </label>
         <label>
-          <span>URL</span>
+          <span>AUTO TARGETS</span>
           <input
             className="gb-input"
-            value={form.url}
-            onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))}
-            placeholder="/t/253989"
-            maxLength={500}
+            value="thread titles, first posts and replies"
+            readOnly
+            aria-label="Automatic target finder"
           />
         </label>
-        <label>
-          <span>TITLE</span>
-          <input
-            className="gb-input"
-            value={form.title}
-            onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-            placeholder="preview title"
-            maxLength={160}
-          />
-        </label>
-        <label className="gb-admin-anchor-check">
-          <input
-            type="checkbox"
-            checked={form.enabled}
-            onChange={(e) => setForm((f) => ({ ...f, enabled: e.target.checked }))}
-          />
-          enabled
-        </label>
-        <button className="gb-btn gb-btn-primary" onClick={() => save.mutate()} disabled={save.isPending}>
-          {editingId ? "$ update" : "$ add"}
-        </button>
-        {editingId && <button className="gb-btn" onClick={resetForm}>cancel</button>}
-      </div>
-
-      <div className="gb-admin-anchor-auto">
-        <span>$ auto target finder</span>
-        <span>scan thread titles, first posts and replies for the term above</span>
         <label>
           <span>LIMIT</span>
           <input
@@ -169,9 +146,56 @@ export default function AdminAnchors() {
             onChange={(e) => setAutoLimit(Math.max(1, Math.min(50, Number(e.target.value) || 10)))}
           />
         </label>
+        <label className="gb-admin-anchor-check">
+          <input
+            type="checkbox"
+            checked={form.enabled}
+            onChange={(e) => setForm((f) => ({ ...f, enabled: e.target.checked }))}
+          />
+          enabled
+        </label>
         <button className="gb-btn gb-btn-primary" onClick={() => autoFind.mutate()} disabled={autoFind.isPending || !form.term.trim()}>
-          {autoFind.isPending ? "$ finding..." : "$ find & add targets"}
+          {autoFind.isPending ? "$ finding..." : "$ find + add"}
         </button>
+        <button className="gb-btn" onClick={() => setManualTarget((v) => !v)}>
+          {manualTarget ? "$ hide manual" : "$ manual target"}
+        </button>
+        {(editingId || manualTarget) && <button className="gb-btn" onClick={resetForm}>cancel</button>}
+      </div>
+
+      {(manualTarget || editingId) && (
+        <div className="gb-admin-anchor-manual">
+          <span>$ manual target</span>
+          <label>
+            <span>URL</span>
+            <input
+              className="gb-input"
+              value={form.url}
+              onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))}
+              placeholder="/t/253989"
+              maxLength={500}
+            />
+          </label>
+          <label>
+            <span>TITLE</span>
+            <input
+              className="gb-input"
+              value={form.title}
+              onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+              placeholder="target title"
+              maxLength={160}
+            />
+          </label>
+          <button className="gb-btn gb-btn-primary" onClick={() => save.mutate()} disabled={save.isPending}>
+            {editingId ? "$ update manual" : "$ add manual"}
+          </button>
+        </div>
+      )}
+
+      <div className="gb-admin-anchor-result-row">
+        <span>
+          auto links one term to the best matching internal thread targets; duplicates are skipped
+        </span>
         {autoResult && (
           <span className="gb-admin-anchor-result">
             {autoResult.created} created / {autoResult.skipped} skipped / {autoResult.found} found
@@ -188,8 +212,7 @@ export default function AdminAnchors() {
           <tr>
             <th style={{ width: 42 }}>#</th>
             <th>TERM</th>
-            <th>URL</th>
-            <th>TITLE</th>
+            <th>TARGET</th>
             <th style={{ width: 90 }}>CLICKS</th>
             <th style={{ width: 92 }}>STATUS</th>
             <th style={{ width: 92 }}>UPDATED</th>
@@ -201,8 +224,10 @@ export default function AdminAnchors() {
             <tr key={anchor.id}>
               <td>{index + 1}</td>
               <td style={{ color: "var(--gb-green)", fontWeight: 700 }}>{anchor.term}</td>
-              <td className="gb-admin-anchor-url">{anchor.url}</td>
-              <td>{anchor.title || "-"}</td>
+              <td className="gb-admin-anchor-target">
+                <div>{anchor.title || "untitled target"}</div>
+                <a href={anchor.url} target="_blank" rel="noreferrer">{anchor.url}</a>
+              </td>
               <td style={{ color: "var(--gb-yellow)" }}>{anchor.clickCount}</td>
               <td style={{ color: anchor.enabled ? "var(--gb-green)" : "var(--gb-red)" }}>
                 {anchor.enabled ? "enabled" : "off"}
@@ -223,7 +248,7 @@ export default function AdminAnchors() {
           ))}
           {!isLoading && !anchors.length && (
             <tr>
-              <td colSpan={8} style={{ color: "var(--gb-gray)" }}>~ no anchors yet</td>
+              <td colSpan={7} style={{ color: "var(--gb-gray)" }}>~ no anchors yet</td>
             </tr>
           )}
         </tbody>

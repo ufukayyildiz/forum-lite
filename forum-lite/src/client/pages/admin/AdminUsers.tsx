@@ -28,7 +28,7 @@ function EditRow({ user, onSave, onCancel }: {
   return (
     <tr style={{ background: "var(--gb-bg1)" }}>
       <td />
-      <td colSpan={5} style={{ padding: "10px 12px" }}>
+      <td colSpan={6} style={{ padding: "10px 12px" }}>
         <div className="gb-admin-grid-2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, maxWidth: 560 }}>
           <div>
             <label style={{ fontSize: 10, color: "var(--gb-gray)", display: "block", marginBottom: 3, letterSpacing: ".06em" }}>DISPLAY NAME</label>
@@ -101,6 +101,7 @@ export default function AdminUsers() {
             <th style={{ width: 36 }} />
             <th>NAME</th>
             <th style={{ textAlign: "right", paddingRight: 16 }}>POSTS</th>
+            <th style={{ textAlign: "right", paddingRight: 16 }}>LAST ACTIVE</th>
             <th style={{ paddingRight: 16 }}>ROLE</th>
             <th>ACTIONS</th>
           </tr>
@@ -109,7 +110,7 @@ export default function AdminUsers() {
           {isLoading ? (
             <tr>
               <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16 }}>~</td>
-              <td colSpan={5} style={{ color: "var(--gb-gray)" }}>$ loading...</td>
+              <td colSpan={6} style={{ color: "var(--gb-gray)" }}>$ loading...</td>
             </tr>
           ) : list.map((u, i) => (
             <React.Fragment key={u.id}>
@@ -133,6 +134,12 @@ export default function AdminUsers() {
                   )}
                 </td>
                 <td style={{ textAlign: "right", paddingRight: 16, color: "var(--gb-aqua)", fontSize: 13 }}>{u.postCount}</td>
+                <td
+                  style={{ textAlign: "right", paddingRight: 16, color: u.lastActiveAt ? "var(--gb-green)" : "var(--gb-gray)", fontSize: 12, whiteSpace: "nowrap" }}
+                  title={u.lastActiveAt ?? "no recorded activity"}
+                >
+                  {u.lastActiveAt ? relativeTime(u.lastActiveAt) : "-"}
+                </td>
                 <td style={{ paddingRight: 14 }}>
                   {me?.role === "admin" && me.id !== u.id ? (
                     <GbSelect
