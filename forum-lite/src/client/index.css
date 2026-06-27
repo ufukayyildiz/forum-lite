@@ -340,6 +340,7 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
   justify-content: center;
   width: 100%;
   margin: auto;
+  text-align: center;
   height: var(--gb-ad-height);
   min-height: var(--gb-ad-height);
   max-height: var(--gb-ad-height);
@@ -361,12 +362,17 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
   max-height: var(--gb-ad-height) !important;
   min-height: 0;
   overflow: hidden;
+  margin-left: auto !important;
+  margin-right: auto !important;
 }
 
 .gb-ad-slot ins.adsbygoogle,
 .gb-ad-slot .adsbygoogle {
+  display: block !important;
   width: 100% !important;
   height: var(--gb-ad-height) !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
   max-height: var(--gb-ad-height) !important;
   min-height: var(--gb-ad-height) !important;
   overflow: hidden !important;
@@ -374,6 +380,7 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
 
 .gb-ad-slot iframe {
   border: 0;
+  display: block !important;
   height: var(--gb-ad-height) !important;
 }
 
@@ -1385,6 +1392,78 @@ textarea.gb-input {
   color: var(--gb-yellow);
   text-decoration-color: var(--gb-yellow);
 }
+.gb-anchor-context-menu {
+  position: fixed;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(420px, calc(100vw - 24px));
+  padding: 8px;
+  border: 1px solid var(--gb-yellow);
+  background: var(--gb-bg1);
+  box-shadow: 0 14px 38px rgba(0,0,0,.35);
+  transform: translate(6px, 6px);
+}
+.gb-anchor-context-menu span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--gb-fg4);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gb-anchor-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+  background: rgba(40, 40, 40, .9);
+}
+.gb-anchor-dialog {
+  width: min(980px, 100%);
+  height: min(760px, 86dvh);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--gb-yellow);
+  background: var(--gb-bg);
+  box-shadow: 0 16px 42px rgba(0,0,0,.35);
+}
+.gb-anchor-titlebar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--gb-bg3);
+  background: var(--gb-bg1);
+}
+.gb-anchor-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--gb-yellow);
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gb-anchor-open {
+  padding: 3px 8px;
+  font-size: 11px;
+}
+.gb-anchor-frame {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  background: #fff;
+}
 .gb-post-content a.gb-pdf-link {
   display: inline-flex;
   align-items: center;
@@ -1470,6 +1549,52 @@ textarea.gb-input {
   min-height: 0;
   border: 0;
   background: #fff;
+}
+
+.gb-admin-anchor-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.gb-admin-anchor-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 320px);
+  gap: 12px;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid var(--gb-bg2);
+  background: var(--gb-bg);
+}
+.gb-admin-anchor-form {
+  display: grid;
+  grid-template-columns: minmax(120px, 200px) minmax(220px, 1fr) minmax(160px, 260px) auto auto auto;
+  gap: 8px;
+  align-items: end;
+}
+.gb-admin-anchor-form label {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.gb-admin-anchor-form label span {
+  color: var(--gb-gray);
+  font-size: 10px;
+  letter-spacing: .08em;
+}
+.gb-admin-anchor-check {
+  flex-direction: row !important;
+  align-items: center;
+  padding-bottom: 6px;
+  color: var(--gb-fg4);
+  font-size: 12px;
+}
+.gb-admin-anchor-url {
+  max-width: 420px;
+  overflow: hidden;
+  color: var(--gb-blue);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ── Composer toolbar ────────────────────────────────────── */
@@ -1681,8 +1806,21 @@ textarea.gb-input {
   .gb-admin-marketing-grid { grid-template-columns: 1fr !important; }
   .gb-admin-marketing-head,
   .gb-admin-marketing-controls,
-  .gb-admin-marketing-recipient {
+  .gb-admin-marketing-recipient,
+  .gb-admin-anchor-head,
+  .gb-admin-anchor-form {
     grid-template-columns: 1fr;
+  }
+  .gb-anchor-overlay {
+    padding: 8px;
+    align-items: stretch;
+  }
+  .gb-anchor-dialog {
+    width: 100%;
+    height: calc(100dvh - 16px);
+  }
+  .gb-anchor-open {
+    display: none;
   }
   .gb-admin-marketing-actions {
     justify-content: flex-start;

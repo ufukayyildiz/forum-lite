@@ -360,6 +360,30 @@ export const analyticsPageviews = sqliteTable(
   }),
 );
 
+export const anchorLinks = sqliteTable(
+  "anchor_links",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    term: text("term").notNull(),
+    url: text("url").notNull(),
+    title: text("title").notNull().default(""),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    clickCount: integer("click_count").notNull().default(0),
+    createdByUserId: integer("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => ({
+    termIdx: index("anchor_links_term_idx").on(t.term),
+    enabledIdx: index("anchor_links_enabled_idx").on(t.enabled),
+    clickCountIdx: index("anchor_links_click_count_idx").on(t.clickCount),
+  }),
+);
+
 export const usersRelations = relations(users, ({ many }) => ({
   threads: many(threads),
   posts: many(posts),
@@ -404,3 +428,4 @@ export type NotificationPreference = typeof notificationPreferences.$inferSelect
 export type EmailEvent = typeof emailEvents.$inferSelect;
 export type MarketingSend = typeof marketingSends.$inferSelect;
 export type AnalyticsPageview = typeof analyticsPageviews.$inferSelect;
+export type AnchorLink = typeof anchorLinks.$inferSelect;

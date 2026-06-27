@@ -19,14 +19,15 @@ const PURIFY_CONFIG = {
   RETURN_AS_STRING: true as const,
 };
 
-export type InternalMarkdownLink = {
+export type AnchorMarkdownLink = {
+  id?: number;
   term: string;
   title: string;
-  path: string;
+  url: string;
 };
 
 type RenderMarkdownOptions = {
-  internalLinks?: InternalMarkdownLink[];
+  anchors?: AnchorMarkdownLink[];
 };
 
 function escapeHtmlAttr(input: string): string {
@@ -41,17 +42,28 @@ function escapeRegExp(input: string): string {
   return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function prepareInternalLinks(links: InternalMarkdownLink[] | undefined): InternalMarkdownLink[] {
+function isSafeAnchorUrl(url: string): boolean {
+  if (url.startsWith("/") && !url.startsWith("//")) return true;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function prepareAnchorLinks(links: AnchorMarkdownLink[] | undefined): AnchorMarkdownLink[] {
   const seen = new Set<string>();
   return (links ?? [])
     .map((link) => ({
+      id: Number(link.id) || undefined,
       term: String(link.term ?? "").trim(),
       title: String(link.title ?? "").trim(),
-      path: String(link.path ?? "").trim(),
+      url: String(link.url ?? "").trim(),
     }))
-    .filter((link) => link.term.length >= 4 && link.path.startsWith("/") && !link.path.startsWith("//"))
+    .filter((link) => link.term.length >= 2 && isSafeAnchorUrl(link.url))
     .filter((link) => {
-      const key = `${link.term.toLowerCase()}:${link.path}`;
+      const key = `${link.term.toLowerCase()}:${link.url}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -63,15 +75,15 @@ function internalTermPattern(term: string): RegExp {
   return new RegExp(`(^|[^A-Za-z0-9])(${escapeRegExp(term).replace(/\s+/g, "\\s+")})(?=$|[^A-Za-z0-9])`, "i");
 }
 
-function linkTextChunk(text: string, links: InternalMarkdownLink[], used: Set<string>): string {
+function linkTextChunk(text: string, links: AnchorMarkdownLink[], used: Set<string>): string {
   let remaining = text;
   let out = "";
 
   while (remaining) {
-    let best: { link: InternalMarkdownLink; start: number; end: number; text: string } | null = null;
+    let best: { link: AnchorMarkdownLink; start: number; end: number; text: string } | null = null;
 
     for (const link of links) {
-      const key = `${link.term.toLowerCase()}:${link.path}`;
+      const key = `${link.term.toLowerCase()}:${link.url}`;
       if (used.has(key)) continue;
       const match = internalTermPattern(link.term).exec(remaining);
       if (!match) continue;
@@ -87,18 +99,19 @@ function linkTextChunk(text: string, links: InternalMarkdownLink[], used: Set<st
       break;
     }
 
-    const key = `${best.link.term.toLowerCase()}:${best.link.path}`;
+    const key = `${best.link.term.toLowerCase()}:${best.link.url}`;
     used.add(key);
     out += remaining.slice(0, best.start);
-    out += `<a class="gb-internal-anchor" href="${escapeHtmlAttr(best.link.path)}" title="${escapeHtmlAttr(`Related: ${best.link.title}`)}">${best.text}</a>`;
+    const idAttr = best.link.id ? ` data-anchor-id="${best.link.id}"` : "";
+    out += `<a class="gb-internal-anchor" href="${escapeHtmlAttr(best.link.url)}"${idAttr} title="${escapeHtmlAttr(best.link.title || best.link.term)}">${best.text}</a>`;
     remaining = remaining.slice(best.end);
   }
 
   return out;
 }
 
-function injectInternalLinks(html: string, rawLinks: InternalMarkdownLink[] | undefined): string {
-  const links = prepareInternalLinks(rawLinks);
+function injectAnchorLinks(html: string, rawLinks: AnchorMarkdownLink[] | undefined): string {
+  const links = prepareAnchorLinks(rawLinks);
   if (!links.length || !html) return html;
 
   const used = new Set<string>();
@@ -183,7 +196,7 @@ function legacyQuotesToMarkdown(md: string): string {
 export function renderMarkdown(md: string, options: RenderMarkdownOptions = {}): string {
   const raw = marked.parse(legacyQuotesToMarkdown(md)) as string;
   const clean = DOMPurify.sanitize(raw, PURIFY_CONFIG) as string;
-  const linked = injectInternalLinks(clean, options.internalLinks);
+  const linked = injectAnchorLinks(clean, options.anchors);
 
   if (typeof document === "undefined" || typeof window === "undefined") {
     return addExternalTargetAttributes(linked);

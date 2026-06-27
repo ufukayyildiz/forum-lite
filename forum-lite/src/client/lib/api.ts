@@ -90,6 +90,17 @@ export type AdsConfig = {
     intervals: { post: number; topic: number; user: number; tag: number };
   };
 };
+export type AnchorLink = {
+  id: number;
+  term: string;
+  url: string;
+  title: string;
+  enabled: boolean;
+  clickCount: number;
+  createdByUserId?: number | null;
+  createdAt?: string;
+  updatedAt?: string;
+};
 export type MemberActivityResponse = {
   user: PublicUser;
   threads: any[];
@@ -344,6 +355,8 @@ export const api = {
   // public stats
   stats: () => get<{ users: number; threads: number; posts: number }>("/stats"),
   adsConfig: () => get<AdsConfig>("/ads"),
+  anchors: () => get<AnchorLink[]>("/anchors"),
+  trackAnchorClick: (id: number) => post<{ ok: boolean }>(`/anchors/${id}/click`),
 
   // search
   search: (q: string) => get<{ threads: any[]; posts: any[]; users: any[] }>(`/search?q=${encodeURIComponent(q)}`),
@@ -409,6 +422,13 @@ export const api = {
   adminMarketingSends: (page = 1) => get<{ sends: Array<any & { openCount: number; clickCount: number; openedAt: string | null; clickedAt: string | null; lastOpenedAt: string | null; lastClickedAt: string | null }>; total: number; page: number; perPage: number }>(`/admin/marketing/sends?page=${page}`),
   adminSendMarketing: (b: { campaignKey: string; userId?: number; userIds?: number[]; test?: boolean }) =>
     post<{ ok: boolean; status: string; previousSentAt?: string | null; total?: number; sent?: number; duplicate?: number; skipped?: number; suppressed?: number; error?: number; results?: any[] }>("/admin/marketing/send", b),
+  adminAnchors: (q = "") =>
+    get<{ anchors: AnchorLink[]; total: number }>(`/admin/anchors${q ? `?q=${encodeURIComponent(q)}` : ""}`),
+  adminCreateAnchor: (b: { term: string; url: string; title?: string; enabled?: boolean }) =>
+    post<{ anchor: AnchorLink }>("/admin/anchors", b),
+  adminUpdateAnchor: (id: number, b: Partial<{ term: string; url: string; title: string; enabled: boolean }>) =>
+    patch<{ anchor: AnchorLink }>(`/admin/anchors/${id}`, b),
+  adminDeleteAnchor: (id: number) => del<{ ok: boolean }>(`/admin/anchors/${id}`),
   adminSettings: () => get<Record<string, string>>("/admin/settings"),
   adminSaveSettings: (b: Record<string, string>) => post<{ ok: boolean }>("/admin/settings", b),
 

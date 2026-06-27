@@ -1,6 +1,5 @@
 import type { Context } from "hono";
 import type { Bindings, Variables } from "../types";
-import { loadInternalLinkTargets } from "./internal-links";
 
 type AppContext = Context<{ Bindings: Bindings; Variables: Variables }>;
 
@@ -311,43 +310,25 @@ async function loadThreadApi(c: AppContext, id: string) {
     .first<Record<string, unknown>>();
   if (!thread) return null;
 
-  const [tagRows, postTextRows] = await Promise.all([
-    c.env.DB.prepare(
-      `SELECT tags.id, tags.name, tags.slug
-       FROM tags
-       INNER JOIN thread_tags tt ON tt.tag_id = tags.id
-       WHERE tt.thread_id = ?
-       ORDER BY tags.name`,
-    )
-      .bind(Number(thread.id))
-      .all<Record<string, unknown>>(),
-    c.env.DB.prepare("SELECT content FROM posts WHERE thread_id = ? ORDER BY created_at ASC LIMIT 8")
-      .bind(Number(thread.id))
-      .all<Record<string, unknown>>(),
-  ]);
+  const tagRows = await c.env.DB.prepare(
+    `SELECT tags.id, tags.name, tags.slug
+     FROM tags
+     INNER JOIN thread_tags tt ON tt.tag_id = tags.id
+     WHERE tt.thread_id = ?
+     ORDER BY tags.name`,
+  )
+    .bind(Number(thread.id))
+    .all<Record<string, unknown>>();
 
   const tags = (tagRows.results ?? []).map((tag) => ({
     id: Number(tag.id),
     name: String(tag.name ?? ""),
     slug: String(tag.slug ?? ""),
   }));
-  const internalLinks = await loadInternalLinkTargets(c.env.DB, {
-    sourceThreadId: Number(thread.id),
-    sourcePublicId: String(thread.publicId),
-    text: [
-      String(thread.title ?? ""),
-      String(thread.content ?? ""),
-      tags.map((tag) => tag.name).join(" "),
-      ...(postTextRows.results ?? []).map((post) => String(post.content ?? "")),
-    ].join("\n"),
-    maxLinks: 8,
-  });
-
   return {
     ...mapThreadApi(thread),
     content: String(thread.content ?? ""),
     tags,
-    internalLinks,
   };
 }
 
@@ -828,17 +809,6 @@ async function threadPayload(c: AppContext, base: string, id: string): Promise<S
   const path = `/t/${thread.publicId}`;
   const url = absoluteUrl(base, path);
   const description = cleanText(thread.content, 160) || `${title} discussion in ${thread.categoryName}.`;
-  const internalLinks = await loadInternalLinkTargets(c.env.DB, {
-    sourceThreadId: Number(thread.id),
-    sourcePublicId: String(thread.publicId),
-    text: [
-      title,
-      String(thread.content ?? ""),
-      tags.map((tag) => String(tag.name)).join(" "),
-      ...replies.slice(0, 8).map((reply) => String(reply.content ?? "")),
-    ].join("\n"),
-    maxLinks: 8,
-  });
   const schemas: SeoSchema[] = [
     breadcrumbSchema(base, [
       { name: "Forum", path: "/" },
@@ -855,14 +825,6 @@ async function threadPayload(c: AppContext, base: string, id: string): Promise<S
       text: cleanText(thread.content, 4000),
       articleSection: String(thread.categoryName),
       keywords: tags.map((tag) => String(tag.name)).join(", ") || undefined,
-      mentions: internalLinks.length
-        ? internalLinks.map((link) => ({
-            "@type": "DiscussionForumPosting",
-            name: link.title,
-            url: absoluteUrl(base, link.path),
-            about: link.term,
-          }))
-        : undefined,
       datePublished: isoDate(thread.createdAt),
       dateModified: newestIsoDate(thread.updatedAt, thread.lastPostAt, thread.createdAt),
       inLanguage: CONTENT_LANGUAGE,
@@ -897,18 +859,6 @@ async function threadPayload(c: AppContext, base: string, id: string): Promise<S
       })),
     },
   ];
-  if (internalLinks.length) {
-    schemas.push(
-      itemListSchema(
-        base,
-        internalLinks.map((link) => ({
-          name: `${link.term}: ${link.title}`,
-          path: link.path,
-        })),
-      ),
-    );
-  }
-
   return {
     title: `${title} — ${SITE_NAME}`,
     description,
@@ -926,11 +876,6 @@ async function threadPayload(c: AppContext, base: string, id: string): Promise<S
           path,
           text: cleanText(thread.content, 260),
         },
-        ...internalLinks.map((link) => ({
-          title: `${link.term}: ${link.title}`,
-          path: link.path,
-          text: link.categoryName ? `Related discussion in ${link.categoryName}. ${link.excerpt}` : link.excerpt,
-        })),
         ...replies.map((reply) => ({
           title: `${reply.authorName} reply`,
           path,

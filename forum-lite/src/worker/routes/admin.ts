@@ -30,6 +30,27 @@ function toAdminUser(u: typeof schema.users.$inferSelect) {
   };
 }
 
+function toAdminAnchor(row: typeof schema.anchorLinks.$inferSelect) {
+  return {
+    id: row.id,
+    term: row.term,
+    url: row.url,
+    title: row.title,
+    enabled: row.enabled,
+    clickCount: row.clickCount,
+    createdByUserId: row.createdByUserId,
+    createdAt: safeISO(row.createdAt),
+    updatedAt: safeISO(row.updatedAt),
+  };
+}
+
+const anchorBody = z.object({
+  term: z.string().trim().min(2).max(80),
+  url: z.string().trim().min(1).max(500),
+  title: z.string().trim().max(160).optional(),
+  enabled: z.boolean().optional(),
+});
+
 async function marketingDuplicateBlockingEnabled(db: AppEnv["Variables"]["db"]) {
   const setting = await db.query.settings.findFirst({
     where: eq(schema.settings.key, MARKETING_BLOCK_DUPLICATE_SENDS_KEY),
@@ -1249,6 +1270,73 @@ app.get("/marketing/sends", async (c) => {
     page,
     perPage,
   });
+});
+
+app.get("/anchors", async (c) => {
+  const db = c.get("db");
+  const q = (c.req.query("q") ?? "").trim().toLowerCase();
+  const rows = await db
+    .select()
+    .from(schema.anchorLinks)
+    .where(
+      q
+        ? sql`lower(${schema.anchorLinks.term}) like ${`%${q}%`} or lower(${schema.anchorLinks.url}) like ${`%${q}%`} or lower(${schema.anchorLinks.title}) like ${`%${q}%`}`
+        : undefined,
+    )
+    .orderBy(desc(schema.anchorLinks.updatedAt), desc(schema.anchorLinks.clickCount), schema.anchorLinks.term)
+    .limit(1000);
+  return c.json({ anchors: rows.map(toAdminAnchor), total: rows.length });
+});
+
+app.post("/anchors", zValidator("json", anchorBody), async (c) => {
+  const db = c.get("db");
+  const me = c.get("user");
+  const body = c.req.valid("json");
+  const [row] = await db
+    .insert(schema.anchorLinks)
+    .values({
+      term: body.term,
+      url: body.url,
+      title: body.title || body.term,
+      enabled: body.enabled ?? true,
+      createdByUserId: me?.id ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .returning();
+  await db.insert(schema.activityLog).values({
+    userId: me?.id ?? null,
+    type: "anchor",
+    summary: `Created anchor "${body.term}" -> ${body.url}`,
+  });
+  return c.json({ anchor: toAdminAnchor(row) }, 201);
+});
+
+app.patch("/anchors/:id", zValidator("json", anchorBody.partial()), async (c) => {
+  const db = c.get("db");
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id) || id <= 0) return c.json({ error: "Invalid anchor" }, 400);
+  const body = c.req.valid("json");
+  const patch: Partial<typeof schema.anchorLinks.$inferInsert> = { updatedAt: new Date() };
+  if (body.term !== undefined) patch.term = body.term;
+  if (body.url !== undefined) patch.url = body.url;
+  if (body.title !== undefined) patch.title = body.title || body.term || "";
+  if (body.enabled !== undefined) patch.enabled = body.enabled;
+  const [row] = await db
+    .update(schema.anchorLinks)
+    .set(patch)
+    .where(eq(schema.anchorLinks.id, id))
+    .returning();
+  if (!row) return c.json({ error: "Anchor not found" }, 404);
+  return c.json({ anchor: toAdminAnchor(row) });
+});
+
+app.delete("/anchors/:id", async (c) => {
+  const db = c.get("db");
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id) || id <= 0) return c.json({ error: "Invalid anchor" }, 400);
+  await db.delete(schema.anchorLinks).where(eq(schema.anchorLinks.id, id));
+  return c.json({ ok: true });
 });
 
 app.post("/marketing/send", zValidator("json", z.object({

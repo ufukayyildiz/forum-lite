@@ -134,6 +134,7 @@ export function AdSlot({
       setCss(mount, "max-height", `${reservedHeight}px`, "important");
       setCss(mount, "max-width", "100%");
       setCss(mount, "overflow", "hidden", "important");
+      setCss(mount, "text-align", "center");
       setCss(mount, "width", "100%");
 
       for (const el of Array.from(mount.querySelectorAll<HTMLElement>("ins.adsbygoogle, .adsbygoogle"))) {
@@ -141,6 +142,8 @@ export function AdSlot({
         el.setAttribute("data-full-width-responsive", "false");
         setCss(el, "display", "block", "important");
         setCss(el, "height", `${reservedHeight}px`, "important");
+        setCss(el, "margin-left", "auto", "important");
+        setCss(el, "margin-right", "auto", "important");
         setCss(el, "max-height", `${reservedHeight}px`, "important");
         setCss(el, "max-width", "100%", "important");
         setCss(el, "min-height", `${reservedHeight}px`, "important");
@@ -151,6 +154,8 @@ export function AdSlot({
       for (const frame of Array.from(mount.querySelectorAll<HTMLIFrameElement>("iframe"))) {
         setCss(frame, "display", "block", "important");
         setCss(frame, "height", `${reservedHeight}px`, "important");
+        setCss(frame, "margin-left", "auto", "important");
+        setCss(frame, "margin-right", "auto", "important");
         setCss(frame, "max-height", `${reservedHeight}px`, "important");
         setCss(frame, "max-width", "100%", "important");
         setCss(frame, "overflow", "hidden", "important");

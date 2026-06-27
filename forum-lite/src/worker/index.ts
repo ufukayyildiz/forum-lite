@@ -12,6 +12,7 @@ import searchRoutes from "./routes/search";
 import adminRoutes from "./routes/admin";
 import attachmentRoutes from "./routes/attachments";
 import contactRoutes from "./routes/contact";
+import anchorRoutes from "./routes/anchors";
 import { schema, getDb } from "./db";
 import type { Bindings, Variables } from "./types";
 import { renderSeoHtml } from "./lib/seo";
@@ -53,6 +54,7 @@ app.route("/api/members", memberRoutes);
 app.route("/api/tags", tagRoutes);
 app.route("/api/search", searchRoutes);
 app.route("/api/contact", contactRoutes);
+app.route("/api/anchors", anchorRoutes);
 app.route("/api/admin", adminRoutes);
 app.route("/api/attachments", attachmentRoutes);
 
