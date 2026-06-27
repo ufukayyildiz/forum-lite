@@ -54,8 +54,8 @@ export default function AboutPage() {
         }}
       />
       <GbToolbar crumbs={[{ label: "about" }]} />
-      <div className="gb-content" style={{ padding: "18px 20px", maxWidth: 980 }}>
-        <table className="gb-table">
+      <div className="gb-content gb-about-page" style={{ padding: "18px 20px", maxWidth: 980 }}>
+        <table className="gb-table gb-about-table">
           <thead>
             <tr>
               <th style={{ textAlign: "right", paddingRight: 16 }}>#</th>

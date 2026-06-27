@@ -76,9 +76,9 @@ export default function ContactPage() {
         }}
       />
       <GbToolbar crumbs={[{ label: "contact" }]} />
-      <div className="gb-content" style={{ padding: "18px 20px", maxWidth: 920 }}>
+      <div className="gb-content gb-contact-page" style={{ padding: "18px 20px", maxWidth: 920 }}>
         <form onSubmit={submit}>
-          <table className="gb-table">
+          <table className="gb-table gb-contact-table">
             <thead>
               <tr>
                 <th style={{ textAlign: "right", paddingRight: 16 }}>#</th>
@@ -122,13 +122,13 @@ export default function ContactPage() {
                   <input tabIndex={-1} autoComplete="off" value={form.website} onChange={setField("website")} />
                 </td>
               </tr>
-              <tr>
+              <tr className="gb-contact-action-row">
                 <td style={{ color: "var(--gb-bg3)" }}>~</td>
                 <td colSpan={2}>
                   <button className="gb-btn gb-btn-primary" type="submit" disabled={send.isPending}>
                     {send.isPending ? "$ sending..." : "$ send message"}
                   </button>
-                  <span style={{ color: "var(--gb-gray)", marginLeft: 10, fontSize: 12 }}>
+                  <span className="gb-contact-hint" style={{ color: "var(--gb-gray)", marginLeft: 10, fontSize: 12 }}>
                     Messages go directly to the FSTDESK team.
                   </span>
                 </td>

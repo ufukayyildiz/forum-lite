@@ -155,12 +155,12 @@ function PostItem({ post, threadId, onQuote, anchors, currentPath }: {
   return (
     <>
     <div className="gb-post" style={{ padding: "12px 20px" }}>
-      <div style={{ flexShrink: 0 }}>
+      <div className="gb-post-avatar" style={{ flexShrink: 0 }}>
         <Link to={`/u/${post.author.username}`}>
           <DAvatar src={post.author.avatarUrl} name={post.author.displayName} size={32} />
         </Link>
       </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div className="gb-post-main" style={{ flex: 1, minWidth: 0 }}>
         <div className="gb-post-meta">
           <Link to={`/u/${post.author.username}`} className="gb-post-author" style={{ textDecoration: "none" }}>
             {post.author.displayName}
@@ -445,7 +445,7 @@ export default function ThreadPage() {
 
       <div className="gb-content" style={{ padding: "0 20px 20px" }}>
         {/* Thread meta bar */}
-        <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "8px 0", borderBottom: "1px solid var(--gb-bg2)", fontSize: 12, color: "var(--gb-gray)", flexWrap: "wrap" }}>
+        <div className="gb-thread-meta-bar" style={{ display: "flex", alignItems: "center", gap: 16, padding: "8px 0", borderBottom: "1px solid var(--gb-bg2)", fontSize: 12, color: "var(--gb-gray)", flexWrap: "wrap" }}>
           <span>by <Link to={`/u/${thread.author.username}`} style={{ color: "var(--gb-green)" }}>{thread.author.displayName}</Link></span>
           <span>{formatDate(thread.createdAt)}</span>
           {threadEdited && <span title={formatDate(threadEdited)}>edited {relativeTime(threadEdited)}</span>}
@@ -467,12 +467,12 @@ export default function ThreadPage() {
         {/* OP post */}
         <div style={{ borderBottom: "1px solid var(--gb-bg2)" }}>
           <div className="gb-post" style={{ padding: "12px 20px" }}>
-            <div style={{ flexShrink: 0 }}>
+            <div className="gb-post-avatar" style={{ flexShrink: 0 }}>
               <Link to={`/u/${thread.author.username}`}>
                 <DAvatar src={thread.author.avatarUrl} name={thread.author.displayName} size={32} />
               </Link>
             </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="gb-post-main" style={{ flex: 1, minWidth: 0 }}>
               <div className="gb-post-meta">
                 <Link to={`/u/${thread.author.username}`} className="gb-post-author" style={{ textDecoration: "none" }}>
                   {thread.author.displayName}

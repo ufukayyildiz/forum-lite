@@ -300,6 +300,24 @@ export type AdminEmailSuppressionsResponse = {
   perPage: number;
 };
 
+export type AdminEmailSuppressionImportResult = {
+  ok: boolean;
+  rawMatches: number;
+  unique: number;
+  processed: number;
+  truncated: boolean;
+  duplicateInUpload: number;
+  added: number;
+  skippedExisting: number;
+  errors: number;
+  resultLimit: number;
+  results: Array<{
+    email: string;
+    status: "added" | "skipped_existing" | "error";
+    message?: string;
+  }>;
+};
+
 export type AdminActivityLog = {
   id: number;
   type: string;
@@ -482,6 +500,8 @@ export const api = {
   },
   adminAddEmailSuppression: (email: string, reason = "manual_admin_suppression") =>
     post<{ ok: boolean; email: string }>("/admin/email-suppressions", { email, reason }),
+  adminImportEmailSuppressions: (text: string, reason = "csv_import_suppression") =>
+    post<AdminEmailSuppressionImportResult>("/admin/email-suppressions/import", { text, reason }),
   adminRemoveEmailSuppression: (email: string) =>
     del<{ ok: boolean; email: string }>(`/admin/email-suppressions/${encodeURIComponent(email)}`),
   adminSyncEmailSuppressions: (hours = 72) =>

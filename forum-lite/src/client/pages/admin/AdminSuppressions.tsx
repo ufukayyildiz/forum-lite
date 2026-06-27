@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { type ChangeEvent, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { api, type AdminEmailSuppression } from "../../lib/api";
+import { api, type AdminEmailSuppression, type AdminEmailSuppressionImportResult } from "../../lib/api";
 import { relativeTime } from "../../lib/utils";
 
 function cfColor(status: string | null): string {
@@ -22,6 +22,7 @@ export default function AdminSuppressions() {
   const [page, setPage] = useState(1);
   const [q, setQ] = useState("");
   const [manualEmail, setManualEmail] = useState("");
+  const [importReport, setImportReport] = useState<AdminEmailSuppressionImportResult | null>(null);
   const qc = useQueryClient();
   const perPage = 100;
 
@@ -54,6 +55,19 @@ export default function AdminSuppressions() {
     onError: (error: any) => toast.error(error.message || "Suppression failed"),
   });
 
+  const importSuppressions = useMutation({
+    mutationFn: (text: string) => api.adminImportEmailSuppressions(text),
+    onSuccess: (result) => {
+      setImportReport(result);
+      setPage(1);
+      qc.invalidateQueries({ queryKey: ["admin-email-suppressions"] });
+      qc.invalidateQueries({ queryKey: ["admin-marketing-users"] });
+      const suffix = result.truncated ? " (truncated at 20k)" : "";
+      toast.success(`CSV import: ${result.added} added, ${result.skippedExisting} skipped${suffix}`);
+    },
+    onError: (error: any) => toast.error(error.message || "CSV import failed"),
+  });
+
   const remove = useMutation({
     mutationFn: (email: string) => api.adminRemoveEmailSuppression(email),
     onSuccess: (result) => {
@@ -68,6 +82,22 @@ export default function AdminSuppressions() {
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.perPage)) : 1;
   const withUsers = useMemo(() => rows.filter((row) => row.username).length, [rows]);
 
+  async function handleImportFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      const text = await file.text();
+      if (!text.trim()) {
+        toast.error("Selected file is empty");
+        return;
+      }
+      importSuppressions.mutate(text);
+    } catch (error: any) {
+      toast.error(error?.message || "Could not read selected file");
+    }
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div style={{ border: "1px solid var(--gb-bg2)", background: "var(--gb-bg0)", padding: 12 }}>
@@ -77,6 +107,16 @@ export default function AdminSuppressions() {
             local list blocks all email types: marketing, notify, account, password reset
           </span>
           <div style={{ flex: 1 }} />
+          <label className="gb-btn" style={{ display: "inline-flex", alignItems: "center", cursor: importSuppressions.isPending ? "not-allowed" : "pointer" }}>
+            {importSuppressions.isPending ? "$ importing..." : "$ upload csv"}
+            <input
+              type="file"
+              accept=".csv,text/csv,text/plain"
+              disabled={importSuppressions.isPending}
+              onChange={handleImportFile}
+              style={{ display: "none" }}
+            />
+          </label>
           <a className="gb-btn" href="/api/admin/email-suppressions/export" download>
             $ download csv
           </a>
@@ -111,6 +151,40 @@ export default function AdminSuppressions() {
           $ suppress
         </button>
       </div>
+
+      {importReport && (
+        <div style={{ border: "1px solid var(--gb-bg2)", background: "var(--gb-bg0)", padding: 10, color: "var(--gb-gray)", fontSize: 12 }}>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+            <span style={{ color: "var(--gb-yellow)" }}>upload report</span>
+            <span>{importReport.rawMatches} emails found</span>
+            <span>{importReport.unique} unique</span>
+            <span style={{ color: "var(--gb-green)" }}>{importReport.added} added</span>
+            <span style={{ color: "var(--gb-yellow)" }}>{importReport.skippedExisting} skipped existing</span>
+            <span>{importReport.duplicateInUpload} duplicate in file</span>
+            <span style={{ color: importReport.errors ? "var(--gb-red)" : "var(--gb-gray)" }}>{importReport.errors} errors</span>
+            {importReport.truncated && <span style={{ color: "var(--gb-red)" }}>processed first 20,000 only</span>}
+            <button className="gb-btn" type="button" style={{ padding: "2px 8px" }} onClick={() => setImportReport(null)}>$ clear report</button>
+          </div>
+          {importReport.results.length > 0 && (
+            <div style={{ marginTop: 8, maxHeight: 180, overflow: "auto", borderTop: "1px solid var(--gb-bg2)" }}>
+              {importReport.results.map((row) => (
+                <div key={`${row.email}-${row.status}`} style={{ display: "grid", gridTemplateColumns: "minmax(180px, 1fr) 160px minmax(0, 1fr)", gap: 8, padding: "5px 0", borderBottom: "1px solid var(--gb-bg2)" }}>
+                  <span style={{ color: "var(--gb-fg)" }}>{row.email}</span>
+                  <span style={{ color: row.status === "added" ? "var(--gb-green)" : row.status === "error" ? "var(--gb-red)" : "var(--gb-yellow)" }}>
+                    {row.status === "skipped_existing" ? "skipped existing" : row.status}
+                  </span>
+                  <span>{row.message ?? ""}</span>
+                </div>
+              ))}
+              {importReport.processed > importReport.results.length && (
+                <div style={{ padding: "5px 0", color: "var(--gb-gray)" }}>
+                  showing first {importReport.resultLimit} result rows
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {data && (
         <div style={{ color: "var(--gb-gray)", fontSize: 12 }}>

@@ -591,6 +591,13 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
 .gb-table tr.selected td:first-child { color: var(--gb-yellow); }
 .gb-table .empty-row td { color: var(--gb-bg3); border-bottom: none; padding: 1px 0 1px 0; }
 .gb-table .empty-row td:first-child { padding-right: 16px; }
+.gb-contact-table .gb-input {
+  width: min(100%, 420px);
+}
+.gb-contact-table textarea.gb-input {
+  min-height: 150px;
+  resize: vertical;
+}
 .gb-table .gb-ad-table-row td,
 .gb-table .gb-ad-table-row:hover td {
   padding: 0;
@@ -1983,7 +1990,34 @@ textarea.gb-input {
   .gb-pag-row { padding: 8px 16px; }
 
   /* Post items */
-  .gb-post { padding: 10px 12px !important; }
+  .gb-post {
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr);
+    gap: 6px 10px;
+    padding: 10px 12px !important;
+  }
+  .gb-post-avatar {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .gb-post-main {
+    display: contents;
+  }
+  .gb-post-meta {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: center;
+    margin-bottom: 0;
+  }
+  .gb-post-main > :not(.gb-post-meta) {
+    grid-column: 1 / -1;
+  }
+  .gb-post-content {
+    padding-left: 0;
+  }
+  .gb-thread-meta-bar {
+    display: none !important;
+  }
 
   /* Toolbar breadcrumb */
   .gb-breadcrumb { font-size: 11px; padding: 0 8px; gap: 3px; }
@@ -2041,13 +2075,20 @@ textarea.gb-input {
   }
   .gb-topic-row .gb-topic-title,
   .gb-topic-line .gb-topic-title {
+    display: block;
     width: 100%;
     min-height: 20px;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: normal;
   }
   .gb-topic-row .gb-topic-meta-row {
     gap: 2px 6px !important;
     margin-top: 0 !important;
-    max-height: 50px;
+    max-height: none;
+    overflow: visible;
   }
   .gb-topic-cat {
     max-width: 100%;
@@ -2093,6 +2134,109 @@ textarea.gb-input {
   .gb-table .gb-ad-table-row .gb-ad-slot {
     padding-left: 6px;
     padding-right: 6px;
+  }
+
+  .gb-contact-page {
+    padding: 12px 10px !important;
+    max-width: none !important;
+  }
+  .gb-contact-table {
+    display: block;
+  }
+  .gb-contact-table thead {
+    display: none;
+  }
+  .gb-contact-table .empty-row {
+    display: none;
+  }
+  .gb-contact-table tbody,
+  .gb-contact-table tr,
+  .gb-contact-table td {
+    display: block;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box;
+  }
+  .gb-contact-table tr {
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255,255,255,.04);
+  }
+  .gb-contact-table td {
+    padding: 0 !important;
+    border-bottom: none;
+    text-align: left !important;
+  }
+  .gb-contact-table td:first-child {
+    display: none;
+  }
+  .gb-contact-table td:nth-child(2) {
+    margin-bottom: 5px;
+    color: var(--gb-gray) !important;
+    font-size: 12px;
+  }
+  .gb-contact-table td:nth-child(3),
+  .gb-contact-action-row td[colspan] {
+    width: 100% !important;
+  }
+  .gb-contact-table .gb-input,
+  .gb-contact-table textarea.gb-input {
+    display: block;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box;
+  }
+  .gb-contact-table textarea.gb-input {
+    min-height: 168px;
+  }
+  .gb-contact-action-row .gb-btn {
+    width: 100%;
+    justify-content: center;
+  }
+  .gb-contact-hint {
+    display: block;
+    margin: 8px 0 0 !important;
+    line-height: 1.45;
+  }
+
+  .gb-about-page {
+    padding: 12px 10px !important;
+    max-width: none !important;
+  }
+  .gb-about-table {
+    display: block;
+  }
+  .gb-about-table thead,
+  .gb-about-table .empty-row {
+    display: none;
+  }
+  .gb-about-table tbody,
+  .gb-about-table tr,
+  .gb-about-table td {
+    display: block;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box;
+  }
+  .gb-about-table tr {
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(255,255,255,.04);
+  }
+  .gb-about-table td {
+    padding: 0 !important;
+    border-bottom: none;
+    text-align: left !important;
+  }
+  .gb-about-table td:first-child {
+    display: none;
+  }
+  .gb-about-table td:nth-child(2) {
+    margin-bottom: 5px;
+    font-size: 13px;
+  }
+  .gb-about-table td:nth-child(3) {
+    color: var(--gb-fg);
+    line-height: 1.55;
+    overflow-wrap: anywhere;
   }
 
   /* Search overlay full-width */

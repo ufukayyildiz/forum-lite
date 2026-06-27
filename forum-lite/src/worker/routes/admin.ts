@@ -106,6 +106,33 @@ const anchorAutoBody = z.object({
   enabled: z.boolean().optional(),
 });
 
+const emailSuppressionImportBody = z.object({
+  text: z.string().min(1).max(2_000_000),
+  reason: z.string().trim().min(1).max(120).optional(),
+});
+
+const EMAIL_IMPORT_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+
+function extractImportEmails(text: string) {
+  const seen = new Set<string>();
+  const emails: string[] = [];
+  let duplicateInUpload = 0;
+  const rawMatches = text.match(EMAIL_IMPORT_RE) ?? [];
+
+  for (const raw of rawMatches) {
+    const email = normalizeEmailAddress(raw);
+    if (!z.string().email().safeParse(email).success) continue;
+    if (seen.has(email)) {
+      duplicateInUpload += 1;
+      continue;
+    }
+    seen.add(email);
+    emails.push(email);
+  }
+
+  return { emails, duplicateInUpload, rawMatches: rawMatches.length };
+}
+
 function normalizeAnchorTerm(term: string): string {
   return term.trim().replace(/\s+/g, " ");
 }
@@ -475,6 +502,75 @@ app.post("/email-suppressions", zValidator("json", z.object({
      WHERE LOWER(email) = ?`,
   ).bind(email).run();
   return c.json({ ok: true, email });
+});
+
+app.post("/email-suppressions/import", zValidator("json", emailSuppressionImportBody), async (c) => {
+  const db = c.get("db");
+  const body = c.req.valid("json");
+  const user = c.get("user");
+  const reason = body.reason || "csv_import_suppression";
+  const { emails, duplicateInUpload, rawMatches } = extractImportEmails(body.text);
+  const maxEmails = 20_000;
+  const limitedEmails = emails.slice(0, maxEmails);
+  const results: Array<{ email: string; status: "added" | "skipped_existing" | "error"; message?: string }> = [];
+  let added = 0;
+  let skippedExisting = 0;
+  let errors = 0;
+
+  for (const email of limitedEmails) {
+    try {
+      if (await isEmailSuppressed(db, email)) {
+        skippedExisting += 1;
+        results.push({ email, status: "skipped_existing" });
+        continue;
+      }
+
+      await recordEmailSuppression(db, c.env, email, {
+        reason,
+        source: "admin_csv_import",
+        details: `Imported from suppression upload by ${user?.username ?? "admin"}`,
+      });
+      await c.env.DB.prepare(
+        `UPDATE email_events
+         SET status = 'suppressed', message = ?, error_code = ?
+         WHERE LOWER(email) = ?`,
+      ).bind("Suppressed by admin CSV import", reason, email).run();
+      await c.env.DB.prepare(
+        `UPDATE marketing_sends
+         SET status = 'suppressed'
+         WHERE LOWER(email) = ?`,
+      ).bind(email).run();
+      added += 1;
+      results.push({ email, status: "added" });
+    } catch (error) {
+      errors += 1;
+      results.push({
+        email,
+        status: "error",
+        message: error instanceof Error ? error.message : "Import failed",
+      });
+    }
+  }
+
+  await db.insert(schema.activityLog).values({
+    userId: user?.id ?? null,
+    type: "email_bounce",
+    summary: `Imported suppression CSV: ${added} added, ${skippedExisting} skipped, ${errors} errors`,
+  });
+
+  return c.json({
+    ok: true,
+    rawMatches,
+    unique: emails.length,
+    processed: limitedEmails.length,
+    truncated: emails.length > maxEmails,
+    duplicateInUpload,
+    added,
+    skippedExisting,
+    errors,
+    resultLimit: 500,
+    results: results.slice(0, 500),
+  });
 });
 
 app.delete("/email-suppressions/:email", async (c) => {
