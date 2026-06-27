@@ -4,6 +4,10 @@ import { toast } from "sonner";
 import { api, type AdminEmailSuppression, type AdminEmailSuppressionImportResult } from "../../lib/api";
 import { relativeTime } from "../../lib/utils";
 
+const EMAIL_IMPORT_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+const IMPORT_CHUNK_SIZE = 500;
+const IMPORT_RESULT_LIMIT = 500;
+
 function cfColor(status: string | null): string {
   if (status === "synced") return "var(--gb-green)";
   if (status === "error" || status === "auth_error") return "var(--gb-red)";
@@ -18,11 +22,29 @@ function displayUser(row: AdminEmailSuppression): string {
     : `@${row.username}`;
 }
 
+function extractSuppressionEmails(text: string) {
+  const seen = new Set<string>();
+  const emails: string[] = [];
+  let duplicateInUpload = 0;
+  const rawMatches = text.match(EMAIL_IMPORT_RE) ?? [];
+  for (const raw of rawMatches) {
+    const email = raw.trim().toLowerCase();
+    if (seen.has(email)) {
+      duplicateInUpload += 1;
+      continue;
+    }
+    seen.add(email);
+    emails.push(email);
+  }
+  return { emails, duplicateInUpload, rawMatches: rawMatches.length };
+}
+
 export default function AdminSuppressions() {
   const [page, setPage] = useState(1);
   const [q, setQ] = useState("");
   const [manualEmail, setManualEmail] = useState("");
   const [importReport, setImportReport] = useState<AdminEmailSuppressionImportResult | null>(null);
+  const [importProgress, setImportProgress] = useState<{ running: boolean; processed: number; total: number; chunk: number; chunks: number } | null>(null);
   const qc = useQueryClient();
   const perPage = 100;
 
@@ -55,19 +77,6 @@ export default function AdminSuppressions() {
     onError: (error: any) => toast.error(error.message || "Suppression failed"),
   });
 
-  const importSuppressions = useMutation({
-    mutationFn: (text: string) => api.adminImportEmailSuppressions(text),
-    onSuccess: (result) => {
-      setImportReport(result);
-      setPage(1);
-      qc.invalidateQueries({ queryKey: ["admin-email-suppressions"] });
-      qc.invalidateQueries({ queryKey: ["admin-marketing-users"] });
-      const suffix = result.truncated ? " (truncated at 20k)" : "";
-      toast.success(`CSV import: ${result.added} added, ${result.skippedExisting} skipped${suffix}`);
-    },
-    onError: (error: any) => toast.error(error.message || "CSV import failed"),
-  });
-
   const remove = useMutation({
     mutationFn: (email: string) => api.adminRemoveEmailSuppression(email),
     onSuccess: (result) => {
@@ -92,9 +101,60 @@ export default function AdminSuppressions() {
         toast.error("Selected file is empty");
         return;
       }
-      importSuppressions.mutate(text);
+      const parsed = extractSuppressionEmails(text);
+      if (!parsed.emails.length) {
+        toast.error("No email addresses found in selected file");
+        return;
+      }
+      const totalChunks = Math.ceil(parsed.emails.length / IMPORT_CHUNK_SIZE);
+      const aggregate: AdminEmailSuppressionImportResult = {
+        ok: true,
+        rawMatches: parsed.rawMatches,
+        unique: parsed.emails.length,
+        processed: 0,
+        truncated: false,
+        duplicateInUpload: parsed.duplicateInUpload,
+        added: 0,
+        skippedExisting: 0,
+        errors: 0,
+        resultLimit: IMPORT_RESULT_LIMIT,
+        results: [],
+      };
+      setImportReport(null);
+      setImportProgress({ running: true, processed: 0, total: parsed.emails.length, chunk: 0, chunks: totalChunks });
+
+      for (let offset = 0; offset < parsed.emails.length; offset += IMPORT_CHUNK_SIZE) {
+        const chunkIndex = Math.floor(offset / IMPORT_CHUNK_SIZE) + 1;
+        const chunk = parsed.emails.slice(offset, offset + IMPORT_CHUNK_SIZE);
+        setImportProgress({ running: true, processed: offset, total: parsed.emails.length, chunk: chunkIndex, chunks: totalChunks });
+        const result = await api.adminImportEmailSuppressions(chunk.join("\n"));
+        aggregate.processed += result.processed;
+        aggregate.truncated = aggregate.truncated || result.truncated;
+        aggregate.added += result.added;
+        aggregate.skippedExisting += result.skippedExisting;
+        aggregate.errors += result.errors;
+        const remainingResultSlots = IMPORT_RESULT_LIMIT - aggregate.results.length;
+        if (remainingResultSlots > 0) {
+          aggregate.results.push(...result.results.slice(0, remainingResultSlots));
+        }
+        setImportReport({ ...aggregate, results: [...aggregate.results] });
+        setImportProgress({
+          running: true,
+          processed: Math.min(offset + chunk.length, parsed.emails.length),
+          total: parsed.emails.length,
+          chunk: chunkIndex,
+          chunks: totalChunks,
+        });
+      }
+
+      setPage(1);
+      qc.invalidateQueries({ queryKey: ["admin-email-suppressions"] });
+      qc.invalidateQueries({ queryKey: ["admin-marketing-users"] });
+      toast.success(`CSV import: ${aggregate.added} added, ${aggregate.skippedExisting} skipped, ${aggregate.errors} errors`);
     } catch (error: any) {
-      toast.error(error?.message || "Could not read selected file");
+      toast.error(error?.message || "CSV import failed");
+    } finally {
+      setImportProgress((current) => current ? { ...current, running: false } : null);
     }
   }
 
@@ -107,12 +167,12 @@ export default function AdminSuppressions() {
             local list blocks all email types: marketing, notify, account, password reset
           </span>
           <div style={{ flex: 1 }} />
-          <label className="gb-btn" style={{ display: "inline-flex", alignItems: "center", cursor: importSuppressions.isPending ? "not-allowed" : "pointer" }}>
-            {importSuppressions.isPending ? "$ importing..." : "$ upload csv"}
+          <label className="gb-btn" style={{ display: "inline-flex", alignItems: "center", cursor: importProgress?.running ? "not-allowed" : "pointer" }}>
+            {importProgress?.running ? `$ importing ${importProgress.processed}/${importProgress.total}` : "$ upload csv"}
             <input
               type="file"
               accept=".csv,text/csv,text/plain"
-              disabled={importSuppressions.isPending}
+              disabled={Boolean(importProgress?.running)}
               onChange={handleImportFile}
               style={{ display: "none" }}
             />
@@ -156,13 +216,15 @@ export default function AdminSuppressions() {
         <div style={{ border: "1px solid var(--gb-bg2)", background: "var(--gb-bg0)", padding: 10, color: "var(--gb-gray)", fontSize: 12 }}>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
             <span style={{ color: "var(--gb-yellow)" }}>upload report</span>
+            {importProgress?.running && <span>chunk {importProgress.chunk}/{importProgress.chunks}</span>}
             <span>{importReport.rawMatches} emails found</span>
             <span>{importReport.unique} unique</span>
+            <span>{importReport.processed}/{importReport.unique} processed</span>
             <span style={{ color: "var(--gb-green)" }}>{importReport.added} added</span>
             <span style={{ color: "var(--gb-yellow)" }}>{importReport.skippedExisting} skipped existing</span>
             <span>{importReport.duplicateInUpload} duplicate in file</span>
             <span style={{ color: importReport.errors ? "var(--gb-red)" : "var(--gb-gray)" }}>{importReport.errors} errors</span>
-            {importReport.truncated && <span style={{ color: "var(--gb-red)" }}>processed first 20,000 only</span>}
+            {importReport.truncated && <span style={{ color: "var(--gb-red)" }}>a server chunk was truncated</span>}
             <button className="gb-btn" type="button" style={{ padding: "2px 8px" }} onClick={() => setImportReport(null)}>$ clear report</button>
           </div>
           {importReport.results.length > 0 && (

@@ -24,6 +24,7 @@ import { unsubscribeByToken } from "./lib/notifications";
 import { createAnalyticsPageview, updateAnalyticsDuration } from "./lib/analytics";
 import { syncCloudflareEmailSuppressions } from "./lib/email-sync";
 import { errorToRecord, recordErrorEvent, requestErrorMeta } from "./lib/error-events";
+import { ensureCoreSchema } from "./lib/core-schema";
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -39,6 +40,11 @@ app.use("/api/*", async (c, next) => {
   c.header("X-Robots-Tag", "noindex, nofollow");
 });
 app.use("/api/*", withDb);
+app.use("/api/*", async (c, next) => {
+  const ready = await ensureCoreSchema(c.env.DB);
+  if (!ready) return c.json({ error: "Database schema is updating. Try again shortly." }, 503);
+  await next();
+});
 app.use("/api/*", loadUser);
 app.use("/api/*", async (c, next) => {
   const startedAt = Date.now();
@@ -172,6 +178,22 @@ app.post("/api/analytics/duration", async (c) => {
     if (!isD1Backpressure(error)) throw error;
     return c.json({ ok: false, dropped: true, reason: "analytics_backpressure" }, 202);
   }
+});
+
+function shouldEnsureCoreSchema(path: string) {
+  if (path.startsWith("/api/")) return false;
+  if (path.startsWith("/assets/") || path.startsWith("/cdn-cgi/")) return false;
+  if (path === "/favicon.ico" || path === "/og-default.svg" || path === "/robots.txt") return false;
+  if (/\.(?:css|js|map|png|jpg|jpeg|gif|svg|webp|ico)$/i.test(path)) return false;
+  return true;
+}
+
+app.use("*", async (c, next) => {
+  const path = new URL(c.req.url).pathname;
+  if (!shouldEnsureCoreSchema(path)) return next();
+  const ready = await ensureCoreSchema(c.env.DB);
+  if (!ready) return c.text("Database schema is updating. Please retry shortly.", 503);
+  await next();
 });
 
 function originFromRequest(url: string): string {

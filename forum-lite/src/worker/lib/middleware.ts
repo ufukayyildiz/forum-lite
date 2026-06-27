@@ -14,17 +14,21 @@ export const loadUser: MiddlewareHandler<AppEnv> = async (c, next) => {
   c.set("user", null);
   const token = getCookie(c, SESSION_COOKIE);
   if (token) {
-    const db = c.get("db");
-    const session = await db.query.sessions.findFirst({
-      where: eq(schema.sessions.token, token),
-    });
-    if (session) {
-      const exp = session.expiresAt;
-      const expMs = exp instanceof Date ? exp.getTime() : typeof exp === "number" ? (exp > 1e10 ? exp : exp * 1000) : 0;
-      if (expMs > Date.now()) {
-        const user = await db.query.users.findFirst({ where: eq(schema.users.id, session.userId) });
-        if (user && !user.banned) c.set("user", user);
+    try {
+      const db = c.get("db");
+      const session = await db.query.sessions.findFirst({
+        where: eq(schema.sessions.token, token),
+      });
+      if (session) {
+        const exp = session.expiresAt;
+        const expMs = exp instanceof Date ? exp.getTime() : typeof exp === "number" ? (exp > 1e10 ? exp : exp * 1000) : 0;
+        if (expMs > Date.now()) {
+          const user = await db.query.users.findFirst({ where: eq(schema.users.id, session.userId) });
+          if (user && !user.banned) c.set("user", user);
+        }
       }
+    } catch (error) {
+      console.warn("load_user_skipped", error instanceof Error ? error.message : error);
     }
   }
   await next();

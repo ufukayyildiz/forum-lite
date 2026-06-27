@@ -133,6 +133,61 @@ function extractImportEmails(text: string) {
   return { emails, duplicateInUpload, rawMatches: rawMatches.length };
 }
 
+function chunksOf<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) chunks.push(items.slice(i, i + size));
+  return chunks;
+}
+
+async function existingSuppressionEmails(db: D1Database, emails: string[]): Promise<Set<string>> {
+  const existing = new Set<string>();
+  for (const chunk of chunksOf(emails, 400)) {
+    if (!chunk.length) continue;
+    const placeholders = chunk.map(() => "?").join(",");
+    const rows = await db.prepare(
+      `SELECT LOWER(email) AS email
+       FROM email_suppressions
+       WHERE LOWER(email) IN (${placeholders})`,
+    ).bind(...chunk).all<{ email: string }>();
+    for (const row of rows.results ?? []) {
+      const email = String(row.email ?? "").trim().toLowerCase();
+      if (email) existing.add(email);
+    }
+  }
+  return existing;
+}
+
+async function markEmailsSuppressedEverywhere(
+  db: D1Database,
+  emails: string[],
+  reason: string,
+  message: string,
+  now: number,
+) {
+  for (const chunk of chunksOf(emails, 400)) {
+    if (!chunk.length) continue;
+    const placeholders = chunk.map(() => "?").join(",");
+    await db.prepare(
+      `UPDATE users
+       SET email_suppressed_at = ?,
+           email_suppression_reason = ?
+       WHERE LOWER(email) IN (${placeholders})`,
+    ).bind(now, reason, ...chunk).run();
+    await db.prepare(
+      `UPDATE email_events
+       SET status = 'suppressed',
+           message = ?,
+           error_code = ?
+       WHERE LOWER(email) IN (${placeholders})`,
+    ).bind(message, reason, ...chunk).run();
+    await db.prepare(
+      `UPDATE marketing_sends
+       SET status = 'suppressed'
+       WHERE LOWER(email) IN (${placeholders})`,
+    ).bind(...chunk).run();
+  }
+}
+
 function normalizeAnchorTerm(term: string): string {
   return term.trim().replace(/\s+/g, " ");
 }
@@ -510,52 +565,60 @@ app.post("/email-suppressions/import", zValidator("json", emailSuppressionImport
   const user = c.get("user");
   const reason = body.reason || "csv_import_suppression";
   const { emails, duplicateInUpload, rawMatches } = extractImportEmails(body.text);
-  const maxEmails = 20_000;
+  const maxEmails = 5_000;
   const limitedEmails = emails.slice(0, maxEmails);
   const results: Array<{ email: string; status: "added" | "skipped_existing" | "error"; message?: string }> = [];
-  let added = 0;
-  let skippedExisting = 0;
   let errors = 0;
 
-  for (const email of limitedEmails) {
-    try {
-      if (await isEmailSuppressed(db, email)) {
-        skippedExisting += 1;
-        results.push({ email, status: "skipped_existing" });
-        continue;
-      }
+  const existing = await existingSuppressionEmails(c.env.DB, limitedEmails);
+  const toAdd = limitedEmails.filter((email) => !existing.has(email));
+  const skippedExisting = limitedEmails.length - toAdd.length;
+  const now = Math.floor(Date.now() / 1000);
+  const details = `csv upload by ${user?.username ?? "admin"}`;
+  const cfStatus = cloudflareEmailApiConfigured(c.env) ? "pending" : "skipped";
 
-      await recordEmailSuppression(db, c.env, email, {
-        reason,
-        source: "admin_csv_import",
-        details: `Imported from suppression upload by ${user?.username ?? "admin"}`,
-      });
-      await c.env.DB.prepare(
-        `UPDATE email_events
-         SET status = 'suppressed', message = ?, error_code = ?
-         WHERE LOWER(email) = ?`,
-      ).bind("Suppressed by admin CSV import", reason, email).run();
-      await c.env.DB.prepare(
-        `UPDATE marketing_sends
-         SET status = 'suppressed'
-         WHERE LOWER(email) = ?`,
-      ).bind(email).run();
-      added += 1;
-      results.push({ email, status: "added" });
+  for (const email of limitedEmails) {
+    results.push({ email, status: existing.has(email) ? "skipped_existing" : "added" });
+  }
+
+  for (const chunk of chunksOf(toAdd, 100)) {
+    try {
+      await c.env.DB.batch(
+        chunk.map((email) => c.env.DB.prepare(
+          `INSERT OR IGNORE INTO email_suppressions
+             (email, reason, source, details, cf_suppression_status, cf_suppressed_at, cf_suppression_error, created_at, updated_at)
+           VALUES (?, ?, 'admin_csv_import', ?, ?, NULL, NULL, ?, ?)`,
+        ).bind(email, reason, details, cfStatus, now, now)),
+      );
     } catch (error) {
-      errors += 1;
-      results.push({
-        email,
-        status: "error",
-        message: error instanceof Error ? error.message : "Import failed",
-      });
+      errors += chunk.length;
+      for (const email of chunk) {
+        const row = results.find((item) => item.email === email);
+        if (row) {
+          row.status = "error";
+          row.message = error instanceof Error ? error.message : "Import failed";
+        }
+      }
     }
+  }
+
+  const locallySuppressedEmails = results
+    .filter((row) => row.status !== "error")
+    .map((row) => row.email);
+  if (locallySuppressedEmails.length) {
+    await markEmailsSuppressedEverywhere(
+      c.env.DB,
+      locallySuppressedEmails,
+      reason,
+      "Suppressed by admin CSV import",
+      now,
+    );
   }
 
   await db.insert(schema.activityLog).values({
     userId: user?.id ?? null,
     type: "email_bounce",
-    summary: `Imported suppression CSV: ${added} added, ${skippedExisting} skipped, ${errors} errors`,
+    summary: `Imported suppression CSV: ${toAdd.length - errors} added, ${skippedExisting} skipped, ${errors} errors`,
   });
 
   return c.json({
@@ -565,7 +628,7 @@ app.post("/email-suppressions/import", zValidator("json", emailSuppressionImport
     processed: limitedEmails.length,
     truncated: emails.length > maxEmails,
     duplicateInUpload,
-    added,
+    added: toAdd.length - errors,
     skippedExisting,
     errors,
     resultLimit: 500,
