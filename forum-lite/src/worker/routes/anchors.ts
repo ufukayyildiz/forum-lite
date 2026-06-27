@@ -20,29 +20,40 @@ function mapAnchor(row: typeof schema.anchorLinks.$inferSelect) {
 }
 
 app.get("/", async (c) => {
-  const db = c.get("db");
-  const rows = await db
-    .select()
-    .from(schema.anchorLinks)
-    .where(eq(schema.anchorLinks.enabled, true))
-    .orderBy(sql`length(${schema.anchorLinks.term}) desc`, desc(schema.anchorLinks.clickCount), schema.anchorLinks.term)
-    .limit(500);
-  c.header("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
-  return c.json(rows.map(mapAnchor));
+  try {
+    const db = c.get("db");
+    const rows = await db
+      .select()
+      .from(schema.anchorLinks)
+      .where(eq(schema.anchorLinks.enabled, true))
+      .orderBy(sql`length(${schema.anchorLinks.term}) desc`, desc(schema.anchorLinks.clickCount), schema.anchorLinks.term)
+      .limit(500);
+    c.header("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+    return c.json(rows.map(mapAnchor));
+  } catch (error) {
+    console.error("anchors_unavailable", error);
+    c.header("Cache-Control", "public, max-age=30, stale-while-revalidate=300");
+    return c.json([]);
+  }
 });
 
 app.post("/:id/click", async (c) => {
-  const db = c.get("db");
-  const id = Number(c.req.param("id"));
-  if (!Number.isInteger(id) || id <= 0) return c.json({ error: "Invalid anchor" }, 400);
-  await db
-    .update(schema.anchorLinks)
-    .set({
-      clickCount: sql`${schema.anchorLinks.clickCount} + 1`,
-      updatedAt: new Date(),
-    })
-    .where(eq(schema.anchorLinks.id, id));
-  return c.json({ ok: true });
+  try {
+    const db = c.get("db");
+    const id = Number(c.req.param("id"));
+    if (!Number.isInteger(id) || id <= 0) return c.json({ error: "Invalid anchor" }, 400);
+    await db
+      .update(schema.anchorLinks)
+      .set({
+        clickCount: sql`${schema.anchorLinks.clickCount} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.anchorLinks.id, id));
+    return c.json({ ok: true });
+  } catch (error) {
+    console.error("anchor_click_skipped", error);
+    return c.json({ ok: false, skipped: true });
+  }
 });
 
 export default app;

@@ -105,6 +105,8 @@ app.get("/", async (c) => {
   const sort = c.req.query("sort") ?? "posts";
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
   const loadAllMembers = c.req.query("all") === "1";
+  const requestedPerPage = Number(c.req.query("perPage") ?? 24);
+  const pagedPerPage = Math.max(1, Math.min(200, Number.isFinite(requestedPerPage) ? Math.floor(requestedPerPage) : 24));
 
   const where = q ? like(schema.users.username, `%${q}%`) : undefined;
   const orderBy =
@@ -115,7 +117,7 @@ app.get("/", async (c) => {
         : desc(schema.users.postCount);
 
   const total = await db.$count(schema.users, where);
-  const perPage = loadAllMembers ? Math.max(total, 1) : 24;
+  const perPage = loadAllMembers ? Math.max(total, 1) : pagedPerPage;
   const offset = loadAllMembers ? 0 : (page - 1) * perPage;
 
   const rows = await db

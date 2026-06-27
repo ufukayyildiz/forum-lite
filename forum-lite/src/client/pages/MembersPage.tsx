@@ -1,5 +1,5 @@
-import { Fragment, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { Fragment, useEffect, useState } from "react";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { DAvatar } from "../components/DAvatar";
@@ -10,18 +10,37 @@ import { ListAdRow, shouldShowLeadListAd, shouldShowListAd } from "../components
 const ROLE_LABEL: Record<string, string> = { admin: "[admin]", moderator: "[mod]" };
 const ROLE_COLOR: Record<string, string> = { admin: "var(--gb-red)", moderator: "var(--gb-blue)" };
 const VISIBLE_ROWS = 18;
+const MEMBERS_PAGE_SIZE = 200;
 
 export default function MembersPage() {
   const [sort, setSort] = useState("posts");
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["members", sort, "all"],
-    queryFn: () => api.members({ sort, all: 1 }),
-    placeholderData: (previous) => previous,
+  const {
+    data,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: ["members", sort, "pages"],
+    queryFn: ({ pageParam }) => api.members({ sort, page: pageParam, perPage: MEMBERS_PAGE_SIZE }),
+    initialPageParam: 1,
+    getNextPageParam: (last) => (last.page * last.perPage < last.total ? last.page + 1 : undefined),
+    staleTime: 60_000,
   });
   const { data: adsConfig } = useQuery({ queryKey: ["ads-config"], queryFn: api.adsConfig });
 
-  const list = data?.members ?? [];
+  useEffect(() => {
+    if (!hasNextPage || isFetchingNextPage) return;
+    const id = window.setTimeout(() => {
+      void fetchNextPage();
+    }, 120);
+    return () => window.clearTimeout(id);
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage, data?.pages.length]);
+
+  const pages = data?.pages ?? [];
+  const list = pages.flatMap((page) => page.members);
+  const total = pages[0]?.total ?? 0;
   const emptyCount = Math.max(0, VISIBLE_ROWS - list.length);
   const showLoading = isLoading && !data;
 
@@ -43,7 +62,7 @@ export default function MembersPage() {
           name: "Forum Members",
           url: origin + "/members",
           inLanguage: "en-US",
-          numberOfItems: data?.total ?? 0,
+          numberOfItems: total,
         }}
       />
       <GbToolbar crumbs={[{ label: "members" }]} />
@@ -118,6 +137,12 @@ export default function MembersPage() {
                   <td colSpan={5} />
                 </tr>
               ))}
+              {isFetchingNextPage && (
+                <tr>
+                  <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16 }}>~</td>
+                  <td colSpan={5} style={{ color: "var(--gb-gray)" }}>loading more...</td>
+                </tr>
+              )}
             </tbody>
           </table>
         )}

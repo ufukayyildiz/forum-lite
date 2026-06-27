@@ -2,6 +2,8 @@ import type { AdsConfig } from "../lib/api";
 import { activeAdInterval, type AdIntervalKind } from "../lib/ads";
 import { AdSlot } from "./AdSlot";
 
+const MAX_INLINE_LIST_ADS = 12;
+
 export function shouldShowLeadListAd(config: AdsConfig | undefined, total: number) {
   return Boolean(config?.enabled && total > 0);
 }
@@ -12,7 +14,10 @@ export function shouldShowListAd(
   total: number,
   kind: AdIntervalKind = "topic",
 ) {
-  return Boolean(config?.enabled && position > 0 && total > 0 && position % activeAdInterval(config, kind) === 0);
+  if (!config?.enabled || position <= 0 || total <= 0) return false;
+  const interval = activeAdInterval(config, kind);
+  if (position % interval !== 0) return false;
+  return position / interval <= MAX_INLINE_LIST_ADS;
 }
 
 export function ListAdRow({

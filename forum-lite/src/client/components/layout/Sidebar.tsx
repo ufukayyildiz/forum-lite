@@ -45,8 +45,8 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
       }).catch(() => undefined);
     } else if (to === "/members") {
       qc.prefetchQuery({
-        queryKey: ["members", "posts", "all"],
-        queryFn: () => api.members({ sort: "posts", all: 1 }),
+        queryKey: ["members", "posts", "page", 1],
+        queryFn: () => api.members({ sort: "posts", page: 1, perPage: 200 }),
       }).catch(() => undefined);
     } else if (to === "/tags") {
       qc.prefetchQuery({ queryKey: ["tags"], queryFn: api.tags }).catch(() => undefined);
