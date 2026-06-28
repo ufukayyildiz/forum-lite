@@ -7,6 +7,7 @@ export type Bindings = {
   BUCKET?: R2Bucket;
   ASSETS: Fetcher;
   SEND_EMAIL: SendEmail;
+  MARKETING_QUEUE?: Queue<{ jobId: string }>;
   ADMIN_EMAIL?: string;
   SITE_URL?: string;
   CF_ACCOUNT_ID?: string;

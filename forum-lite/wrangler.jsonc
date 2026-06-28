@@ -48,5 +48,21 @@
       "name": "SEND_EMAIL",
       "allowed_sender_addresses": ["noreply@devfox.net"]
     }
-  ]
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "MARKETING_QUEUE",
+        "queue": "fstdesk-marketing-email-jobs"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "fstdesk-marketing-email-jobs",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 3
+      }
+    ]
+  }
 }

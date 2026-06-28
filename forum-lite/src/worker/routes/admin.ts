@@ -2475,7 +2475,16 @@ app.post("/marketing/send", zValidator("json", z.object({
       type: "marketing",
       summary: `Queued marketing job ${newJobId} for ${ids.length} users (${body.campaignKey})`,
     });
-    c.executionCtx.waitUntil(processMarketingJobs(c.env, c.executionCtx, { jobId: newJobId }));
+    if (c.env.MARKETING_QUEUE) {
+      c.executionCtx.waitUntil(
+        c.env.MARKETING_QUEUE.send({ jobId: newJobId }).catch((error) => {
+          console.warn("marketing_queue_send_failed", newJobId, error instanceof Error ? error.message : String(error));
+          return processMarketingJobs(c.env, c.executionCtx, { jobId: newJobId });
+        }),
+      );
+    } else {
+      c.executionCtx.waitUntil(processMarketingJobs(c.env, c.executionCtx, { jobId: newJobId }));
+    }
     return c.json({
       ok: true,
       status: "queued",

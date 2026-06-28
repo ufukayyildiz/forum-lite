@@ -678,8 +678,26 @@ async function handleScheduled(_controller: ScheduledController, env: Bindings, 
   ctx.waitUntil(processMarketingJobs(env, ctx));
 }
 
+async function handleQueue(batch: MessageBatch<{ jobId?: string }>, env: Bindings, ctx: ExecutionContext): Promise<void> {
+  for (const message of batch.messages) {
+    const jobId = typeof message.body?.jobId === "string" ? message.body.jobId : "";
+    if (!/^[a-f0-9]{20}$/i.test(jobId)) {
+      message.ack();
+      continue;
+    }
+    try {
+      await processMarketingJobs(env, ctx, { jobId });
+      message.ack();
+    } catch (error) {
+      console.warn("marketing_queue_job_failed", jobId, error instanceof Error ? error.message : String(error));
+      message.retry({ delaySeconds: 30 });
+    }
+  }
+}
+
 export default {
   fetch: app.fetch,
   email: handleInboundEmail,
   scheduled: handleScheduled,
+  queue: handleQueue,
 };

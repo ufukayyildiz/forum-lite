@@ -321,7 +321,7 @@ ${button("Open thread", input.threadUrl)}`,
 export function weAreBackEmail(input: { recipientName: string; siteUrl: string }) {
   const subject = "FSTDESK Forum is back";
   const loginUrl = absoluteUrl(input.siteUrl, "/login");
-  const text = `Hi ${input.recipientName},\n\nFSTDESK Forum is back online. The old food science discussions, questions, tags and community profiles are available again with a faster, cleaner interface.\n\nFor security, old passwords were reset during the relaunch. Please use the email address you registered with and request a new password from the reset-password form. Your new temporary password will be sent directly to your email.\n\nReset your password / sign in: ${loginUrl}\n\nCome back and continue the conversation: ${input.siteUrl}\n\nFSTDESK`;
+  const text = `Hi ${input.recipientName},\n\nFSTDESK Forum is back online. The old food science discussions, questions, tags and community profiles are available again with a faster, cleaner interface.\n\nFor security, old passwords were reset during the relaunch. Please use the email address you registered with and request a new password from the reset-password form. Your new password will be sent directly to your email.\n\nReset your password / sign in: ${loginUrl}\n\nCome back and continue the conversation: ${input.siteUrl}\n\nFSTDESK`;
   const html = emailShell(
     "FSTDESK Forum is back",
     `<p>Hi <strong>${escapeHtml(input.recipientName)}</strong>,</p>
@@ -329,7 +329,7 @@ export function weAreBackEmail(input: { recipientName: string; siteUrl: string }
 <p>The old conversations, member profiles and technical threads are available again. We would love to see you back in the community.</p>
 <div style="margin:18px 0;padding:14px 16px;border:1px solid #504945;background:#32302f">
   <p style="margin:0 0 8px;color:#fabd2f;font-weight:700">Passwords were reset for the relaunch</p>
-  <p style="margin:0">Please use the email address you registered with and request a new password from the reset-password form. Your new temporary password will be sent directly to your email.</p>
+  <p style="margin:0">Please use the email address you registered with and request a new password from the reset-password form. Your new password will be sent directly to your email.</p>
 </div>
 ${button("Reset password / sign in", loginUrl)}
 ${button("Visit FSTDESK", input.siteUrl)}

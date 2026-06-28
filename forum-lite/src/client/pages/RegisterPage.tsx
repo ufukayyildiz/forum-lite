@@ -116,7 +116,7 @@ export default function RegisterPage() {
             ))}
 
             <div style={{ fontSize: 11, color: "var(--gb-gray)", lineHeight: 1.6 }}>
-              # no password field; FSTDESK sends an 8-character temporary password to your email.
+              # no password field; FSTDESK sends an 8-character password to your email.
               Your email is marked verified after the first successful login.
             </div>
 

@@ -567,11 +567,11 @@ export function accountCreatedPasswordEmail(username: string, password: string, 
   const safePassword = escapeHtml(password);
   const safeSiteUrl = escapeHtml(siteUrl);
   const subject = "Your FSTDESK Forum account password";
-  const text = `Hi ${username},\n\nYour FSTDESK Forum account has been created.\n\nYour temporary password is:\n\n${password}\n\nSign in: ${siteUrl}/login\n\nYour email will be marked verified after your first successful sign in.`;
+  const text = `Hi ${username},\n\nYour FSTDESK Forum account has been created.\n\nYour password is:\n\n${password}\n\nSign in: ${siteUrl}/login\n\nYour email will be marked verified after your first successful sign in.`;
   const html = `<!DOCTYPE html><html><body style="font-family:monospace;background:#282828;color:#ebdbb2;padding:24px">
 <h2 style="color:#fabd2f">Your FSTDESK Forum account</h2>
 <p>Hi <strong>${safeUsername}</strong>, your account has been created.</p>
-<p>Your temporary password is:</p>
+<p>Your password is:</p>
 <p style="font-size:22px;letter-spacing:2px;color:#8ec07c;background:#3c3836;border:1px solid #504945;padding:10px 14px;display:inline-block">${safePassword}</p>
 <p><a href="${safeSiteUrl}/login" style="color:#95c7c0">Sign in &rarr;</a></p>
 <p style="color:#928374;font-size:12px">Your email will be marked verified after your first successful sign in.</p>
