@@ -279,26 +279,58 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
   height: var(--gb-sidebar-ad-height);
 }
 .gb-sidebar-ad-wrap .gb-house-ad {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  align-items: start;
+  justify-items: start;
   width: var(--gb-sidebar-ad-width);
   min-width: var(--gb-sidebar-ad-width);
   max-width: var(--gb-sidebar-ad-width);
   height: var(--gb-sidebar-ad-height);
   min-height: var(--gb-sidebar-ad-height);
   max-height: var(--gb-sidebar-ad-height);
-  padding: 14px;
-  gap: 8px;
+  padding: 12px;
+  gap: 6px;
   justify-content: flex-start;
   white-space: normal;
 }
+.gb-sidebar-ad-wrap .gb-house-ad .gb-house-ad-brand {
+  grid-column: 1;
+  grid-row: 1;
+}
 .gb-sidebar-ad-wrap .gb-house-ad strong {
+  grid-column: 1;
+  grid-row: 2;
+  display: -webkit-box;
   font-size: 18px;
   line-height: 1.15;
+  text-overflow: clip;
   white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 .gb-sidebar-ad-wrap .gb-house-ad-copy {
+  grid-column: 1;
+  grid-row: 3;
+  display: -webkit-box;
   font-size: 12px;
   line-height: 1.25;
+  text-overflow: clip;
   white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+.gb-sidebar-ad-wrap .gb-house-ad .gb-house-ad-cta {
+  grid-column: 1;
+  grid-row: 4;
+  align-self: end;
+  justify-self: stretch;
+  order: 0;
+  min-width: 0;
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
 }
 .gb-statusbar-links {
   display: flex;
