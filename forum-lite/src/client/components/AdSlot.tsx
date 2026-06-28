@@ -14,6 +14,8 @@ const ADSENSE_STABLE_VISIBLE_MS = 1000;
 const VIEWABLE_THRESHOLD = 1;
 const VIEWPORT_TOLERANCE_PX = 1;
 const DEFAULT_AD_HEIGHT = 160;
+const MAX_AD_HEIGHT = 600;
+type AdSlotFormat = "horizontal" | "rectangle" | "vertical" | "auto";
 
 const HOUSE_ADS = [
   {
@@ -70,15 +72,17 @@ export function AdSlot({
   config,
   index,
   height = DEFAULT_AD_HEIGHT,
+  format = "horizontal",
 }: {
   config?: AdsConfig;
   index: number;
   height?: number;
+  format?: AdSlotFormat;
 }) {
   const htmlRef = useRef<HTMLDivElement>(null);
   const houseVariantRef = useRef<number | null>(null);
   const html = activeAdHtml(config);
-  const reservedHeight = Math.max(60, Math.min(DEFAULT_AD_HEIGHT, Math.round(Number(height) || DEFAULT_AD_HEIGHT)));
+  const reservedHeight = Math.max(60, Math.min(MAX_AD_HEIGHT, Math.round(Number(height) || DEFAULT_AD_HEIGHT)));
 
   useEffect(() => {
     const mount = htmlRef.current;
@@ -137,7 +141,7 @@ export function AdSlot({
       setCss(mount, "width", "100%");
 
       for (const el of Array.from(mount.querySelectorAll<HTMLElement>("ins.adsbygoogle, .adsbygoogle"))) {
-        el.setAttribute("data-ad-format", "horizontal");
+        el.setAttribute("data-ad-format", format);
         el.setAttribute("data-full-width-responsive", "false");
         setCss(el, "display", "block", "important");
         setCss(el, "height", `${reservedHeight}px`, "important");

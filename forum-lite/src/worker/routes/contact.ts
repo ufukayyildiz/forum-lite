@@ -19,6 +19,16 @@ const contactSchema = z.object({
   website: z.string().max(200).optional(),
 });
 
+function contactValidationMessage(error: z.ZodError) {
+  const issue = error.issues[0];
+  const field = String(issue?.path[0] ?? "field");
+  if (field === "name") return "Name must be at least 2 characters.";
+  if (field === "email") return "Enter a valid email address.";
+  if (field === "subject") return "Subject must be at least 3 characters.";
+  if (field === "message") return "Message must be at least 10 characters.";
+  return "Please check the contact form fields.";
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -48,7 +58,9 @@ async function loadContactSettings(db: AppEnv["Variables"]["db"], requestUrl: st
   };
 }
 
-app.post("/", zValidator("json", contactSchema), async (c) => {
+app.post("/", zValidator("json", contactSchema, (result, c) => {
+  if (!result.success) return c.json({ error: contactValidationMessage(result.error) }, 400);
+}), async (c) => {
   const body = c.req.valid("json");
   if (body.website?.trim()) {
     return c.json({ ok: true, message: "Message received" });

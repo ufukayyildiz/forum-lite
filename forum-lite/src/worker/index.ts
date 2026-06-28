@@ -383,8 +383,8 @@ function adsConfigFromSettings(settings: Record<string, string>) {
     },
     sidebar: {
       html: sidebarHtml,
-      width: 160,
-      height: 160,
+      width: 200,
+      height: 200,
     },
   };
 }
@@ -600,7 +600,11 @@ app.on(["GET", "POST"], "/unsubscribe/:token", async (c) => {
 
 app.get("/email/open/:token", async (c) => {
   const trackingToken = emailTrackingToken(c.req.param("token"));
-  await recordEmailOpen(c.env, trackingToken);
+  c.executionCtx.waitUntil(
+    recordEmailOpen(c.env, trackingToken).catch((error) => {
+      if (!isD1Backpressure(error)) console.warn("email_open_tracking_failed", errorToRecord(error).message);
+    }),
+  );
   return new Response(TRANSPARENT_GIF, {
     status: 200,
     headers: {
@@ -614,7 +618,11 @@ app.get("/email/open/:token", async (c) => {
 app.get("/email/click/:token", async (c) => {
   const url = new URL(c.req.url);
   const trackingToken = emailTrackingToken(c.req.param("token"));
-  await recordEmailClick(c.env, trackingToken);
+  c.executionCtx.waitUntil(
+    recordEmailClick(c.env, trackingToken).catch((error) => {
+      if (!isD1Backpressure(error)) console.warn("email_click_tracking_failed", errorToRecord(error).message);
+    }),
+  );
 
   let target = new URL("/", url.origin);
   const rawTarget = url.searchParams.get("u");

@@ -171,7 +171,7 @@ export default function AdminAds() {
                     value={form.ad_sidebar_html ?? ""}
                     onChange={(e) => setForm((f) => ({ ...f, ad_sidebar_html: e.target.value }))}
                     rows={8}
-                    placeholder="desktop sidebar 160x160 ad code; hidden on mobile"
+                    placeholder="desktop sidebar 200x200 small square Adsense code; hidden on mobile"
                     style={{ width: "100%", maxWidth: 620 }}
                   />
                 </td>

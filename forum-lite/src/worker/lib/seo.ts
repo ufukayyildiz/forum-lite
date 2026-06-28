@@ -1955,19 +1955,25 @@ export async function renderSeoHtml(c: AppContext): Promise<Response> {
   const contentType = assetResponse.headers.get("content-type") ?? "";
   if (!contentType.includes("text/html")) return assetResponse;
 
-  const url = new URL(c.req.url);
-  const base = `${url.protocol}//${url.host}`;
-  const [anchors, bootstrap] = await Promise.all([
-    shouldLoadSeoAnchors(url.pathname) ? loadSeoAnchors(c) : Promise.resolve([]),
-    bootstrapForUrl(c, url),
-  ]);
-  const payload = await payloadForPath(c, base, url.pathname, anchors);
-  const html = injectHtml(await assetResponse.text(), payload, base, url, bootstrap);
-  const headers = new Headers(assetResponse.headers);
-  headers.set("content-type", "text/html; charset=utf-8");
-  headers.set("cache-control", "no-store, max-age=0, must-revalidate");
-  headers.set("cdn-cache-control", "no-store");
-  headers.set("cloudflare-cdn-cache-control", "no-store");
-  headers.set("vary", "Accept");
-  return new Response(html, { status: payload.status ?? assetResponse.status, headers });
+  const fallbackResponse = assetResponse.clone();
+  try {
+    const url = new URL(c.req.url);
+    const base = `${url.protocol}//${url.host}`;
+    const [anchors, bootstrap] = await Promise.all([
+      shouldLoadSeoAnchors(url.pathname) ? loadSeoAnchors(c) : Promise.resolve([]),
+      bootstrapForUrl(c, url),
+    ]);
+    const payload = await payloadForPath(c, base, url.pathname, anchors);
+    const html = injectHtml(await assetResponse.text(), payload, base, url, bootstrap);
+    const headers = new Headers(assetResponse.headers);
+    headers.set("content-type", "text/html; charset=utf-8");
+    headers.set("cache-control", "no-store, max-age=0, must-revalidate");
+    headers.set("cdn-cache-control", "no-store");
+    headers.set("cloudflare-cdn-cache-control", "no-store");
+    headers.set("vary", "Accept");
+    return new Response(html, { status: payload.status ?? assetResponse.status, headers });
+  } catch (error) {
+    console.warn("seo_render_fallback", error instanceof Error ? error.message : String(error));
+    return fallbackResponse;
+  }
 }

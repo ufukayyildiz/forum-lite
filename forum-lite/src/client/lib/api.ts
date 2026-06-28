@@ -18,6 +18,19 @@ function shouldReportApiStatus(status: number) {
   return status >= 500 || status === 429;
 }
 
+function apiErrorMessage(body: unknown, statusText: string) {
+  const record = body && typeof body === "object" ? body as Record<string, any> : {};
+  const raw = record.error ?? record.message;
+  if (typeof raw === "string" && raw.trim()) return raw;
+  if (raw && typeof raw === "object") {
+    const issues = Array.isArray(raw.issues) ? raw.issues : Array.isArray(record.issues) ? record.issues : [];
+    const firstMessage = issues.find((issue: any) => typeof issue?.message === "string")?.message;
+    if (firstMessage) return firstMessage;
+  }
+  const firstIssue = Array.isArray(record.issues) ? record.issues.find((issue: any) => typeof issue?.message === "string") : null;
+  return firstIssue?.message || statusText || "Request failed";
+}
+
 async function req<T>(path: string, init?: ApiRequestInit): Promise<T> {
   let res: Response;
   const controller = init?.signal ? null : new AbortController();
@@ -45,7 +58,7 @@ async function req<T>(path: string, init?: ApiRequestInit): Promise<T> {
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    const message = (body as any).error ?? res.statusText;
+    const message = apiErrorMessage(body, res.statusText);
     if (path !== "/client-errors" && shouldReportApiStatus(res.status)) {
       reportClientError({
         kind: "api_error_response",

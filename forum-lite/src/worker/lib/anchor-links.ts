@@ -1,6 +1,11 @@
 let anchorLinksSchemaReady = false;
 let anchorLinksSchemaPromise: Promise<boolean> | null = null;
 
+function isD1Backpressure(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /D1_ERROR: D1 DB is overloaded|Requests queued for too long|database is locked|too many requests/i.test(message);
+}
+
 async function createOrRepairAnchorLinksSchema(db: D1Database): Promise<boolean> {
   try {
     const now = Math.floor(Date.now() / 1000);
@@ -41,7 +46,11 @@ async function createOrRepairAnchorLinksSchema(db: D1Database): Promise<boolean>
     await db.prepare("CREATE INDEX IF NOT EXISTS anchor_links_click_count_idx ON anchor_links(click_count)").run();
     return true;
   } catch (error) {
-    console.error("anchor_links_schema_unavailable", error);
+    if (isD1Backpressure(error)) {
+      console.warn("anchor_links_schema_unavailable", error instanceof Error ? error.message : String(error));
+    } else {
+      console.error("anchor_links_schema_unavailable", error);
+    }
     return false;
   }
 }

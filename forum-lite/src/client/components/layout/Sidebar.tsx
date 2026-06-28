@@ -1,6 +1,7 @@
 import { Link, useLocation } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, ChevronDown } from "lucide-react";
+import type { CSSProperties } from "react";
 import { api } from "../../lib/api";
 import { categoryPath } from "../../lib/routes";
 import { useState } from "react";
@@ -25,10 +26,16 @@ function SidebarStickyAd({ routeKey }: { routeKey: string }) {
     desktop: { ...config.desktop, html: sidebarHtml },
     mobile: { ...config.mobile, html: "" },
   };
+  const sidebarAdWidth = Math.max(180, config.sidebar?.width ?? 200);
+  const sidebarAdHeight = Math.max(120, config.sidebar?.height ?? 200);
+  const sidebarAdStyle = {
+    "--gb-sidebar-ad-width": `${sidebarAdWidth}px`,
+    "--gb-sidebar-ad-height": `${sidebarAdHeight}px`,
+  } as CSSProperties;
 
   return (
-    <div className="gb-sidebar-ad-wrap" data-ad-route-key={routeKey} aria-label="Sidebar advertisement">
-      <AdSlot key={routeKey} config={sidebarConfig} index={9001} height={config.sidebar?.height ?? 160} />
+    <div className="gb-sidebar-ad-wrap" data-ad-route-key={routeKey} aria-label="Sidebar advertisement" style={sidebarAdStyle}>
+      <AdSlot key={routeKey} config={sidebarConfig} index={9001} height={sidebarAdHeight} format="rectangle" />
     </div>
   );
 }
