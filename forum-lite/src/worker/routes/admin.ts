@@ -509,6 +509,56 @@ function toAdminUser(u: typeof schema.users.$inferSelect, analyticsLastSeenAt?: 
   };
 }
 
+type AdminUserSqlRow = {
+  id: number;
+  publicId: string;
+  username: string;
+  email: string;
+  passwordHash: string;
+  displayName: string;
+  avatarUrl: string | null;
+  bio: string | null;
+  role: string;
+  banned: number | boolean;
+  emailVerifiedAt: number | null;
+  lastLoginAt: number | null;
+  emailSuppressedAt: number | null;
+  emailSuppressionReason: string | null;
+  postCount: number;
+  threadCount: number;
+  createdAt: number;
+  analyticsLastSeenAt: number | null;
+};
+
+function sqlTimestamp(value: number | null | undefined): Date | null {
+  if (!value) return null;
+  const seconds = Number(value);
+  return Number.isFinite(seconds) ? new Date(seconds * 1000) : null;
+}
+
+function userFromAdminSql(row: AdminUserSqlRow): typeof schema.users.$inferSelect {
+  const role = row.role === "admin" || row.role === "moderator" ? row.role : "member";
+  return {
+    id: Number(row.id),
+    publicId: String(row.publicId),
+    username: String(row.username),
+    email: String(row.email),
+    passwordHash: String(row.passwordHash),
+    displayName: String(row.displayName),
+    avatarUrl: row.avatarUrl ?? null,
+    bio: row.bio ?? null,
+    role,
+    banned: Boolean(row.banned),
+    emailVerifiedAt: sqlTimestamp(row.emailVerifiedAt),
+    lastLoginAt: sqlTimestamp(row.lastLoginAt),
+    emailSuppressedAt: sqlTimestamp(row.emailSuppressedAt),
+    emailSuppressionReason: row.emailSuppressionReason ?? null,
+    postCount: Number(row.postCount ?? 0),
+    threadCount: Number(row.threadCount ?? 0),
+    createdAt: sqlTimestamp(row.createdAt) ?? new Date(0),
+  };
+}
+
 function toAdminAnchor(row: typeof schema.anchorLinks.$inferSelect) {
   return {
     id: row.id,
@@ -885,34 +935,60 @@ app.get("/stats", async (c) => {
 });
 
 app.get("/users", async (c) => {
-  const db = c.get("db");
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
   const perPage = 25;
-  const rows = await db
-    .select()
-    .from(schema.users)
-    .orderBy(desc(schema.users.createdAt))
-    .limit(perPage)
-    .offset((page - 1) * perPage);
-  const lastSeenByUser = new Map<number, number>();
-  if (rows.length) {
-    const placeholders = rows.map(() => "?").join(",");
-    try {
-      const seenRows = await c.env.DB.prepare(
-        `SELECT user_id AS userId, MAX(last_seen_at) AS lastSeenAt
+  const q = (c.req.query("q") ?? "").trim().toLowerCase();
+  const like = `%${q}%`;
+  const searchWhere = q
+    ? `WHERE LOWER(u.username) LIKE ?
+       OR LOWER(u.email) LIKE ?
+       OR LOWER(COALESCE(u.display_name, '')) LIKE ?`
+    : "";
+  const bindings = q ? [like, like, like] : [];
+  const [totalRow, usersResult] = await Promise.all([
+    c.env.DB.prepare(`SELECT COUNT(*) AS total FROM users u ${searchWhere}`).bind(...bindings).first<{ total: number }>(),
+    c.env.DB.prepare(
+      `SELECT
+         u.id,
+         u.public_id AS publicId,
+         u.username,
+         u.email,
+         u.password_hash AS passwordHash,
+         u.display_name AS displayName,
+         u.avatar_url AS avatarUrl,
+         u.bio,
+         u.role,
+         u.banned,
+         u.email_verified_at AS emailVerifiedAt,
+         u.last_login_at AS lastLoginAt,
+         u.email_suppressed_at AS emailSuppressedAt,
+         u.email_suppression_reason AS emailSuppressionReason,
+         u.post_count AS postCount,
+         u.thread_count AS threadCount,
+         u.created_at AS createdAt,
+         ap.analyticsLastSeenAt AS analyticsLastSeenAt
+       FROM users u
+       LEFT JOIN (
+         SELECT user_id, MAX(last_seen_at) AS analyticsLastSeenAt
          FROM analytics_pageviews
-         WHERE user_id IN (${placeholders})
-         GROUP BY user_id`,
-      ).bind(...rows.map((row) => row.id)).all<{ userId: number; lastSeenAt: number }>();
-      for (const row of seenRows.results ?? []) {
-        lastSeenByUser.set(Number(row.userId), Number(row.lastSeenAt ?? 0));
-      }
-    } catch (error) {
-      console.warn("admin_users_last_seen_skipped", error instanceof Error ? error.message : error);
-    }
-  }
-  const total = await db.$count(schema.users);
-  return c.json({ users: rows.map((row) => toAdminUser(row, lastSeenByUser.get(row.id))), total, page, perPage });
+         WHERE user_id IS NOT NULL
+         GROUP BY user_id
+       ) ap ON ap.user_id = u.id
+       ${searchWhere}
+       ORDER BY MAX(COALESCE(u.last_login_at, 0), COALESCE(ap.analyticsLastSeenAt, 0)) DESC,
+                u.created_at DESC,
+                u.id DESC
+       LIMIT ? OFFSET ?`,
+    ).bind(...bindings, perPage, (page - 1) * perPage).all<AdminUserSqlRow>(),
+  ]);
+  const rows = usersResult.results ?? [];
+  return c.json({
+    users: rows.map((row) => toAdminUser(userFromAdminSql(row), row.analyticsLastSeenAt)),
+    total: Number(totalRow?.total ?? 0),
+    page,
+    perPage,
+    q,
+  });
 });
 
 app.get("/email-suppressions", async (c) => {
@@ -1511,6 +1587,64 @@ app.patch("/users/:id",
     return c.json({ ok: true, user: updated ? toPublicUser(updated) : null });
   }
 );
+
+app.delete("/users/:id", requireRole("admin"), async (c) => {
+  const db = c.get("db");
+  const admin = c.get("user");
+  const id = Number(c.req.param("id"));
+  if (!Number.isInteger(id) || id <= 0) return c.json({ error: "Invalid user id" }, 400);
+  if (admin?.id === id) return c.json({ error: "You cannot delete your own account" }, 409);
+
+  const target = await db.query.users.findFirst({ where: eq(schema.users.id, id) });
+  if (!target) return c.json({ error: "Not found" }, 404);
+
+  const [threadRow, postRow] = await Promise.all([
+    c.env.DB.prepare("SELECT COUNT(*) AS count FROM threads WHERE user_id = ?").bind(id).first<{ count: number }>(),
+    c.env.DB.prepare("SELECT COUNT(*) AS count FROM posts WHERE user_id = ?").bind(id).first<{ count: number }>(),
+  ]);
+  const threadCount = Number(threadRow?.count ?? 0);
+  const postCount = Number(postRow?.count ?? 0);
+  if (threadCount > 0 || postCount > 0) {
+    return c.json({
+      error: `User has ${threadCount} topics and ${postCount} replies; delete blocked`,
+      threadCount,
+      postCount,
+    }, 409);
+  }
+
+  const deleted = await c.env.DB.prepare(
+    `DELETE FROM users
+     WHERE id = ?
+       AND NOT EXISTS (SELECT 1 FROM threads WHERE user_id = ?)
+       AND NOT EXISTS (SELECT 1 FROM posts WHERE user_id = ?)`,
+  ).bind(id, id, id).run();
+  if (Number(deleted.meta?.changes ?? 0) !== 1) {
+    return c.json({ error: "User has topics or replies; delete blocked" }, 409);
+  }
+
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(id),
+    c.env.DB.prepare("DELETE FROM notification_preferences WHERE user_id = ?").bind(id),
+    c.env.DB.prepare("DELETE FROM likes WHERE user_id = ?").bind(id),
+    c.env.DB.prepare("DELETE FROM attachments WHERE user_id = ?").bind(id),
+    c.env.DB.prepare("UPDATE activity_log SET user_id = NULL WHERE user_id = ?").bind(id),
+    c.env.DB.prepare("UPDATE error_events SET user_id = NULL WHERE user_id = ?").bind(id),
+    c.env.DB.prepare("UPDATE email_events SET user_id = NULL WHERE user_id = ?").bind(id),
+    c.env.DB.prepare("UPDATE marketing_sends SET user_id = NULL WHERE user_id = ?").bind(id),
+    c.env.DB.prepare("UPDATE marketing_sends SET sent_by_user_id = NULL WHERE sent_by_user_id = ?").bind(id),
+    c.env.DB.prepare("UPDATE analytics_pageviews SET user_id = NULL WHERE user_id = ?").bind(id),
+    c.env.DB.prepare("UPDATE anchor_links SET created_by_user_id = NULL WHERE created_by_user_id = ?").bind(id),
+  ]);
+
+  await db.insert(schema.activityLog).values({
+    userId: admin?.id ?? null,
+    type: "admin",
+    summary: `Deleted user ${target.username}`,
+    createdAt: new Date(),
+  });
+
+  return c.json({ ok: true, deleted: id });
+});
 
 app.get("/logs", async (c) => {
   const db = c.get("db");

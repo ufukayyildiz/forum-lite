@@ -1205,6 +1205,24 @@ async function threadPayload(c: AppContext, base: string, id: string, anchors: S
   const articlePublishedTime = isoDate(thread.createdAt);
   const articleModifiedTime = newestIsoDate(thread.updatedAt, thread.lastPostAt, thread.createdAt);
   const description = cleanText(thread.content, 160) || `${title} discussion in ${thread.categoryName}.`;
+  const comments = replies
+    .map((reply) => {
+      const text = cleanText(reply.content, 1000);
+      if (!text) return null;
+      return {
+        "@type": "Comment",
+        "@id": `${url}#post-${reply.id}`,
+        url: `${url}#post-${reply.id}`,
+        text,
+        datePublished: isoDate(reply.createdAt),
+        author: {
+          "@type": "Person",
+          name: String(reply.authorName),
+          url: absoluteUrl(base, `/u/${reply.username}`),
+        },
+      };
+    })
+    .filter(Boolean);
   const schemas: SeoSchema[] = [
     breadcrumbSchema(base, [
       { name: SITE_NAME, path: "/" },
@@ -1243,16 +1261,7 @@ async function threadPayload(c: AppContext, base: string, id: string, anchors: S
         },
       ],
       commentCount: Number(thread.replyCount ?? 0),
-      comment: replies.map((reply) => ({
-        "@type": "Comment",
-        text: cleanText(reply.content, 1000),
-        dateCreated: isoDate(reply.createdAt),
-        author: {
-          "@type": "Person",
-          name: String(reply.authorName),
-          url: absoluteUrl(base, `/u/${reply.username}`),
-        },
-      })),
+      comment: comments.length ? comments : undefined,
     },
   ];
   return {

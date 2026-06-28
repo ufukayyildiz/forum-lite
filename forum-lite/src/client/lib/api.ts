@@ -536,7 +536,13 @@ export const api = {
   // admin
   adminStats: () => get<{ userCount: number; threadCount: number; postCount: number; recentActivity: any[] }>("/admin/stats"),
   adminAnalytics: (days = 7) => get<AdminAnalyticsResponse>(`/admin/analytics?days=${days}`),
-  adminUsers: (page = 1) => get<{ users: AdminUser[]; total: number }>(`/admin/users?page=${page}`),
+  adminUsers: (params: number | { page?: number; q?: string } = 1) => {
+    const page = typeof params === "number" ? params : params.page ?? 1;
+    const q = typeof params === "number" ? "" : params.q?.trim() ?? "";
+    return get<{ users: AdminUser[]; total: number; page: number; perPage: number; q: string }>(
+      `/admin/users?${new URLSearchParams({ page: String(page), q }).toString()}`,
+    );
+  },
   adminSetRole: (id: number, role: string) => patch<{ user: PublicUser }>(`/admin/users/${id}/role`, { role }),
   adminBanUser: (id: number) => post<{ user: PublicUser }>(`/admin/users/${id}/ban`),
   adminEditUser: (id: number, data: { displayName?: string; email?: string; bio?: string; avatarUrl?: string }) =>

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api, type AdminEmailSuppression, type AdminEmailSuppressionImportResult } from "../../lib/api";
 import { relativeTime } from "../../lib/utils";
+import { PaginationControls } from "../../components/PaginationControls";
 
 const EMAIL_IMPORT_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 const IMPORT_CHUNK_SIZE = 500;
@@ -312,13 +313,7 @@ export default function AdminSuppressions() {
         </tbody>
       </table>
 
-      {totalPages > 1 && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderTop: "1px solid var(--gb-bg2)" }}>
-          <button className="gb-btn" style={{ padding: "2px 10px" }} disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>prev</button>
-          <span style={{ color: "var(--gb-gray)", fontSize: 12 }}>{page} / {totalPages}</span>
-          <button className="gb-btn" style={{ padding: "2px 10px" }} disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>next</button>
-        </div>
-      )}
+      <PaginationControls page={page} totalPages={totalPages} onPage={setPage} />
     </div>
   );
 }

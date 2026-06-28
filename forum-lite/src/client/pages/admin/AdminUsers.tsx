@@ -6,6 +6,7 @@ import { useMe } from "../../lib/useAuth";
 import { relativeTime } from "../../lib/utils";
 import { toast } from "sonner";
 import { GbSelect } from "../../components/GbSelect";
+import { PaginationControls } from "../../components/PaginationControls";
 
 const roles = ["admin", "moderator", "member"] as const;
 
@@ -60,8 +61,13 @@ export default function AdminUsers() {
   const { data: me } = useMe();
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
+  const [q, setQ] = useState("");
   const [editId, setEditId] = useState<number | null>(null);
-  const { data, isLoading, error } = useQuery({ queryKey: ["admin-users", page], queryFn: () => api.adminUsers(page) });
+  const search = q.trim();
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["admin-users", page, search],
+    queryFn: () => api.adminUsers({ page, q: search }),
+  });
 
   const setRole = useMutation({
     mutationFn: ({ id, role }: { id: number; role: string }) => api.adminSetRole(id, role),
@@ -71,6 +77,11 @@ export default function AdminUsers() {
   const ban = useMutation({
     mutationFn: (id: number) => api.adminBanUser(id),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin-users"] }); toast.success("Updated"); },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const del = useMutation({
+    mutationFn: (id: number) => api.adminDeleteUser(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin-users"] }); toast.success("User deleted"); },
     onError: (e: any) => toast.error(e.message),
   });
   const edit = useMutation({
@@ -83,12 +94,23 @@ export default function AdminUsers() {
     onError: (e: any) => toast.error(e.message),
   });
 
-  const totalPages = data ? Math.ceil(data.total / 25) : 1;
+  const perPage = data?.perPage ?? 25;
+  const totalPages = data ? Math.ceil(data.total / perPage) : 1;
   const list = data?.users ?? [];
   const errorMessage = error instanceof Error ? error.message : error ? "Could not load users" : "";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
+        <input
+          className="gb-input"
+          value={q}
+          onChange={(e) => { setQ(e.target.value); setPage(1); }}
+          placeholder="search username, name, email..."
+          style={{ width: "min(420px, 100%)" }}
+        />
+      </div>
+
       {data && (
         <div style={{ fontSize: 11, color: "var(--gb-gray)", letterSpacing: ".06em" }}>
           " {data.total} total users
@@ -131,7 +153,7 @@ export default function AdminUsers() {
             <React.Fragment key={u.id}>
               <tr style={editId === u.id ? { background: "var(--gb-bg1)" } : undefined}>
                 <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>
-                  {i + 1 + (page - 1) * 25}
+                  {i + 1 + (page - 1) * perPage}
                 </td>
                 <td style={{ width: 36, paddingRight: 8 }}>
                   <DAvatar src={u.avatarUrl} name={u.displayName} size={24} />
@@ -188,6 +210,19 @@ export default function AdminUsers() {
                           {u.banned ? "unban" : "ban"}
                         </button>
                       )}
+                      {me.id !== u.id && (
+                        <button
+                          className="gb-btn gb-btn-danger"
+                          style={{ fontSize: 11, padding: "2px 10px" }}
+                          onClick={() => {
+                            if (window.confirm(`Delete ${u.username}?`)) del.mutate(u.id);
+                          }}
+                          disabled={del.isPending || u.threadCount > 0 || u.postCount > 0}
+                          title={u.threadCount > 0 || u.postCount > 0 ? "User has topics or replies" : "Delete user"}
+                        >
+                          del
+                        </button>
+                      )}
                     </div>
                   )}
                 </td>
@@ -209,13 +244,7 @@ export default function AdminUsers() {
         </tbody>
       </table>
 
-      {totalPages > 1 && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderTop: "1px solid var(--gb-bg2)" }}>
-          <button className="gb-btn" style={{ padding: "2px 10px" }} disabled={page <= 1} onClick={() => setPage(p => p - 1)}>prev</button>
-          <span style={{ color: "var(--gb-gray)", fontSize: 12 }}>{page} / {totalPages}</span>
-          <button className="gb-btn" style={{ padding: "2px 10px" }} disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>next</button>
-        </div>
-      )}
+      <PaginationControls page={page} totalPages={totalPages} onPage={setPage} />
     </div>
   );
 }

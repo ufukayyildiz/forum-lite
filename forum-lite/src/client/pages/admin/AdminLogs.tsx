@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, type AdminErrorEvent } from "../../lib/api";
+import { PaginationControls } from "../../components/PaginationControls";
 
 function relTime(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
@@ -55,13 +56,7 @@ function Pagination({
   onPage: (page: number) => void;
 }) {
   if (totalPages <= 1) return null;
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, paddingTop: 8, borderTop: "1px solid var(--gb-bg2)" }}>
-      <button className="gb-btn" style={{ padding: "2px 10px" }} disabled={page <= 1} onClick={() => onPage(page - 1)}>prev</button>
-      <span style={{ color: "var(--gb-gray)", fontSize: 12 }}>{page} / {totalPages}</span>
-      <button className="gb-btn" style={{ padding: "2px 10px" }} disabled={page >= totalPages} onClick={() => onPage(page + 1)}>next</button>
-    </div>
-  );
+  return <PaginationControls page={page} totalPages={totalPages} onPage={onPage} />;
 }
 
 function ErrorDetail({ event }: { event: AdminErrorEvent }) {

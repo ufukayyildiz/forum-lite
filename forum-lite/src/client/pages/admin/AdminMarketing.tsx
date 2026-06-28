@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { api, type AdminMarketingJob } from "../../lib/api";
 import { relativeTime } from "../../lib/utils";
 import { GbSelect, type GbSelectOption } from "../../components/GbSelect";
+import { PaginationControls } from "../../components/PaginationControls";
 
 const MAX_BULK_RECIPIENTS = 250;
 const DUPLICATE_SETTING_KEY = "marketing_block_duplicate_sends";
@@ -614,13 +615,7 @@ export default function AdminMarketing() {
         </table>
         </div>
 
-        {totalPages > 1 && (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, paddingTop: 8, borderTop: "1px solid var(--gb-bg2)" }}>
-            <button className="gb-btn" style={{ padding: "2px 10px" }} disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>prev</button>
-            <span style={{ color: "var(--gb-gray)", fontSize: 12 }}>{page} / {totalPages}</span>
-            <button className="gb-btn" style={{ padding: "2px 10px" }} disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>next</button>
-          </div>
-        )}
+        <PaginationControls page={page} totalPages={totalPages} onPage={setPage} />
       </section>
 
       {previewOpen && (

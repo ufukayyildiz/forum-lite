@@ -1,7 +1,6 @@
 import { Fragment, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import { api } from "../lib/api";
 import { TopicRow, EmptyRows } from "../components/TopicRow";
 import { GbToolbar } from "../components/layout/Header";
@@ -9,6 +8,7 @@ import { useMe } from "../lib/useAuth";
 import { SEOHead } from "../components/SEOHead";
 import { threadPath } from "../lib/routes";
 import { ListAdRow, shouldShowLeadListAd, shouldShowListAd } from "../components/ListAdRow";
+import { PaginationControls } from "../components/PaginationControls";
 
 const THREAD_ROWS = 15;
 
@@ -113,17 +113,7 @@ export default function HomePage() {
             </tbody>
           </table>
         )}
-        {pageCount > 1 && (
-          <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, padding: "10px 0", color: "var(--gb-gray)", fontSize: 12 }}>
-            <button className="gb-btn" aria-label="Previous page" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
-              <ChevronLeft size={13} />
-            </button>
-            <span>{page} / {pageCount}</span>
-            <button className="gb-btn" aria-label="Next page" disabled={page >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>
-              <ChevronRight size={13} />
-            </button>
-          </div>
-        )}
+        <PaginationControls page={page} totalPages={pageCount} onPage={setPage} />
       </div>
     </>
   );

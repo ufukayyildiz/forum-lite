@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api } from "../../lib/api";
 import { relativeTime } from "../../lib/utils";
+import { PaginationControls } from "../../components/PaginationControls";
 
 function explainCfError(error: string): string {
   const normalized = error.toLowerCase();
@@ -148,13 +149,7 @@ export default function AdminBounces() {
         </tbody>
       </table>
 
-      {totalPages > 1 && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderTop: "1px solid var(--gb-bg2)" }}>
-          <button className="gb-btn" style={{ padding: "2px 10px" }} disabled={page <= 1} onClick={() => setPage(p => p - 1)}>prev</button>
-          <span style={{ color: "var(--gb-gray)", fontSize: 12 }}>{page} / {totalPages}</span>
-          <button className="gb-btn" style={{ padding: "2px 10px" }} disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>next</button>
-        </div>
-      )}
+      <PaginationControls page={page} totalPages={totalPages} onPage={setPage} />
     </div>
   );
 }

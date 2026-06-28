@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../../lib/api";
 import { relativeTime } from "../../lib/utils";
 import { GbSelect } from "../../components/GbSelect";
+import { PaginationControls } from "../../components/PaginationControls";
 
 const STATUS_COLOR: Record<string, string> = {
   sent: "var(--gb-green)",
@@ -114,13 +115,7 @@ export default function AdminNotifications() {
         </tbody>
       </table>
 
-      {totalPages > 1 && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, paddingTop: 8, borderTop: "1px solid var(--gb-bg2)" }}>
-          <button className="gb-btn" style={{ padding: "2px 10px" }} disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>prev</button>
-          <span style={{ color: "var(--gb-gray)", fontSize: 12 }}>{page} / {totalPages}</span>
-          <button className="gb-btn" style={{ padding: "2px 10px" }} disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>next</button>
-        </div>
-      )}
+      <PaginationControls page={page} totalPages={totalPages} onPage={setPage} />
     </div>
   );
 }

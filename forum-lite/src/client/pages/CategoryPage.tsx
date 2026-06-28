@@ -5,10 +5,10 @@ import { api } from "../lib/api";
 import { TopicRow, EmptyRows } from "../components/TopicRow";
 import { useMe } from "../lib/useAuth";
 import { GbToolbar } from "../components/layout/Header";
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import { SEOHead } from "../components/SEOHead";
 import { categoryPath, threadPath } from "../lib/routes";
 import { ListAdRow, shouldShowLeadListAd, shouldShowListAd } from "../components/ListAdRow";
+import { PaginationControls } from "../components/PaginationControls";
 
 const VISIBLE_ROWS = 18;
 
@@ -141,17 +141,7 @@ export default function CategoryPage() {
             </tbody>
           </table>
         )}
-        {pageCount > 1 && (
-          <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, padding: "10px 0", color: "var(--gb-gray)", fontSize: 12 }}>
-            <button className="gb-btn" aria-label="Previous page" disabled={page <= 1} onClick={() => setPageParam(Math.max(1, page - 1))}>
-              <ChevronLeft size={13} />
-            </button>
-            <span>{page} / {pageCount}</span>
-            <button className="gb-btn" aria-label="Next page" disabled={page >= pageCount} onClick={() => setPageParam(Math.min(pageCount, page + 1))}>
-              <ChevronRight size={13} />
-            </button>
-          </div>
-        )}
+        <PaginationControls page={page} totalPages={pageCount} onPage={setPageParam} />
       </div>
     </>
   );

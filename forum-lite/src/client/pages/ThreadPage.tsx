@@ -64,10 +64,26 @@ function newestIso(...values: Array<string | number | null | undefined>): string
   return new Date(newestMs).toISOString();
 }
 
+function isoDate(value: string | number | null | undefined): string {
+  const ms = dateMs(value);
+  return Number.isNaN(ms) ? new Date(0).toISOString() : new Date(ms).toISOString();
+}
+
 function isMeaningfullyEdited(createdAt: string, updatedAt?: string | null): boolean {
   const createdMs = dateMs(createdAt);
   const updatedMs = dateMs(updatedAt);
   return !Number.isNaN(createdMs) && !Number.isNaN(updatedMs) && updatedMs - createdMs > 1000;
+}
+
+function schemaText(input: string | null | undefined, max = 1000): string {
+  const text = String(input ?? "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/!\[[^\]]*]\([^)]*\)/g, " ")
+    .replace(/\[([^\]]+)]\([^)]*\)/g, "$1")
+    .replace(/[`*_>#|~=]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text.length > max ? `${text.slice(0, Math.max(0, max - 1)).trim()}...` : text;
 }
 
 function useAttachmentUploader(
@@ -368,6 +384,59 @@ export default function ThreadPage() {
   const articlePublishedTime = new Date(typeof thread.createdAt === "number" ? thread.createdAt * 1000 : thread.createdAt).toISOString();
   const articleModifiedTime = newestIso(thread.updatedAt, thread.lastPostAt, thread.createdAt);
   const articleTags = thread.tags?.map((t) => t.name).filter(Boolean) ?? [];
+  const schemaComments = (postsData?.posts ?? [])
+    .map((post) => {
+      const text = schemaText(post.content);
+      if (!text) return null;
+      const postUrl = `${threadUrl}#post-${post.id}`;
+      return {
+        "@type": "Comment",
+        "@id": postUrl,
+        url: postUrl,
+        text,
+        datePublished: isoDate(post.createdAt),
+        author: {
+          "@type": "Person",
+          name: post.author.displayName,
+          url: `${origin}/u/${post.author.username}`,
+        },
+      };
+    })
+    .filter(Boolean);
+  const discussionStructuredData = thread.replyCount > 0 && schemaComments.length === 0
+    ? []
+    : [
+        {
+          "@context": "https://schema.org",
+          "@type": "DiscussionForumPosting",
+          "@id": `${threadUrl}#posting`,
+          url: threadUrl,
+          mainEntityOfPage: threadUrl,
+          headline: thread.title,
+          text: schemaText(thread.content, 4000) || thread.title,
+          datePublished: articlePublishedTime,
+          dateModified: articleModifiedTime,
+          inLanguage: "en-US",
+          articleSection: thread.category.name,
+          keywords: articleTags.join(", ") || undefined,
+          commentCount: thread.replyCount,
+          comment: schemaComments.length ? schemaComments : undefined,
+          interactionStatistic: [
+            { "@type": "InteractionCounter", interactionType: "https://schema.org/CommentAction", userInteractionCount: thread.replyCount },
+            { "@type": "InteractionCounter", interactionType: "https://schema.org/ViewAction", userInteractionCount: thread.views },
+          ],
+          author: {
+            "@type": "Person",
+            name: thread.author.displayName,
+            url: `${origin}/u/${thread.author.username}`,
+          },
+          isPartOf: {
+            "@type": "WebPage",
+            "@id": `${origin}${currentCategoryPath}`,
+            name: thread.category.name,
+          },
+        },
+      ];
 
   return (
     <>
@@ -387,34 +456,7 @@ export default function ThreadPage() {
           { name: thread.title, url: threadUrl },
         ]}
         structuredData={[
-          {
-            "@context": "https://schema.org",
-            "@type": "DiscussionForumPosting",
-            "@id": threadUrl,
-            url: threadUrl,
-            mainEntityOfPage: threadUrl,
-            headline: thread.title,
-            text: threadDesc || thread.title,
-            datePublished: articlePublishedTime,
-            dateModified: articleModifiedTime,
-            inLanguage: "en-US",
-            articleSection: thread.category.name,
-            interactionStatistic: [
-              { "@type": "InteractionCounter", interactionType: "https://schema.org/ReplyAction", userInteractionCount: thread.replyCount },
-              { "@type": "InteractionCounter", interactionType: "https://schema.org/ViewAction", userInteractionCount: thread.views },
-            ],
-            author: {
-              "@type": "Person",
-              name: thread.author.displayName,
-              url: `${origin}/u/${thread.author.username}`,
-            },
-            isPartOf: {
-              "@type": "WebPage",
-              "@id": `${origin}${currentCategoryPath}`,
-              name: thread.category.name,
-            },
-            keywords: articleTags.join(", ") || undefined,
-          },
+          ...discussionStructuredData,
           {
             "@context": "https://schema.org",
             "@type": "BreadcrumbList",
