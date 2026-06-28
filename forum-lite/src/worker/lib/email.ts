@@ -84,15 +84,15 @@ function normalizeSesTransport(value: unknown): SesTransport {
 }
 
 function sesApiCredentials(env: Bindings, allowLegacy = false) {
-  const accessKeyId = env.AWS_SES_API_ACCESS_KEY_ID || (allowLegacy ? env.AWS_SES_ACCESS_KEY_ID : undefined);
-  const secretAccessKey = env.AWS_SES_API_SECRET_ACCESS_KEY || (allowLegacy ? env.AWS_SES_SECRET_ACCESS_KEY : undefined);
-  const sessionToken = env.AWS_SES_API_SESSION_TOKEN || (allowLegacy ? env.AWS_SES_SESSION_TOKEN : undefined);
+  const accessKeyId = (env.AWS_SES_API_ACCESS_KEY_ID || (allowLegacy ? env.AWS_SES_ACCESS_KEY_ID : undefined))?.trim();
+  const secretAccessKey = (env.AWS_SES_API_SECRET_ACCESS_KEY || (allowLegacy ? env.AWS_SES_SECRET_ACCESS_KEY : undefined))?.trim();
+  const sessionToken = (env.AWS_SES_API_SESSION_TOKEN || (allowLegacy ? env.AWS_SES_SESSION_TOKEN : undefined))?.trim();
   return accessKeyId && secretAccessKey ? { accessKeyId, secretAccessKey, sessionToken } : null;
 }
 
 function sesSmtpCredentials(env: Bindings) {
-  const username = env.AWS_SES_SMTP_USERNAME || env.AWS_SES_ACCESS_KEY_ID;
-  const password = env.AWS_SES_SMTP_PASSWORD || env.AWS_SES_SECRET_ACCESS_KEY;
+  const username = env.AWS_SES_SMTP_USERNAME?.trim();
+  const password = env.AWS_SES_SMTP_PASSWORD?.trim();
   return username && password ? { username, password } : null;
 }
 
@@ -286,7 +286,7 @@ function smtpPort(value: unknown): number {
 }
 
 function smtpConfiguredMessage(): string {
-  return "AWS SES SMTP credentials are not configured. Add SMTP username/password as AWS_SES_ACCESS_KEY_ID and AWS_SES_SECRET_ACCESS_KEY, or AWS_SES_SMTP_USERNAME and AWS_SES_SMTP_PASSWORD.";
+  return "AWS SES SMTP credentials are not configured. Add the SES SMTP username as AWS_SES_SMTP_USERNAME and the SES SMTP password as AWS_SES_SMTP_PASSWORD.";
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {

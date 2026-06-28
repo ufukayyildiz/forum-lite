@@ -12,7 +12,6 @@
 // Optional AWS SES SMTP secrets for admin-selected SES sending over STARTTLS 587:
 //         npx wrangler secret put AWS_SES_SMTP_USERNAME --config wrangler.local.jsonc
 //         npx wrangler secret put AWS_SES_SMTP_PASSWORD --config wrangler.local.jsonc
-// Existing AWS_SES_ACCESS_KEY_ID / AWS_SES_SECRET_ACCESS_KEY secrets are also accepted as SMTP username/password.
 // SES uses the admin settings sender/region/port, default support@fstdesk.com / eu-west-1 / 587.
 // Optional SES API secrets, only if --ses-transport is set to api:
 //         npx wrangler secret put AWS_SES_API_ACCESS_KEY_ID --config wrangler.local.jsonc
