@@ -15,6 +15,13 @@ export type Bindings = {
   AWS_SES_ACCESS_KEY_ID?: string;
   AWS_SES_SECRET_ACCESS_KEY?: string;
   AWS_SES_SESSION_TOKEN?: string;
+  AWS_SES_SMTP_USERNAME?: string;
+  AWS_SES_SMTP_PASSWORD?: string;
+  AWS_SES_SMTP_HOST?: string;
+  AWS_SES_SMTP_PORT?: string;
+  AWS_SES_API_ACCESS_KEY_ID?: string;
+  AWS_SES_API_SECRET_ACCESS_KEY?: string;
+  AWS_SES_API_SESSION_TOKEN?: string;
 };
 
 export type Variables = {

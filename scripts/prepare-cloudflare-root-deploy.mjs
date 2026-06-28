@@ -64,6 +64,28 @@ function rootRelative(path) {
   return path.replace(`${rootDir}/`, "");
 }
 
+function deploymentDomain(config) {
+  const fromEnv =
+    process.env.CLOUDFLARE_CUSTOM_DOMAIN?.trim() ||
+    process.env.WORKER_CUSTOM_DOMAIN?.trim() ||
+    process.env.FORUM_CUSTOM_DOMAIN?.trim();
+  if (fromEnv) return fromEnv;
+
+  const existingCustomDomain = (config.routes ?? []).find(
+    (route) => route && typeof route === "object" && route.custom_domain === true && typeof route.pattern === "string",
+  );
+  return existingCustomDomain?.pattern || "fstdesk.com";
+}
+
+function publicRoute(domain) {
+  return {
+    pattern: domain,
+    custom_domain: true,
+    enabled: true,
+    previews_enabled: false,
+  };
+}
+
 const workerConfigFiles = generatedWorkerConfigFiles();
 const workerConfigFile =
   workerConfigFiles.find((file) => {
@@ -107,14 +129,9 @@ for (const db of config.d1_databases ?? []) {
   if (db.migrations_dir) db.migrations_dir = rootRelative(join(appDir, db.migrations_dir));
 }
 
-const customDomain =
-  process.env.CLOUDFLARE_CUSTOM_DOMAIN?.trim() ||
-  process.env.WORKER_CUSTOM_DOMAIN?.trim() ||
-  process.env.FORUM_CUSTOM_DOMAIN?.trim();
-
-if (customDomain) {
-  config.routes = [{ pattern: customDomain, custom_domain: true }];
-}
+config.workers_dev = false;
+config.preview_urls = false;
+config.routes = [publicRoute(deploymentDomain(config))];
 
 writeFileSync(rootDeployConfig, `${JSON.stringify(config, null, 2)}\n`);
 console.log(`Prepared root Wrangler deploy config at ${rootRelative(rootDeployConfig)}`);

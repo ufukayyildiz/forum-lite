@@ -75,6 +75,48 @@ function needsDatabaseId(value) {
   return !value || PLACEHOLDER_RE.test(value);
 }
 
+function deploymentDomain(config) {
+  const fromEnv =
+    process.env.CLOUDFLARE_CUSTOM_DOMAIN?.trim() ||
+    process.env.WORKER_CUSTOM_DOMAIN?.trim() ||
+    process.env.FORUM_CUSTOM_DOMAIN?.trim();
+  if (fromEnv) return fromEnv;
+
+  const existingCustomDomain = (config.routes ?? []).find(
+    (route) => route && typeof route === "object" && route.custom_domain === true && typeof route.pattern === "string",
+  );
+  return existingCustomDomain?.pattern || "fstdesk.com";
+}
+
+function publicRoute(domain) {
+  return {
+    pattern: domain,
+    custom_domain: true,
+    enabled: true,
+    previews_enabled: false,
+  };
+}
+
+function lockPublicWorkerUrls(config) {
+  let changed = false;
+  const routes = [publicRoute(deploymentDomain(config))];
+
+  if (config.workers_dev !== false) {
+    config.workers_dev = false;
+    changed = true;
+  }
+  if (config.preview_urls !== false) {
+    config.preview_urls = false;
+    changed = true;
+  }
+  if (JSON.stringify(config.routes) !== JSON.stringify(routes)) {
+    config.routes = routes;
+    changed = true;
+  }
+
+  return changed;
+}
+
 const files = configFiles();
 if (!files.length) {
   throw new Error("No dist/*/wrangler.json files found. Run vite build before prepare-deploy-config.");
@@ -91,6 +133,10 @@ for (const file of files) {
 
   if (Array.isArray(config.rules)) {
     delete config.rules;
+    changed = true;
+  }
+
+  if (lockPublicWorkerUrls(config)) {
     changed = true;
   }
 

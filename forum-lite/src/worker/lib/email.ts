@@ -1,10 +1,14 @@
+import { connect } from "cloudflare:sockets";
 import type { Bindings } from "../types";
 
 export type EmailProvider = "cloudflare" | "ses";
+export type SesTransport = "smtp" | "api";
 
 export const DEFAULT_CLOUDFLARE_FROM = "noreply@devfox.net";
 export const DEFAULT_SES_FROM = "support@fstdesk.com";
 export const DEFAULT_SES_REGION = "eu-west-1";
+export const DEFAULT_SES_TRANSPORT: SesTransport = "smtp";
+export const DEFAULT_SES_SMTP_PORT = 587;
 
 export type EmailSendResult = {
   ok: boolean;
@@ -23,7 +27,20 @@ type EmailSendOptions = {
   from?: string;
   provider?: EmailProvider;
   sesRegion?: string;
+  sesTransport?: SesTransport;
+  sesPort?: number;
   headers?: Record<string, string>;
+};
+
+type SmtpCredentials = {
+  username: string;
+  password: string;
+};
+
+type SmtpResponse = {
+  code: number;
+  lines: string[];
+  text: string;
 };
 
 export type CloudflareSuppression = {
@@ -62,8 +79,25 @@ function normalizeProvider(value: unknown): EmailProvider {
   return String(value ?? "").trim().toLowerCase() === "ses" ? "ses" : "cloudflare";
 }
 
-export function isAwsSesConfigured(env: Bindings): boolean {
-  return Boolean(env.AWS_SES_ACCESS_KEY_ID && env.AWS_SES_SECRET_ACCESS_KEY);
+function normalizeSesTransport(value: unknown): SesTransport {
+  return String(value ?? "").trim().toLowerCase() === "api" ? "api" : DEFAULT_SES_TRANSPORT;
+}
+
+function sesApiCredentials(env: Bindings, allowLegacy = false) {
+  const accessKeyId = env.AWS_SES_API_ACCESS_KEY_ID || (allowLegacy ? env.AWS_SES_ACCESS_KEY_ID : undefined);
+  const secretAccessKey = env.AWS_SES_API_SECRET_ACCESS_KEY || (allowLegacy ? env.AWS_SES_SECRET_ACCESS_KEY : undefined);
+  const sessionToken = env.AWS_SES_API_SESSION_TOKEN || (allowLegacy ? env.AWS_SES_SESSION_TOKEN : undefined);
+  return accessKeyId && secretAccessKey ? { accessKeyId, secretAccessKey, sessionToken } : null;
+}
+
+function sesSmtpCredentials(env: Bindings) {
+  const username = env.AWS_SES_SMTP_USERNAME || env.AWS_SES_ACCESS_KEY_ID;
+  const password = env.AWS_SES_SMTP_PASSWORD || env.AWS_SES_SECRET_ACCESS_KEY;
+  return username && password ? { username, password } : null;
+}
+
+export function isAwsSesConfigured(env: Bindings, transport: SesTransport = DEFAULT_SES_TRANSPORT): boolean {
+  return transport === "api" ? Boolean(sesApiCredentials(env, true)) : Boolean(sesSmtpCredentials(env));
 }
 
 function sanitizeHeaderValue(value: string): string {
