@@ -15,6 +15,7 @@ function Tabline({ onMenu }: { onMenu: () => void }) {
     { to: "/", label: "threads" },
     { to: "/members", label: "members" },
     { to: "/tags", label: "tags" },
+    { to: "/what-is-fstdesk", label: "what is fstdesk" },
   ];
   const active = (to: string) => {
     if (to === "/") return pathname === "/" || pathname.startsWith("/t/") || pathname.startsWith("/c/");

@@ -8,6 +8,12 @@ import { useState } from "react";
 import { AdSlot } from "../AdSlot";
 
 const CAT_COLORS = ["#b8bb26","#83a598","#fabd2f","#d3869b","#8ec07c","#fe8019","#fb4934","#a89984"];
+const MOBILE_NAV_ITEMS = [
+  { href: "/", label: "threads", exact: true },
+  { href: "/members", label: "members" },
+  { href: "/tags", label: "tags" },
+  { href: "/what-is-fstdesk", label: "what is fstdesk" },
+];
 
 function SidebarStickyAd({ routeKey }: { routeKey: string }) {
   const { data: config } = useQuery({
@@ -59,6 +65,21 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
   return (
     <div className="gb-sidebar-shell">
       <div className="gb-sidebar-scroll">
+        <div className="gb-sidebar-mobile-nav">
+          <div className="gb-section">NAVIGATION</div>
+          {MOBILE_NAV_ITEMS.map((item) => {
+            const activeNav = item.exact ? pathname === item.href : pathname === item.href || pathname.startsWith(`${item.href}/`);
+            return (
+              <Link key={item.href} to={item.href} className={`gb-tree-item${activeNav ? " active" : ""}`} onClick={onClose}>
+                <span style={{ color: activeNav ? "var(--gb-yellow)" : "var(--gb-gray)", width: 16, flexShrink: 0 }}>
+                  {activeNav ? ">" : "#"}
+                </span>
+                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis" }}>{item.label}</span>
+              </Link>
+            );
+          })}
+        </div>
+
         <div className="gb-section gb-section-categories" style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}
           onClick={() => setCatsOpen(!catsOpen)}>
           <span>CATEGORIES</span>

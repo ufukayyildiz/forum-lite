@@ -23,6 +23,7 @@ import TagsPage from "./pages/TagsPage";
 import TagDetailPage from "./pages/TagDetailPage";
 import ContactPage from "./pages/ContactPage";
 import AboutPage from "./pages/AboutPage";
+import WhatIsFstdeskPage from "./pages/WhatIsFstdeskPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import AdminLayout from "./pages/admin/AdminLayout";
 import AdminDashboard from "./pages/admin/AdminDashboard";
@@ -69,6 +70,7 @@ const app = (
           <Route path="/search" element={<Layout><SearchPage /></Layout>} />
           <Route path="/tags" element={<Layout><TagsPage /></Layout>} />
           <Route path="/tag/:slug" element={<Layout><TagDetailPage /></Layout>} />
+          <Route path="/what-is-fstdesk" element={<Layout><WhatIsFstdeskPage /></Layout>} />
           <Route path="/contact" element={<Layout><ContactPage /></Layout>} />
           <Route path="/about" element={<Layout><AboutPage /></Layout>} />
           <Route path="/admin" element={<Layout><AdminLayout /></Layout>}>

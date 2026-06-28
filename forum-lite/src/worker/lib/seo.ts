@@ -1,5 +1,15 @@
 import type { Context } from "hono";
 import type { Bindings, Variables } from "../types";
+import {
+  WHAT_IS_FSTDESK_DESCRIPTION,
+  WHAT_IS_FSTDESK_FAQS,
+  WHAT_IS_FSTDESK_KEYWORDS,
+  WHAT_IS_FSTDESK_PATH,
+  WHAT_IS_FSTDESK_PUBLISHED,
+  WHAT_IS_FSTDESK_SECTIONS,
+  WHAT_IS_FSTDESK_TITLE,
+  WHAT_IS_FSTDESK_TOPIC_EXAMPLES,
+} from "../../shared/what-is-fstdesk";
 
 type AppContext = Context<{ Bindings: Bindings; Variables: Variables }>;
 
@@ -1625,6 +1635,75 @@ function aboutPayload(base: string, anchors: SeoAnchorLink[]): SeoPayload {
   };
 }
 
+function whatIsFstdeskPayload(base: string, anchors: SeoAnchorLink[]): SeoPayload {
+  const rows = [
+    ...WHAT_IS_FSTDESK_SECTIONS.map((section) => ({
+      title: section.title,
+      path: WHAT_IS_FSTDESK_PATH,
+      text: section.paragraphs.join(" "),
+    })),
+    ...WHAT_IS_FSTDESK_TOPIC_EXAMPLES.map((topic) => ({
+      title: topic.title,
+      path: topic.href,
+      text: `${topic.area}: ${topic.summary}`,
+    })),
+  ];
+
+  return {
+    title: WHAT_IS_FSTDESK_TITLE,
+    description: WHAT_IS_FSTDESK_DESCRIPTION,
+    canonicalPath: WHAT_IS_FSTDESK_PATH,
+    type: "article",
+    articlePublishedTime: WHAT_IS_FSTDESK_PUBLISHED,
+    articleModifiedTime: WHAT_IS_FSTDESK_PUBLISHED,
+    articleSection: "Food Science and Technology",
+    articleTags: [...WHAT_IS_FSTDESK_KEYWORDS],
+    schemas: [
+      breadcrumbSchema(base, [
+        { name: SITE_NAME, path: "/" },
+        { name: WHAT_IS_FSTDESK_TITLE, path: WHAT_IS_FSTDESK_PATH },
+      ]),
+      {
+        "@context": "https://schema.org",
+        "@type": "Article",
+        headline: WHAT_IS_FSTDESK_TITLE,
+        description: WHAT_IS_FSTDESK_DESCRIPTION,
+        url: absoluteUrl(base, WHAT_IS_FSTDESK_PATH),
+        datePublished: WHAT_IS_FSTDESK_PUBLISHED,
+        dateModified: WHAT_IS_FSTDESK_PUBLISHED,
+        inLanguage: CONTENT_LANGUAGE,
+        articleSection: "Food Science and Technology",
+        keywords: [...WHAT_IS_FSTDESK_KEYWORDS].join(", "),
+        publisher: { "@id": `${base}/#organization` },
+        mainEntityOfPage: {
+          "@type": "WebPage",
+          "@id": absoluteUrl(base, WHAT_IS_FSTDESK_PATH),
+        },
+      },
+      {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        mainEntity: WHAT_IS_FSTDESK_FAQS.map((item) => ({
+          "@type": "Question",
+          name: item.question,
+          acceptedAnswer: {
+            "@type": "Answer",
+            text: item.answer,
+          },
+        })),
+      },
+      itemListSchema(
+        base,
+        WHAT_IS_FSTDESK_TOPIC_EXAMPLES.map((topic) => ({ name: topic.title, path: topic.href })),
+      ),
+    ],
+    contentHtml: seoBlock(WHAT_IS_FSTDESK_TITLE, WHAT_IS_FSTDESK_DESCRIPTION, rows, {
+      anchors,
+      currentPath: WHAT_IS_FSTDESK_PATH,
+    }),
+  };
+}
+
 function contactPayload(base: string, anchors: SeoAnchorLink[]): SeoPayload {
   const description = `Contact the ${SITE_NAME} team for account, content and community requests.`;
   return {
@@ -1663,6 +1742,7 @@ async function payloadForPath(c: AppContext, base: string, pathname: string, anc
   if (parts[0] === "u" && parts[1]) return (await memberPayload(c, base, parts[1], anchors)) ?? notFoundPayload(pathname, "Member not found");
   if (parts[0] === "tags" && parts.length === 1) return tagsPayload(c, base, anchors);
   if (parts[0] === "tag" && parts[1]) return (await tagPayload(c, base, parts[1], anchors)) ?? notFoundPayload(pathname, "Tag not found");
+  if (parts[0] === "what-is-fstdesk" && parts.length === 1) return whatIsFstdeskPayload(base, anchors);
   if (parts[0] === "contact" && parts.length === 1) return contactPayload(base, anchors);
   if (parts[0] === "about" && parts.length === 1) return aboutPayload(base, anchors);
   if (["admin", "login", "register", "new-thread", "search"].includes(parts[0] ?? "")) return noindexPayload(pathname);
@@ -1817,6 +1897,7 @@ function staticSidebarHtml(pathname: string, categories: ApiCategory[]): string 
     { href: "/", label: "threads", exact: true },
     { href: "/members", label: "members" },
     { href: "/tags", label: "tags" },
+    { href: "/what-is-fstdesk", label: "what is fstdesk" },
     { href: "/contact", label: "contact" },
     { href: "/about", label: "about" },
   ];
@@ -1881,6 +1962,12 @@ function staticShellHtml(contentHtml: string, pathname: string, categories: ApiC
     '<div class="gb-tabline-left">',
     '<button class="gb-hamburger" title="Menu" aria-label="Open sidebar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>',
     '<div class="gb-tab active" style="padding-left:12px"><a href="/" style="color:var(--gb-yellow);font-weight:700;text-decoration:none">FSTDESK</a></div>',
+    '<nav class="gb-header-nav" aria-label="Primary">',
+    '<a class="gb-header-link" href="/">threads</a>',
+    '<a class="gb-header-link" href="/members">members</a>',
+    '<a class="gb-header-link" href="/tags">tags</a>',
+    '<a class="gb-header-link" href="/what-is-fstdesk">what is fstdesk</a>',
+    "</nav>",
     "</div>",
     '<div class="gb-tabline-right">utf-8 | unix</div>',
     "</div>",
@@ -1908,6 +1995,7 @@ function criticalShellCss(): string {
     ".gb-shell{position:fixed;inset:0;display:flex;flex-direction:column;width:100vw;height:100vh;height:100dvh;overflow:hidden;background:var(--gb-bg);color:var(--gb-fg)}",
     ".gb-tabline{display:flex;align-items:center;justify-content:space-between;height:36px;padding:0 16px 0 0;flex-shrink:0;background:var(--gb-bg1);border-bottom:1px solid var(--gb-bg2)}",
     ".gb-tab{display:flex;align-items:center;height:100%;padding:0 18px;color:var(--gb-fg4);border-right:1px solid var(--gb-bg2);font-size:12px}.gb-tab.active{color:var(--gb-yellow);font-weight:700}",
+    ".gb-header-nav{display:flex;align-items:center;height:100%;min-width:0}.gb-header-link{display:flex;align-items:center;height:100%;padding:0 14px;border-right:1px solid var(--gb-bg2);color:var(--gb-fg4);font-size:12px;font-weight:700;text-decoration:none;white-space:nowrap}.gb-header-link:hover{background:var(--gb-bg);color:var(--gb-yellow);text-decoration:none}",
     ".gb-body{display:flex;flex:1 1 auto;min-height:0;overflow:hidden}.gb-sidebar{width:240px;flex:0 0 240px;overflow:hidden;background:var(--gb-bg1);border-right:1px solid var(--gb-bg2)}.gb-main{flex:1 1 auto;min-width:0;overflow:auto;background:var(--gb-bg)}",
     ".gb-shell-embedded{background:var(--gb-bg)}.gb-main-embedded{width:100%;height:100%;max-width:none;overflow:auto}",
     ".gb-statusbar{display:flex;height:22px;align-items:center;gap:8px;padding:0 8px;flex-shrink:0;background:var(--gb-bg1);border-top:1px solid var(--gb-bg2);color:var(--gb-gray);font-size:11px}",

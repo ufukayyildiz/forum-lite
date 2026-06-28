@@ -452,6 +452,7 @@ app.get("/sitemap-general.xml", async (c) => {
     sitemapUrl(base, "/", { changefreq: "daily", priority: "1.0" }),
     sitemapUrl(base, "/members", { changefreq: "weekly", priority: "0.6" }),
     sitemapUrl(base, "/tags", { changefreq: "weekly", priority: "0.6" }),
+    sitemapUrl(base, "/what-is-fstdesk", { changefreq: "monthly", priority: "0.7" }),
     sitemapUrl(base, "/about", { changefreq: "monthly", priority: "0.5" }),
     sitemapUrl(base, "/contact", { changefreq: "monthly", priority: "0.4" }),
   ];
