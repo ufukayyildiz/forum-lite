@@ -61,16 +61,16 @@ export default function ContactPage() {
     <>
       <SEOHead
         title="Contact"
-        description="Send a message to the FSTDESK Forum team."
+        description="Send a message to the FSTDESK team."
         canonical="/contact"
         breadcrumbs={[
-          { name: "Forum", url: origin + "/" },
+          { name: "FSTDESK", url: origin + "/" },
           { name: "Contact", url: origin + "/contact" },
         ]}
         structuredData={{
           "@context": "https://schema.org",
           "@type": "ContactPage",
-          name: "Contact FSTDESK Forum",
+          name: "Contact FSTDESK",
           url: origin + "/contact",
           inLanguage: "en-US",
         }}

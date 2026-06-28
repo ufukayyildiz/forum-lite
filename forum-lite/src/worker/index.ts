@@ -33,7 +33,7 @@ function isD1Backpressure(error: unknown) {
   return /D1_ERROR: D1 DB is overloaded|Requests queued for too long|database is locked|too many requests/i.test(message);
 }
 
-const ADS_SETTINGS_TIMEOUT_MS = 800;
+const ADS_SETTINGS_TIMEOUT_MS = 200;
 const API_LIGHT_PATHS = new Set([
   "/api/ads",
   "/api/client-errors",
@@ -74,6 +74,8 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Pro
   }
 }
 
+app.get("/api/healthz", (c) => c.json({ ok: true, ts: Date.now() }));
+
 app.use("*", logger());
 app.use("/api/*", cors({ origin: "*" }));
 app.use("/api/*", async (c, next) => {
@@ -83,7 +85,10 @@ app.use("/api/*", async (c, next) => {
 app.use("/api/*", withDb);
 app.use("/api/*", async (c, next) => {
   const path = requestPath(c.req.url);
-  if (!isLightApiPath(path)) scheduleCoreSchemaWarmup(c);
+  if (!isLightApiPath(path)) {
+    const ready = await ensureCoreSchema(c.env.DB);
+    if (!ready) return c.json({ error: "Service warming up" }, 503);
+  }
   await next();
 });
 app.use("/api/*", async (c, next) => {
@@ -207,28 +212,26 @@ app.route("/api/anchors", anchorRoutes);
 app.route("/api/admin", adminRoutes);
 app.route("/api/attachments", attachmentRoutes);
 
-app.get("/api/healthz", (c) => c.json({ ok: true, ts: Date.now() }));
-
 app.post("/api/analytics/view", async (c) => {
   const body = await c.req.json().catch(() => ({}));
-  try {
-    const result = await createAnalyticsPageview(c, body && typeof body === "object" ? body as Record<string, unknown> : {});
-    return c.json(result);
-  } catch (error) {
-    if (!isD1Backpressure(error)) throw error;
-    return c.json({ ok: false, id: 0, dropped: true, reason: "analytics_backpressure" }, 202);
-  }
+  const payload = body && typeof body === "object" ? body as Record<string, unknown> : {};
+  c.executionCtx.waitUntil(
+    createAnalyticsPageview(c, payload).catch((error) => {
+      if (!isD1Backpressure(error)) console.warn("analytics_view_failed", errorToRecord(error).message);
+    }),
+  );
+  return c.json({ ok: true, id: 0, queued: true }, 202);
 });
 
 app.post("/api/analytics/duration", async (c) => {
   const body = await c.req.json().catch(() => ({}));
-  try {
-    const result = await updateAnalyticsDuration(c, body && typeof body === "object" ? body as Record<string, unknown> : {});
-    return c.json(result);
-  } catch (error) {
-    if (!isD1Backpressure(error)) throw error;
-    return c.json({ ok: false, dropped: true, reason: "analytics_backpressure" }, 202);
-  }
+  const payload = body && typeof body === "object" ? body as Record<string, unknown> : {};
+  c.executionCtx.waitUntil(
+    updateAnalyticsDuration(c, payload).catch((error) => {
+      if (!isD1Backpressure(error)) console.warn("analytics_duration_failed", errorToRecord(error).message);
+    }),
+  );
+  return c.json({ ok: true, queued: true }, 202);
 });
 
 function shouldEnsureCoreSchema(path: string) {

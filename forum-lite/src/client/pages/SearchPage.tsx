@@ -32,7 +32,7 @@ export default function SearchPage() {
         canonical="/search"
         noindex={true}
         breadcrumbs={[
-          { name: "Forum", url: typeof window !== "undefined" ? window.location.origin + "/" : "/" },
+          { name: "FSTDESK", url: typeof window !== "undefined" ? window.location.origin + "/" : "/" },
           { name: "Search", url: typeof window !== "undefined" ? window.location.origin + "/search" : "/search" },
         ]}
       />

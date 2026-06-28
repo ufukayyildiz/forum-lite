@@ -59,11 +59,11 @@ export default function RegisterPage() {
     <>
       <SEOHead
         title="Register"
-        description="Create a new FSTDESK Forum account."
+        description="Create a new FSTDESK account."
         canonical="/register"
         noindex={true}
         breadcrumbs={[
-          { name: "Forum", url: typeof window !== "undefined" ? window.location.origin + "/" : "/" },
+          { name: "FSTDESK", url: typeof window !== "undefined" ? window.location.origin + "/" : "/" },
           { name: "Register", url: typeof window !== "undefined" ? window.location.origin + "/register" : "/register" },
         ]}
       />

@@ -150,7 +150,7 @@ export default function MemberPage() {
         canonical={`/u/${u.username}`}
         type="profile"
         breadcrumbs={[
-          { name: "Forum", url: origin + "/" },
+          { name: "FSTDESK", url: origin + "/" },
           { name: "Members", url: origin + "/members" },
           { name: u.displayName, url: memberUrl },
         ]}

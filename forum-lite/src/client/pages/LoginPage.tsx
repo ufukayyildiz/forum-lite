@@ -49,11 +49,11 @@ export default function LoginPage() {
     <>
       <SEOHead
         title="Login"
-        description="Sign in to FSTDESK Forum."
+        description="Sign in to FSTDESK."
         canonical="/login"
         noindex={true}
         breadcrumbs={[
-          { name: "Forum", url: typeof window !== "undefined" ? window.location.origin + "/" : "/" },
+          { name: "FSTDESK", url: typeof window !== "undefined" ? window.location.origin + "/" : "/" },
           { name: "Login", url: typeof window !== "undefined" ? window.location.origin + "/login" : "/login" },
         ]}
       />

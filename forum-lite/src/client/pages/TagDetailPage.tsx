@@ -36,7 +36,7 @@ export default function TagDetailPage() {
         description={`Forum discussions tagged "${tag?.name ?? slug}".`}
         canonical={`/tag/${slug}`}
         breadcrumbs={[
-          { name: "Forum", url: origin + "/" },
+          { name: "FSTDESK", url: origin + "/" },
           { name: "Tags", url: origin + "/tags" },
           { name: tag ? `#${tag.name}` : slug ?? "Tag", url: `${origin}/tag/${slug}` },
         ]}
@@ -44,7 +44,7 @@ export default function TagDetailPage() {
           {
             "@context": "https://schema.org",
             "@type": "CollectionPage",
-            name: `${tag?.name ?? slug} — Forum Threads`,
+            name: `${tag?.name ?? slug} — FSTDESK Threads`,
             url: `${origin}/tag/${slug}`,
             inLanguage: "en-US",
             numberOfItems: data?.total ?? 0,

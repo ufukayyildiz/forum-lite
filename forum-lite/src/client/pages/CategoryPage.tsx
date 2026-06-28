@@ -38,10 +38,10 @@ export default function CategoryPage() {
     <>
       <SEOHead
         title={cat?.name ?? "Category"}
-        description={cat?.description ?? `${cat?.name ?? "Category"} forum discussions and threads.`}
+        description={cat?.description ?? `${cat?.name ?? "Category"} discussions and threads on FSTDESK.`}
         canonical={catPath}
         breadcrumbs={[
-          { name: "Forum", url: origin + "/" },
+          { name: "FSTDESK", url: origin + "/" },
           { name: cat?.name ?? "Category", url: `${origin}${catPath}` },
         ]}
         structuredData={[

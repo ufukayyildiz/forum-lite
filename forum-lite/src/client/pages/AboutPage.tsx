@@ -39,16 +39,17 @@ export default function AboutPage() {
     <>
       <SEOHead
         title="About"
-        description="About FSTDESK Forum and its food science community features."
+        description="About FSTDESK, the Food Science and Technology Desk."
         canonical="/about"
         breadcrumbs={[
-          { name: "Forum", url: origin + "/" },
+          { name: "FSTDESK", url: origin + "/" },
           { name: "About", url: origin + "/about" },
         ]}
         structuredData={{
           "@context": "https://schema.org",
           "@type": "AboutPage",
-          name: "About FSTDESK Forum",
+          name: "About FSTDESK",
+          description: "Food Science and Technology Desk for food science, food safety, product development and food technology discussions.",
           url: origin + "/about",
           inLanguage: "en-US",
         }}

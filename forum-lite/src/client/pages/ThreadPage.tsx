@@ -365,17 +365,24 @@ export default function ThreadPage() {
   const threadUrl = `${origin}${currentThreadPath}`;
   const threadDesc = (thread.content ?? "").replace(/[#*`>_]/g, "").slice(0, 160).trim();
   const threadEdited = isMeaningfullyEdited(thread.createdAt, thread.updatedAt) ? thread.updatedAt : null;
+  const articlePublishedTime = new Date(typeof thread.createdAt === "number" ? thread.createdAt * 1000 : thread.createdAt).toISOString();
+  const articleModifiedTime = newestIso(thread.updatedAt, thread.lastPostAt, thread.createdAt);
+  const articleTags = thread.tags?.map((t) => t.name).filter(Boolean) ?? [];
 
   return (
     <>
       <SEOHead
         title={thread.title}
-        description={threadDesc || `${thread.title} — Forum thread with ${thread.replyCount} replies.`}
+        description={threadDesc || `${thread.title} discussion with ${thread.replyCount} replies on FSTDESK.`}
         canonical={currentThreadPath}
         image={`${origin}/og/thread/${thread.publicId}.webp`}
         type="article"
+        articlePublishedTime={articlePublishedTime}
+        articleModifiedTime={articleModifiedTime}
+        articleSection={thread.category.name}
+        articleTags={articleTags}
         breadcrumbs={[
-          { name: "Forum", url: origin + "/" },
+          { name: "FSTDESK", url: origin + "/" },
           { name: thread.category.name, url: `${origin}${currentCategoryPath}` },
           { name: thread.title, url: threadUrl },
         ]}
@@ -388,8 +395,8 @@ export default function ThreadPage() {
             mainEntityOfPage: threadUrl,
             headline: thread.title,
             text: threadDesc || thread.title,
-            datePublished: new Date(typeof thread.createdAt === "number" ? thread.createdAt * 1000 : thread.createdAt).toISOString(),
-            dateModified: newestIso(thread.updatedAt, thread.lastPostAt, thread.createdAt),
+            datePublished: articlePublishedTime,
+            dateModified: articleModifiedTime,
             inLanguage: "en-US",
             articleSection: thread.category.name,
             interactionStatistic: [
@@ -406,13 +413,13 @@ export default function ThreadPage() {
               "@id": `${origin}${currentCategoryPath}`,
               name: thread.category.name,
             },
-            keywords: thread.tags?.map((t) => t.name).join(", ") || undefined,
+            keywords: articleTags.join(", ") || undefined,
           },
           {
             "@context": "https://schema.org",
             "@type": "BreadcrumbList",
             itemListElement: [
-              { "@type": "ListItem", position: 1, name: "Forum", item: origin + "/" },
+              { "@type": "ListItem", position: 1, name: "FSTDESK", item: origin + "/" },
               { "@type": "ListItem", position: 2, name: thread.category.name, item: `${origin}${currentCategoryPath}` },
               { "@type": "ListItem", position: 3, name: thread.title, item: threadUrl },
             ],

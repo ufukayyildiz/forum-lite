@@ -19,16 +19,16 @@ export default function TagsPage() {
     <>
       <SEOHead
         title="Tags"
-        description="Browse forum topics by tag."
+        description="Browse FSTDESK topics by tag."
         canonical="/tags"
         breadcrumbs={[
-          { name: "Forum", url: origin + "/" },
+          { name: "FSTDESK", url: origin + "/" },
           { name: "Tags", url: origin + "/tags" },
         ]}
         structuredData={{
           "@context": "https://schema.org",
           "@type": "CollectionPage",
-          name: "Forum Tags",
+          name: "FSTDESK Tags",
           url: origin + "/tags",
           inLanguage: "en-US",
           numberOfItems: tags?.length ?? 0,

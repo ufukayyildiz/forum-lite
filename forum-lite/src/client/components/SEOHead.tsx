@@ -1,8 +1,9 @@
 import { Helmet } from "react-helmet-async";
 
-const SITE_NAME = "FSTDESK Forum";
+const SITE_NAME = "FSTDESK";
+const SITE_TAGLINE = "Food Science and Technology Desk";
 const BASE_URL = typeof window !== "undefined" ? window.location.origin : "";
-const DEFAULT_DESC = "Food science, food safety, product development and food technology forum discussions.";
+const DEFAULT_DESC = `${SITE_TAGLINE} for food science, food safety, product development and food technology discussions.`;
 const SITE_LOCALE = "en_US";
 const SITE_LANGUAGE = "en-US";
 
@@ -15,6 +16,10 @@ interface SEOProps {
   noindex?: boolean;
   image?: string;
   type?: "website" | "article" | "profile";
+  articlePublishedTime?: string;
+  articleModifiedTime?: string;
+  articleSection?: string;
+  articleTags?: string[];
   structuredData?: object | object[];
   breadcrumbs?: Crumb[];
 }
@@ -24,11 +29,16 @@ function websiteSchema() {
     "@context": "https://schema.org",
     "@type": "WebSite",
     name: SITE_NAME,
+    alternateName: SITE_TAGLINE,
+    description: DEFAULT_DESC,
     url: BASE_URL,
     inLanguage: SITE_LANGUAGE,
     publisher: {
       "@type": "Organization",
       name: "FSTDESK",
+      alternateName: SITE_TAGLINE,
+      slogan: SITE_TAGLINE,
+      description: DEFAULT_DESC,
       url: BASE_URL,
     },
     potentialAction: {
@@ -59,12 +69,32 @@ export function SEOHead({
   noindex = false,
   image,
   type = "website",
+  articlePublishedTime,
+  articleModifiedTime,
+  articleSection,
+  articleTags = [],
   structuredData,
   breadcrumbs,
 }: SEOProps) {
   const fullTitle = title ? `${title} — ${SITE_NAME}` : SITE_NAME;
   const canonicalUrl = canonical ? `${BASE_URL}${canonical}` : BASE_URL;
   const ogImage = image || `${BASE_URL}/og/default.webp`;
+  const keywords = Array.from(
+    new Set(
+      [
+        SITE_NAME,
+        SITE_TAGLINE,
+        "food science",
+        "food technology",
+        "food safety",
+        "product development",
+        articleSection,
+        ...articleTags,
+      ]
+        .map((item) => String(item ?? "").trim())
+        .filter(Boolean),
+    ),
+  ).join(", ");
 
   const schemas: object[] = [websiteSchema()];
   if (breadcrumbs && breadcrumbs.length > 0) schemas.push(breadcrumbSchema(breadcrumbs));
@@ -78,6 +108,10 @@ export function SEOHead({
       <title>{fullTitle}</title>
       <meta name="description" content={description} />
       <meta name="application-name" content={SITE_NAME} />
+      <meta name="apple-mobile-web-app-title" content={SITE_NAME} />
+      <meta name="author" content={SITE_NAME} />
+      <meta name="publisher" content={SITE_NAME} />
+      <meta name="keywords" content={keywords} />
       <meta name="theme-color" content="#282828" />
       <link rel="canonical" href={canonicalUrl} />
       {noindex && <meta name="robots" content="noindex,nofollow" />}
@@ -94,6 +128,11 @@ export function SEOHead({
       <meta property="og:image:width" content="1200" />
       <meta property="og:image:height" content="630" />
       <meta property="og:locale" content={SITE_LOCALE} />
+
+      {type === "article" && articlePublishedTime && <meta property="article:published_time" content={articlePublishedTime} />}
+      {type === "article" && articleModifiedTime && <meta property="article:modified_time" content={articleModifiedTime} />}
+      {type === "article" && articleSection && <meta property="article:section" content={articleSection} />}
+      {type === "article" && articleTags.map((tag) => <meta key={tag} property="article:tag" content={tag} />)}
 
       {/* Twitter Card */}
       <meta name="twitter:card" content="summary_large_image" />

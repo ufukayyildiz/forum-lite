@@ -50,16 +50,16 @@ export default function MembersPage() {
     <>
       <SEOHead
         title="Members"
-        description="Forum members, authors, moderators and administrators."
+        description="FSTDESK members, authors, moderators and administrators."
         canonical="/members"
         breadcrumbs={[
-          { name: "Forum", url: origin + "/" },
+          { name: "FSTDESK", url: origin + "/" },
           { name: "Members", url: origin + "/members" },
         ]}
         structuredData={{
           "@context": "https://schema.org",
           "@type": "CollectionPage",
-          name: "Forum Members",
+          name: "FSTDESK Members",
           url: origin + "/members",
           inLanguage: "en-US",
           numberOfItems: total,

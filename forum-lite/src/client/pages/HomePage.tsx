@@ -29,17 +29,18 @@ export default function HomePage() {
   return (
     <>
       <SEOHead
-        title="Threads"
-        description="Food science, food safety, product development and food technology forum discussions."
+        title="Food Science and Technology Desk"
+        description="Food Science and Technology Desk for food science, food safety, product development and food technology discussions."
         canonical="/"
-        breadcrumbs={[{ name: "Forum", url: typeof window !== "undefined" ? window.location.origin + "/" : "/" }]}
+        breadcrumbs={[{ name: "FSTDESK", url: typeof window !== "undefined" ? window.location.origin + "/" : "/" }]}
         structuredData={[
           {
             "@context": "https://schema.org",
             "@type": "CollectionPage",
             "@id": typeof window !== "undefined" ? window.location.origin + "/#webpage" : "/#webpage",
-            name: "FSTDESK Forum",
-            description: "Food science, food safety and food technology forum discussions.",
+            name: "FSTDESK",
+            alternateName: "Food Science and Technology Desk",
+            description: "Food science, food safety and food technology discussions.",
             inLanguage: "en-US",
           },
           {

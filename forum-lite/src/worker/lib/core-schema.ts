@@ -23,9 +23,11 @@ const CORE_TABLES = [
   "anchor_links",
 ];
 
+const REQUIRED_SESSION_COLUMNS = ["token", "user_id", "expires_at", "created_at"];
+
 const CORE_COLUMN_CHECKS: Array<[string, string[]]> = [
   ["users", ["public_id", "email_verified_at", "last_login_at", "email_suppressed_at", "email_suppression_reason", "post_count", "thread_count"]],
-  ["sessions", ["created_at"]],
+  ["sessions", REQUIRED_SESSION_COLUMNS],
   ["categories", ["public_id"]],
   ["threads", ["public_id", "pinned", "locked", "featured", "views", "reply_count", "updated_at", "last_post_at"]],
   ["posts", ["like_count", "edited_at"]],
@@ -53,6 +55,13 @@ async function columnSet(db: D1Database, table: string): Promise<Set<string>> {
 async function addColumnIfMissing(db: D1Database, table: string, column: string, definition: string) {
   const columns = await columnSet(db, table);
   if (!columns.has(column)) await run(db, `ALTER TABLE ${ident(table)} ADD COLUMN ${definition}`);
+}
+
+async function repairEphemeralSessionTableIfNeeded(db: D1Database) {
+  const columns = await columnSet(db, "sessions").catch(() => new Set<string>());
+  if (!columns.size) return;
+  const needsRecreate = REQUIRED_SESSION_COLUMNS.some((column) => !columns.has(column));
+  if (needsRecreate) await run(db, "DROP TABLE IF EXISTS sessions");
 }
 
 async function coreSchemaLooksReady(db: D1Database): Promise<boolean | null> {
@@ -99,6 +108,7 @@ async function createCoreTables(db: D1Database) {
   await run(db, "CREATE INDEX IF NOT EXISTS users_email_idx ON users(email)");
   await run(db, "CREATE INDEX IF NOT EXISTS users_public_id_idx ON users(public_id)");
 
+  await repairEphemeralSessionTableIfNeeded(db);
   await run(db, `CREATE TABLE IF NOT EXISTS sessions (
     token text PRIMARY KEY NOT NULL,
     user_id integer NOT NULL REFERENCES users(id) ON DELETE CASCADE,

@@ -14,6 +14,10 @@ type SeoPayload = {
   status?: number;
   imagePath?: string;
   imageAlt?: string;
+  articlePublishedTime?: string;
+  articleModifiedTime?: string;
+  articleSection?: string;
+  articleTags?: string[];
   schemas?: SeoSchema[];
   contentHtml?: string;
 };
@@ -22,6 +26,20 @@ type SeoContentRow = {
   title: string;
   path: string;
   text?: string;
+};
+
+type SeoAnchorLink = {
+  id: number;
+  term: string;
+  title: string;
+  url: string;
+};
+
+type PreparedSeoAnchorGroup = {
+  key: string;
+  term: string;
+  pattern: RegExp;
+  links: SeoAnchorLink[];
 };
 
 type BootstrapQuery = {
@@ -53,13 +71,17 @@ type BootstrapBuild = {
   categories: ApiCategory[];
 };
 
-const SITE_NAME = "FSTDESK Forum";
-const SITE_DESCRIPTION = "Food science, food safety, product development and food technology forum discussions.";
+const SITE_NAME = "FSTDESK";
+const SITE_TAGLINE = "Food Science and Technology Desk";
+const SITE_DESCRIPTION = `${SITE_TAGLINE} for food science, food safety, product development and food technology discussions.`;
 const HTML_LANG = "en";
 const CONTENT_LANGUAGE = "en-US";
 const OG_LOCALE = "en_US";
 const DEFAULT_IMAGE = "/og/default.webp";
 const CAT_COLORS = ["#b8bb26", "#83a598", "#fabd2f", "#d3869b", "#8ec07c", "#fe8019", "#fb4934", "#a89984"];
+const MAX_SEO_ANCHOR_TERMS = 80;
+const MAX_SEO_ANCHOR_TARGETS_PER_TERM = 20;
+const MAX_SEO_ANCHORS_PER_BLOCK = 16;
 
 function cleanText(input: unknown, max = 160): string {
   const text = String(input ?? "")
@@ -90,8 +112,229 @@ function escapeJsonScript(value: unknown): string {
   return JSON.stringify(value).replace(/</g, "\\u003c");
 }
 
+function fullSeoTitle(title: string): string {
+  const cleaned = String(title ?? "").trim();
+  if (!cleaned || cleaned === SITE_NAME) return SITE_NAME;
+  return cleaned.endsWith(`— ${SITE_NAME}`) ? cleaned : `${cleaned} — ${SITE_NAME}`;
+}
+
+function escapeRegExp(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function absoluteUrl(base: string, path: string): string {
   return new URL(path || "/", base).toString();
+}
+
+function hashString(input: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function isSafeSeoAnchorUrl(url: string): boolean {
+  if (url.startsWith("/") && !url.startsWith("//")) return true;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function normalizeAnchorPath(url: string | undefined): string {
+  if (!url) return "";
+  try {
+    if (url.startsWith("/") && !url.startsWith("//")) {
+      const path = url.split("#")[0].split("?")[0];
+      return path.length > 1 ? path.replace(/\/+$/, "") : path;
+    }
+    const parsed = new URL(url);
+    return parsed.pathname.length > 1 ? parsed.pathname.replace(/\/+$/, "") : parsed.pathname;
+  } catch {
+    return "";
+  }
+}
+
+function anchorTermPattern(term: string): RegExp {
+  return new RegExp(`(^|[^A-Za-z0-9])(${escapeRegExp(term).replace(/\s+/g, "\\s+")})(?=$|[^A-Za-z0-9])`, "i");
+}
+
+function prepareSeoAnchorGroups(links: SeoAnchorLink[], currentPath?: string): PreparedSeoAnchorGroup[] {
+  const seen = new Set<string>();
+  const current = normalizeAnchorPath(currentPath);
+  const prepared = links
+    .map((link) => ({
+      id: Number(link.id) || 0,
+      term: String(link.term ?? "").trim(),
+      title: String(link.title ?? "").trim(),
+      url: String(link.url ?? "").trim(),
+    }))
+    .filter((link) => link.term.length >= 3 && isSafeSeoAnchorUrl(link.url))
+    .filter((link) => normalizeAnchorPath(link.url) !== current)
+    .filter((link) => {
+      const key = `${link.term.toLowerCase()}:${link.url}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => b.term.length - a.term.length || a.term.localeCompare(b.term));
+
+  const groups = new Map<string, SeoAnchorLink[]>();
+  for (const link of prepared) {
+    const key = link.term.toLowerCase();
+    const bucket = groups.get(key) ?? [];
+    if (bucket.length < MAX_SEO_ANCHOR_TARGETS_PER_TERM) {
+      bucket.push(link);
+      groups.set(key, bucket);
+    }
+  }
+
+  return Array.from(groups.entries())
+    .map(([key, bucket]) => ({
+      key,
+      term: bucket[0].term,
+      pattern: anchorTermPattern(bucket[0].term),
+      links: bucket,
+    }))
+    .sort((a, b) => b.term.length - a.term.length || a.term.localeCompare(b.term))
+    .slice(0, MAX_SEO_ANCHOR_TERMS);
+}
+
+function linkSeoTextChunk(text: string, groups: PreparedSeoAnchorGroup[], usedTerms: Set<string>): string {
+  let remaining = text;
+  let out = "";
+
+  while (remaining && usedTerms.size < MAX_SEO_ANCHORS_PER_BLOCK) {
+    let best: { group: PreparedSeoAnchorGroup; start: number; end: number; text: string } | null = null;
+
+    for (const group of groups) {
+      if (usedTerms.has(group.key)) continue;
+      const match = group.pattern.exec(remaining);
+      if (!match) continue;
+      const start = match.index + match[1].length;
+      const end = start + match[2].length;
+      if (!best || start < best.start || (start === best.start && match[2].length > best.text.length)) {
+        best = { group, start, end, text: match[2] };
+      }
+    }
+
+    if (!best) {
+      out += escapeHtml(remaining);
+      remaining = "";
+      break;
+    }
+
+    usedTerms.add(best.group.key);
+    const candidates = best.group.links;
+    const link = candidates[hashString(`${text}:${best.text}:${best.start}`) % candidates.length];
+    out += escapeHtml(remaining.slice(0, best.start));
+    out += `<a class="gb-internal-anchor" href="${escapeHtml(link.url)}" title="${escapeHtml(link.title || link.term)}">${escapeHtml(best.text)}</a>`;
+    remaining = remaining.slice(best.end);
+  }
+
+  if (remaining) out += escapeHtml(remaining);
+  return out;
+}
+
+function seoTextHtml(input: string | undefined, groups: PreparedSeoAnchorGroup[], usedTerms: Set<string>): string {
+  const text = String(input ?? "");
+  if (!text) return "";
+  if (!groups.length) return escapeHtml(text);
+  return linkSeoTextChunk(text, groups, usedTerms);
+}
+
+function stripInlineMarkdown(input: string): string {
+  return input
+    .replace(/!\[([^\]]*)]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]+)]\([^)]*\)/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/_([^_]+)_/g, "$1")
+    .replace(/~~([^~]+)~~/g, "$1");
+}
+
+function normalizeSeoBody(input: unknown): string {
+  return String(input ?? "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(?:p|div|li|blockquote|h[1-6])\s*>/gi, "\n")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\u00a0/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function seoInlineTextHtml(input: string, groups: PreparedSeoAnchorGroup[], usedTerms: Set<string>): string {
+  return seoTextHtml(stripInlineMarkdown(input).trim(), groups, usedTerms);
+}
+
+function seoParagraphHtml(input: string, groups: PreparedSeoAnchorGroup[], usedTerms: Set<string>): string {
+  const lines = input
+    .split(/\n+/)
+    .map((line) => seoInlineTextHtml(line, groups, usedTerms))
+    .filter(Boolean);
+  return lines.length ? `<p>${lines.join("<br />\n")}</p>` : "";
+}
+
+function seoListHtml(lines: string[], ordered: boolean, groups: PreparedSeoAnchorGroup[], usedTerms: Set<string>): string {
+  const tag = ordered ? "ol" : "ul";
+  const items = lines
+    .map((line) => {
+      const text = ordered ? line.replace(/^\d+[.)]\s+/, "") : line.replace(/^[-*+]\s+/, "");
+      const html = seoInlineTextHtml(text, groups, usedTerms);
+      return html ? `<li>${html}</li>` : "";
+    })
+    .filter(Boolean)
+    .join("\n");
+  return items ? `<${tag}>${items}</${tag}>` : "";
+}
+
+function seoRichTextHtml(input: unknown, groups: PreparedSeoAnchorGroup[], usedTerms: Set<string>): string {
+  const source = normalizeSeoBody(input);
+  if (!source) return "";
+
+  return source
+    .split(/\n{2,}/)
+    .map((block) => {
+      const lines = block
+        .split(/\n+/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+      if (!lines.length) return "";
+
+      if (lines.every((line) => /^>\s?/.test(line))) {
+        const quoted = lines.map((line) => line.replace(/^>\s?/, "")).join("\n");
+        const html = seoParagraphHtml(quoted, groups, usedTerms);
+        return html ? `<blockquote>${html}</blockquote>` : "";
+      }
+
+      if (lines.every((line) => /^[-*+]\s+/.test(line))) {
+        return seoListHtml(lines, false, groups, usedTerms);
+      }
+
+      if (lines.every((line) => /^\d+[.)]\s+/.test(line))) {
+        return seoListHtml(lines, true, groups, usedTerms);
+      }
+
+      const heading = lines.length === 1 ? /^#{1,3}\s+(.+)/.exec(lines[0]) : null;
+      if (heading) {
+        const html = seoInlineTextHtml(heading[1], groups, usedTerms);
+        return html ? `<h2>${html}</h2>` : "";
+      }
+
+      return seoParagraphHtml(lines.join("\n"), groups, usedTerms);
+    })
+    .filter(Boolean)
+    .join("\n");
 }
 
 function isoDate(value: unknown): string {
@@ -189,6 +432,29 @@ async function loadCategoriesApi(c: AppContext): Promise<ApiCategory[]> {
       postCount: Number(count?.postCount ?? 0),
     };
   });
+}
+
+async function loadSeoAnchors(c: AppContext): Promise<SeoAnchorLink[]> {
+  try {
+    const rows = await c.env.DB.prepare(
+      `SELECT id, term, url, title
+       FROM anchor_links
+       WHERE enabled = 1
+       ORDER BY length(term) DESC, click_count DESC, term
+       LIMIT 500`,
+    ).all<Record<string, unknown>>();
+    return (rows.results ?? [])
+      .map((row) => ({
+        id: Number(row.id ?? 0),
+        term: String(row.term ?? ""),
+        url: String(row.url ?? ""),
+        title: String(row.title ?? ""),
+      }))
+      .filter((row) => row.id > 0 && row.term.trim().length >= 3 && isSafeSeoAnchorUrl(row.url.trim()));
+  } catch (error) {
+    console.warn("seo_anchors_unavailable", error instanceof Error ? error.message : error);
+    return [];
+  }
 }
 
 async function loadCategoryApi(c: AppContext, id: string): Promise<ApiCategory | null> {
@@ -589,12 +855,15 @@ function rootSchemas(base: string): SeoSchema[] {
       "@type": "WebSite",
       "@id": `${base}/#website`,
       name: SITE_NAME,
+      alternateName: SITE_TAGLINE,
+      description: SITE_DESCRIPTION,
       url: `${base}/`,
       inLanguage: CONTENT_LANGUAGE,
       publisher: {
         "@type": "Organization",
         "@id": `${base}/#organization`,
-        name: "FSTDESK",
+        name: SITE_NAME,
+        alternateName: SITE_TAGLINE,
         url: `${base}/`,
       },
       potentialAction: {
@@ -610,7 +879,10 @@ function rootSchemas(base: string): SeoSchema[] {
       "@context": "https://schema.org",
       "@type": "Organization",
       "@id": `${base}/#organization`,
-      name: "FSTDESK",
+      name: SITE_NAME,
+      alternateName: SITE_TAGLINE,
+      slogan: SITE_TAGLINE,
+      description: SITE_DESCRIPTION,
       url: `${base}/`,
     },
   ];
@@ -642,11 +914,18 @@ function itemListSchema(base: string, items: Array<{ name: string; path: string 
   };
 }
 
-function seoBlock(title: string, body: string, rows: SeoContentRow[] = []): string {
+function seoBlock(
+  title: string,
+  body: string,
+  rows: SeoContentRow[] = [],
+  options: { anchors?: SeoAnchorLink[]; currentPath?: string } = {},
+): string {
   const descriptionAttr = body ? ' aria-describedby="seo-content-description"' : "";
+  const anchorGroups = prepareSeoAnchorGroups(options.anchors ?? [], options.currentPath ?? "");
+  const usedAnchorTerms = new Set<string>();
   const items = rows
     .map((row, index) => {
-      const text = row.text ? `          <p>${escapeHtml(row.text)}</p>` : "";
+      const text = row.text ? `          <p>${seoTextHtml(row.text, anchorGroups, usedAnchorTerms)}</p>` : "";
       return [
         `      <li class="seo-content__row" value="${index + 1}">`,
         "        <article class=\"seo-content__item\">",
@@ -675,6 +954,112 @@ function seoBlock(title: string, body: string, rows: SeoContentRow[] = []): stri
           "  </section>",
         ].join("\n")
       : "",
+    "</main>",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function seoDateHtml(value: unknown): string {
+  const iso = isoDate(value);
+  return `<time datetime="${escapeHtml(iso)}">${escapeHtml(iso.slice(0, 10))}</time>`;
+}
+
+function seoUserPath(username: unknown): string {
+  const name = String(username ?? "").trim();
+  return name ? `/u/${encodeURIComponent(name)}` : "/members";
+}
+
+function seoTagLinksHtml(tags: Record<string, unknown>[]): string {
+  const links = tags
+    .map((tag) => {
+      const name = String(tag.name ?? "").trim();
+      const slug = String(tag.slug ?? name).trim();
+      if (!name || !slug) return "";
+      const href = `/tag/${encodeURIComponent(slug)}`;
+      return `<a href="${escapeHtml(href)}" rel="tag">#${escapeHtml(name)}</a>`;
+    })
+    .filter(Boolean)
+    .join("\n      ");
+
+  return links ? `    <nav class="seo-content__tags" aria-label="Thread tags">\n      ${links}\n    </nav>` : "";
+}
+
+function seoThreadBlock(
+  title: string,
+  description: string,
+  thread: {
+    path: string;
+    categoryName: unknown;
+    categoryPath: string;
+    authorName: unknown;
+    authorUsername: unknown;
+    createdAt: unknown;
+    updatedAt: unknown;
+    views: unknown;
+    replyCount: unknown;
+    content: unknown;
+    tags: Record<string, unknown>[];
+    replies: Record<string, unknown>[];
+  },
+  options: { anchors?: SeoAnchorLink[]; currentPath?: string } = {},
+): string {
+  const descriptionAttr = description ? ' aria-describedby="seo-content-description"' : "";
+  const anchorGroups = prepareSeoAnchorGroups(options.anchors ?? [], options.currentPath ?? thread.path);
+  const usedAnchorTerms = new Set<string>();
+  const authorName = String(thread.authorName ?? "Forum member");
+  const authorPath = seoUserPath(thread.authorUsername);
+  const categoryName = String(thread.categoryName ?? "Forum");
+  const originalBody =
+    seoRichTextHtml(thread.content, anchorGroups, usedAnchorTerms) ||
+    (description ? `<p>${seoTextHtml(description, anchorGroups, usedAnchorTerms)}</p>` : "");
+  const replyItems = thread.replies
+    .map((reply, index) => {
+      const replyAuthor = String(reply.authorName ?? "Forum member");
+      const replyAuthorPath = seoUserPath(reply.username);
+      const replyId = Number(reply.id ?? 0) > 0 ? `post-${Number(reply.id)}` : `reply-${index + 1}`;
+      const replyBody = seoRichTextHtml(reply.content, anchorGroups, usedAnchorTerms);
+      if (!replyBody) return "";
+      return [
+        `    <article class="seo-content__comment" id="${escapeHtml(replyId)}">`,
+        "      <header class=\"seo-content__comment-header\">",
+        `        <h2><a href="${escapeHtml(replyAuthorPath)}">${escapeHtml(replyAuthor)}</a> reply</h2>`,
+        `        <span>posted ${seoDateHtml(reply.createdAt)}</span>`,
+        "      </header>",
+        `      <div class="seo-content__body">${replyBody}</div>`,
+        "    </article>",
+      ].join("\n");
+    })
+    .filter(Boolean)
+    .join("\n");
+
+  return [
+    `<main id="seo-content" class="seo-content seo-content--thread" data-server-rendered="seo" data-count="${thread.replies.length + 1}" aria-labelledby="seo-content-title"${descriptionAttr}>`,
+    '  <article class="seo-content__thread" itemscope itemtype="https://schema.org/DiscussionForumPosting">',
+    '    <header class="seo-content__header">',
+    `      <h1 id="seo-content-title" itemprop="headline">${escapeHtml(title)}</h1>`,
+    description ? `      <p id="seo-content-description">${escapeHtml(description)}</p>` : "",
+    '      <div class="seo-content__meta">',
+    `        <a href="${escapeHtml(thread.categoryPath)}">${escapeHtml(categoryName)}</a>`,
+    `        <span>by <a href="${escapeHtml(authorPath)}">${escapeHtml(authorName)}</a></span>`,
+    `        <span>published ${seoDateHtml(thread.createdAt)}</span>`,
+    `        <span>updated ${seoDateHtml(thread.updatedAt)}</span>`,
+    `        <span>${escapeHtml(Number(thread.replyCount ?? 0))} replies</span>`,
+    `        <span>${escapeHtml(Number(thread.views ?? 0))} views</span>`,
+    "      </div>",
+    seoTagLinksHtml(thread.tags),
+    "    </header>",
+    '    <section class="seo-content__post" aria-label="Original post" itemprop="articleBody">',
+    `      <div class="seo-content__body">${originalBody}</div>`,
+    "    </section>",
+    replyItems
+      ? [
+          '    <section class="seo-content__comments" aria-label="Replies">',
+          replyItems,
+          "    </section>",
+        ].join("\n")
+      : "",
+    "  </article>",
     "</main>",
   ]
     .filter(Boolean)
@@ -719,7 +1104,7 @@ function notFoundPayload(pathname: string, label = "Page not found"): SeoPayload
   };
 }
 
-async function homePayload(c: AppContext, base: string): Promise<SeoPayload> {
+async function homePayload(c: AppContext, base: string, anchors: SeoAnchorLink[]): Promise<SeoPayload> {
   const rows = await c.env.DB.prepare(
     `SELECT t.id, t.public_id AS publicId, t.title, t.content, t.reply_count AS replyCount, t.views, t.last_post_at AS lastPostAt,
       c.name AS categoryName, c.public_id AS categoryPublicId, u.display_name AS authorName
@@ -738,7 +1123,7 @@ async function homePayload(c: AppContext, base: string): Promise<SeoPayload> {
     path: `/t/${thread.publicId}`,
   }));
   return {
-    title: `Threads — ${SITE_NAME}`,
+    title: SITE_TAGLINE,
     description,
     canonicalPath: "/",
     schemas: [
@@ -762,11 +1147,12 @@ async function homePayload(c: AppContext, base: string): Promise<SeoPayload> {
         path: `/t/${thread.publicId}`,
         text: `${cleanText(thread.content, 120)} ${thread.categoryName ? `Category: ${thread.categoryName}.` : ""}`.trim(),
       })),
+      { anchors, currentPath: "/" },
     ),
   };
 }
 
-async function threadPayload(c: AppContext, base: string, id: string): Promise<SeoPayload | null> {
+async function threadPayload(c: AppContext, base: string, id: string, anchors: SeoAnchorLink[]): Promise<SeoPayload | null> {
   const thread = await c.env.DB.prepare(
     `SELECT t.id, t.public_id AS publicId, t.title, t.slug, t.content, t.reply_count AS replyCount, t.views,
       t.created_at AS createdAt, t.updated_at AS updatedAt, t.last_post_at AS lastPostAt,
@@ -793,7 +1179,7 @@ async function threadPayload(c: AppContext, base: string, id: string): Promise<S
       .bind(Number(thread.id))
       .all<Record<string, unknown>>(),
     c.env.DB.prepare(
-      `SELECT p.content, p.created_at AS createdAt, u.username, u.display_name AS authorName
+      `SELECT p.id, p.content, p.created_at AS createdAt, u.username, u.display_name AS authorName
        FROM posts p
        INNER JOIN users u ON u.id = p.user_id
        WHERE p.thread_id = ?
@@ -808,10 +1194,14 @@ async function threadPayload(c: AppContext, base: string, id: string): Promise<S
   const title = String(thread.title);
   const path = `/t/${thread.publicId}`;
   const url = absoluteUrl(base, path);
+  const articleTags = tags.map((tag) => String(tag.name)).filter(Boolean);
+  const articleSection = String(thread.categoryName);
+  const articlePublishedTime = isoDate(thread.createdAt);
+  const articleModifiedTime = newestIsoDate(thread.updatedAt, thread.lastPostAt, thread.createdAt);
   const description = cleanText(thread.content, 160) || `${title} discussion in ${thread.categoryName}.`;
   const schemas: SeoSchema[] = [
     breadcrumbSchema(base, [
-      { name: "Forum", path: "/" },
+      { name: SITE_NAME, path: "/" },
       { name: String(thread.categoryName), path: `/c/${thread.categoryPublicId}` },
       { name: title, path },
     ]),
@@ -823,10 +1213,10 @@ async function threadPayload(c: AppContext, base: string, id: string): Promise<S
       mainEntityOfPage: url,
       headline: title,
       text: cleanText(thread.content, 4000),
-      articleSection: String(thread.categoryName),
-      keywords: tags.map((tag) => String(tag.name)).join(", ") || undefined,
-      datePublished: isoDate(thread.createdAt),
-      dateModified: newestIsoDate(thread.updatedAt, thread.lastPostAt, thread.createdAt),
+      articleSection,
+      keywords: articleTags.join(", ") || undefined,
+      datePublished: articlePublishedTime,
+      dateModified: articleModifiedTime,
       inLanguage: CONTENT_LANGUAGE,
       author: {
         "@type": "Person",
@@ -866,27 +1256,34 @@ async function threadPayload(c: AppContext, base: string, id: string): Promise<S
     type: "article",
     imagePath: `/og/thread/${thread.publicId}.webp`,
     imageAlt: `${title} — ${SITE_NAME}`,
+    articlePublishedTime,
+    articleModifiedTime,
+    articleSection,
+    articleTags,
     schemas,
-    contentHtml: seoBlock(
+    contentHtml: seoThreadBlock(
       title,
       description,
-      [
-        {
-          title: `Original post by ${thread.authorName}`,
-          path,
-          text: cleanText(thread.content, 260),
-        },
-        ...replies.map((reply) => ({
-          title: `${reply.authorName} reply`,
-          path,
-          text: cleanText(reply.content, 180),
-        })),
-      ],
+      {
+        path,
+        categoryName: thread.categoryName,
+        categoryPath: `/c/${thread.categoryPublicId}`,
+        authorName: thread.authorName,
+        authorUsername: thread.authorUsername,
+        createdAt: thread.createdAt,
+        updatedAt: newestIsoDate(thread.updatedAt, thread.lastPostAt, thread.createdAt),
+        views: thread.views,
+        replyCount: thread.replyCount,
+        content: thread.content,
+        tags,
+        replies,
+      },
+      { anchors, currentPath: path },
     ),
   };
 }
 
-async function categoryPayload(c: AppContext, base: string, id: string): Promise<SeoPayload | null> {
+async function categoryPayload(c: AppContext, base: string, id: string, anchors: SeoAnchorLink[]): Promise<SeoPayload | null> {
   const category = await c.env.DB.prepare(
     "SELECT id, public_id AS publicId, name, slug, description FROM categories WHERE public_id = ? OR id = ? OR slug = ? LIMIT 1",
   )
@@ -907,7 +1304,7 @@ async function categoryPayload(c: AppContext, base: string, id: string): Promise
     .first<{ total: number }>();
   const threads = rows.results ?? [];
   const name = String(category.name);
-  const description = cleanText(category.description, 160) || `${name} forum discussions and threads.`;
+  const description = cleanText(category.description, 160) || `${name} discussions and threads on ${SITE_NAME}.`;
   const path = `/c/${category.publicId}`;
   const items = threads.map((thread) => ({ name: String(thread.title), path: `/t/${thread.publicId}` }));
   return {
@@ -916,7 +1313,7 @@ async function categoryPayload(c: AppContext, base: string, id: string): Promise
     canonicalPath: path,
     schemas: [
       breadcrumbSchema(base, [
-        { name: "Forum", path: "/" },
+        { name: SITE_NAME, path: "/" },
         { name, path },
       ]),
       {
@@ -939,11 +1336,12 @@ async function categoryPayload(c: AppContext, base: string, id: string): Promise
         path: `/t/${thread.publicId}`,
         text: cleanText(thread.content, 140),
       })),
+      { anchors, currentPath: path },
     ),
   };
 }
 
-async function membersPayload(c: AppContext, base: string): Promise<SeoPayload> {
+async function membersPayload(c: AppContext, base: string, anchors: SeoAnchorLink[]): Promise<SeoPayload> {
   const rows = await c.env.DB.prepare(
     `SELECT username, display_name AS displayName, bio, post_count AS postCount, thread_count AS threadCount
      FROM users
@@ -951,7 +1349,7 @@ async function membersPayload(c: AppContext, base: string): Promise<SeoPayload> 
   ).all<Record<string, unknown>>();
   const total = await c.env.DB.prepare("SELECT COUNT(*) AS total FROM users").first<{ total: number }>();
   const users = rows.results ?? [];
-  const description = `Browse FSTDESK Forum members, authors, moderators and food technology contributors.`;
+  const description = `Browse ${SITE_NAME} members, authors, moderators and food technology contributors on the ${SITE_TAGLINE}.`;
   const items = users.map((user) => ({ name: String(user.displayName), path: `/u/${user.username}` }));
   return {
     title: `Members — ${SITE_NAME}`,
@@ -959,13 +1357,13 @@ async function membersPayload(c: AppContext, base: string): Promise<SeoPayload> 
     canonicalPath: "/members",
     schemas: [
       breadcrumbSchema(base, [
-        { name: "Forum", path: "/" },
+        { name: SITE_NAME, path: "/" },
         { name: "Members", path: "/members" },
       ]),
       {
         "@context": "https://schema.org",
         "@type": "CollectionPage",
-        name: "Forum Members",
+        name: `${SITE_NAME} Members`,
         url: `${base}/members`,
         description,
         inLanguage: CONTENT_LANGUAGE,
@@ -974,18 +1372,19 @@ async function membersPayload(c: AppContext, base: string): Promise<SeoPayload> 
       itemListSchema(base, items),
     ],
     contentHtml: seoBlock(
-      "Forum Members",
+      `${SITE_NAME} Members`,
       description,
       users.map((user) => ({
         title: `${user.displayName} (@${user.username})`,
         path: `/u/${user.username}`,
         text: cleanText(user.bio, 140) || `${user.postCount ?? 0} replies, ${user.threadCount ?? 0} threads.`,
       })),
+      { anchors, currentPath: "/members" },
     ),
   };
 }
 
-async function memberPayload(c: AppContext, base: string, username: string): Promise<SeoPayload | null> {
+async function memberPayload(c: AppContext, base: string, username: string, anchors: SeoAnchorLink[]): Promise<SeoPayload | null> {
   const user = await c.env.DB.prepare(
     `SELECT id, username, display_name AS displayName, avatar_url AS avatarUrl, bio, role,
       post_count AS postCount, thread_count AS threadCount, created_at AS createdAt
@@ -1023,7 +1422,7 @@ async function memberPayload(c: AppContext, base: string, username: string): Pro
   const url = absoluteUrl(base, path);
   const description =
     cleanText(user.bio, 160) ||
-    `${displayName} (@${user.username}) on FSTDESK Forum: ${user.postCount ?? 0} replies and ${user.threadCount ?? 0} threads.`;
+    `${displayName} (@${user.username}) on ${SITE_NAME}: ${user.postCount ?? 0} replies and ${user.threadCount ?? 0} threads.`;
   return {
     title: `${displayName} — ${SITE_NAME}`,
     description,
@@ -1031,7 +1430,7 @@ async function memberPayload(c: AppContext, base: string, username: string): Pro
     type: "profile",
     schemas: [
       breadcrumbSchema(base, [
-        { name: "Forum", path: "/" },
+        { name: SITE_NAME, path: "/" },
         { name: "Members", path: "/members" },
         { name: displayName, path },
       ]),
@@ -1067,11 +1466,12 @@ async function memberPayload(c: AppContext, base: string, username: string): Pro
         path: `/t/${thread.publicId}`,
         text: cleanText(thread.content, 140),
       })),
+      { anchors, currentPath: path },
     ),
   };
 }
 
-async function tagsPayload(c: AppContext, base: string): Promise<SeoPayload> {
+async function tagsPayload(c: AppContext, base: string, anchors: SeoAnchorLink[]): Promise<SeoPayload> {
   const rows = await c.env.DB.prepare(
     `SELECT tags.name, tags.slug, COUNT(thread_tags.thread_id) AS threadCount
      FROM tags
@@ -1080,20 +1480,20 @@ async function tagsPayload(c: AppContext, base: string): Promise<SeoPayload> {
      ORDER BY threadCount DESC, tags.name ASC`,
   ).all<Record<string, unknown>>();
   const tags = rows.results ?? [];
-  const description = "Browse FSTDESK Forum tags across food science, food safety and product development topics.";
+  const description = `Browse ${SITE_NAME} tags across food science, food safety and product development topics.`;
   return {
     title: `Tags — ${SITE_NAME}`,
     description,
     canonicalPath: "/tags",
     schemas: [
       breadcrumbSchema(base, [
-        { name: "Forum", path: "/" },
+        { name: SITE_NAME, path: "/" },
         { name: "Tags", path: "/tags" },
       ]),
       {
         "@context": "https://schema.org",
         "@type": "DefinedTermSet",
-        name: "Forum Tags",
+        name: `${SITE_NAME} Tags`,
         url: `${base}/tags`,
         inLanguage: CONTENT_LANGUAGE,
         hasDefinedTerm: tags.slice(0, 50).map((tag) => ({
@@ -1108,18 +1508,19 @@ async function tagsPayload(c: AppContext, base: string): Promise<SeoPayload> {
       ),
     ],
     contentHtml: seoBlock(
-      "Forum Tags",
+      `${SITE_NAME} Tags`,
       description,
       tags.map((tag) => ({
         title: `#${tag.name}`,
         path: `/tag/${tag.slug}`,
         text: `${tag.threadCount ?? 0} threads`,
       })),
+      { anchors, currentPath: "/tags" },
     ),
   };
 }
 
-async function tagPayload(c: AppContext, base: string, slug: string): Promise<SeoPayload | null> {
+async function tagPayload(c: AppContext, base: string, slug: string, anchors: SeoAnchorLink[]): Promise<SeoPayload | null> {
   const tag = await c.env.DB.prepare("SELECT id, name, slug FROM tags WHERE slug = ? LIMIT 1")
     .bind(slug)
     .first<Record<string, unknown>>();
@@ -1139,21 +1540,21 @@ async function tagPayload(c: AppContext, base: string, slug: string): Promise<Se
   const threads = rows.results ?? [];
   const name = String(tag.name);
   const path = `/tag/${encodeURIComponent(String(tag.slug))}`;
-  const description = `Forum discussions tagged ${name}. Browse ${Number(total?.total ?? threads.length)} related threads.`;
+  const description = `Discussions tagged ${name} on ${SITE_NAME}. Browse ${Number(total?.total ?? threads.length)} related threads.`;
   return {
     title: `#${name} — ${SITE_NAME}`,
     description,
     canonicalPath: path,
     schemas: [
       breadcrumbSchema(base, [
-        { name: "Forum", path: "/" },
+        { name: SITE_NAME, path: "/" },
         { name: "Tags", path: "/tags" },
         { name: `#${name}`, path },
       ]),
       {
         "@context": "https://schema.org",
         "@type": "CollectionPage",
-        name: `#${name} Forum Threads`,
+        name: `#${name} ${SITE_NAME} Threads`,
         url: absoluteUrl(base, path),
         description,
         inLanguage: CONTENT_LANGUAGE,
@@ -1172,12 +1573,13 @@ async function tagPayload(c: AppContext, base: string, slug: string): Promise<Se
         path: `/t/${thread.publicId}`,
         text: cleanText(thread.content, 140),
       })),
+      { anchors, currentPath: path },
     ),
   };
 }
 
-function aboutPayload(base: string): SeoPayload {
-  const description = "Learn how FSTDESK Forum helps members browse food science, food safety, product development and food technology discussions.";
+function aboutPayload(base: string, anchors: SeoAnchorLink[]): SeoPayload {
+  const description = `Learn how ${SITE_NAME}, the ${SITE_TAGLINE}, helps members browse food science, food safety, product development and food technology discussions.`;
   const rows = [
     { title: "Threads", path: "/", text: "Browse practical food science and product development conversations." },
     { title: "Categories", path: "/", text: "Follow focused areas such as ingredients, food safety, nutrition, packaging and regulations." },
@@ -1191,65 +1593,70 @@ function aboutPayload(base: string): SeoPayload {
     canonicalPath: "/about",
     schemas: [
       breadcrumbSchema(base, [
-        { name: "Forum", path: "/" },
+        { name: SITE_NAME, path: "/" },
         { name: "About", path: "/about" },
       ]),
       {
         "@context": "https://schema.org",
         "@type": "AboutPage",
-        name: "About FSTDESK Forum",
+        name: `About ${SITE_NAME}`,
         url: `${base}/about`,
         description,
         inLanguage: CONTENT_LANGUAGE,
       },
       itemListSchema(base, rows.map((row) => ({ name: row.title, path: row.path }))),
     ],
-    contentHtml: seoBlock("About FSTDESK Forum", description, rows),
+    contentHtml: seoBlock(`About ${SITE_NAME}`, description, rows, { anchors, currentPath: "/about" }),
   };
 }
 
-function contactPayload(base: string): SeoPayload {
-  const description = "Contact the FSTDESK Forum team for account, content and community requests.";
+function contactPayload(base: string, anchors: SeoAnchorLink[]): SeoPayload {
+  const description = `Contact the ${SITE_NAME} team for account, content and community requests.`;
   return {
     title: `Contact — ${SITE_NAME}`,
     description,
     canonicalPath: "/contact",
     schemas: [
       breadcrumbSchema(base, [
-        { name: "Forum", path: "/" },
+        { name: SITE_NAME, path: "/" },
         { name: "Contact", path: "/contact" },
       ]),
       {
         "@context": "https://schema.org",
         "@type": "ContactPage",
-        name: "Contact FSTDESK Forum",
+        name: `Contact ${SITE_NAME}`,
         url: `${base}/contact`,
         description,
         inLanguage: CONTENT_LANGUAGE,
         about: { "@id": `${base}/#organization` },
       },
     ],
-    contentHtml: seoBlock("Contact FSTDESK Forum", description, [
+    contentHtml: seoBlock(`Contact ${SITE_NAME}`, description, [
       { title: "Send a message", path: "/contact", text: "Use the contact form to send a direct message to the FSTDESK team." },
       { title: "Forum", path: "/", text: "Return to recent food science discussions." },
       { title: "Members", path: "/members", text: "Browse community member profiles." },
-    ]),
+    ], { anchors, currentPath: "/contact" }),
   };
 }
 
-async function payloadForPath(c: AppContext, base: string, pathname: string): Promise<SeoPayload> {
+async function payloadForPath(c: AppContext, base: string, pathname: string, anchors: SeoAnchorLink[]): Promise<SeoPayload> {
   const parts = pathname.split("/").filter(Boolean).map((part) => decodeURIComponent(part));
-  if (pathname === "/") return homePayload(c, base);
-  if (parts[0] === "t" && parts[1]) return (await threadPayload(c, base, parts[1])) ?? notFoundPayload(pathname, "Thread not found");
-  if (parts[0] === "c" && parts[1]) return (await categoryPayload(c, base, parts[1])) ?? notFoundPayload(pathname, "Category not found");
-  if (parts[0] === "members" && parts.length === 1) return membersPayload(c, base);
-  if (parts[0] === "u" && parts[1]) return (await memberPayload(c, base, parts[1])) ?? notFoundPayload(pathname, "Member not found");
-  if (parts[0] === "tags" && parts.length === 1) return tagsPayload(c, base);
-  if (parts[0] === "tag" && parts[1]) return (await tagPayload(c, base, parts[1])) ?? notFoundPayload(pathname, "Tag not found");
-  if (parts[0] === "contact" && parts.length === 1) return contactPayload(base);
-  if (parts[0] === "about" && parts.length === 1) return aboutPayload(base);
+  if (pathname === "/") return homePayload(c, base, anchors);
+  if (parts[0] === "t" && parts[1]) return (await threadPayload(c, base, parts[1], anchors)) ?? notFoundPayload(pathname, "Thread not found");
+  if (parts[0] === "c" && parts[1]) return (await categoryPayload(c, base, parts[1], anchors)) ?? notFoundPayload(pathname, "Category not found");
+  if (parts[0] === "members" && parts.length === 1) return membersPayload(c, base, anchors);
+  if (parts[0] === "u" && parts[1]) return (await memberPayload(c, base, parts[1], anchors)) ?? notFoundPayload(pathname, "Member not found");
+  if (parts[0] === "tags" && parts.length === 1) return tagsPayload(c, base, anchors);
+  if (parts[0] === "tag" && parts[1]) return (await tagPayload(c, base, parts[1], anchors)) ?? notFoundPayload(pathname, "Tag not found");
+  if (parts[0] === "contact" && parts.length === 1) return contactPayload(base, anchors);
+  if (parts[0] === "about" && parts.length === 1) return aboutPayload(base, anchors);
   if (["admin", "login", "register", "new-thread", "search"].includes(parts[0] ?? "")) return noindexPayload(pathname);
   return notFoundPayload(pathname);
+}
+
+function shouldLoadSeoAnchors(pathname: string): boolean {
+  const section = pathname.split("/").filter(Boolean)[0] ?? "";
+  return !["admin", "login", "register", "new-thread", "search"].includes(section);
 }
 
 function shouldRenderHtml(c: AppContext): boolean {
@@ -1267,25 +1674,57 @@ function stripFallbackHead(html: string): string {
   return html
     .replace(/<html\s+lang="[^"]*"/i, `<html lang="${HTML_LANG}"`)
     .replace(/^[ \t]*<title>[\s\S]*?<\/title>[ \t]*\r?\n?/im, "")
-    .replace(/^[ \t]*<meta\s+(?:name|property)="(?:description|robots|application-name|twitter:card|twitter:title|twitter:description|twitter:image|twitter:image:alt|og:site_name|og:type|og:title|og:description|og:url|og:image|og:image:secure_url|og:image:type|og:image:width|og:image:height|og:image:alt|og:locale)"[^>]*>[ \t]*\r?\n?/gim, "")
+    .replace(/^[ \t]*<meta\s+(?:name|property)="(?:description|robots|application-name|apple-mobile-web-app-title|author|publisher|keywords|twitter:card|twitter:title|twitter:description|twitter:image|twitter:image:alt|og:site_name|og:type|og:title|og:description|og:url|og:image|og:image:secure_url|og:image:type|og:image:width|og:image:height|og:image:alt|og:locale|article:published_time|article:modified_time|article:section|article:tag)"[^>]*>[ \t]*\r?\n?/gim, "")
     .replace(/^[ \t]*<meta\s+http-equiv="content-language"[^>]*>[ \t]*\r?\n?/gim, "")
     .replace(/^[ \t]*<link\s+rel="canonical"[^>]*>[ \t]*\r?\n?/gim, "")
     .replace(/\n{3,}/g, "\n\n");
 }
 
+function seoKeywords(payload: SeoPayload): string {
+  return Array.from(
+    new Set(
+      [
+        SITE_NAME,
+        SITE_TAGLINE,
+        "food science",
+        "food technology",
+        "food safety",
+        "product development",
+        payload.articleSection,
+        ...(payload.articleTags ?? []),
+      ]
+        .map((item) => String(item ?? "").trim())
+        .filter(Boolean),
+    ),
+  ).join(", ");
+}
+
 function metaHtml(payload: SeoPayload, base: string): string {
   const canonical = absoluteUrl(base, payload.canonicalPath);
-  const fullTitle = payload.title.includes(SITE_NAME) ? payload.title : `${payload.title} — ${SITE_NAME}`;
+  const fullTitle = fullSeoTitle(payload.title);
   const imagePath = payload.imagePath ?? DEFAULT_IMAGE;
   const image = absoluteUrl(base, imagePath);
   const imageType = imagePath.toLowerCase().endsWith(".webp") ? "image/webp" : "image/svg+xml";
   const imageAlt = payload.imageAlt ?? fullTitle;
   const schemas = [...rootSchemas(base), ...(payload.schemas ?? [])];
+  const articleMeta =
+    payload.type === "article"
+      ? [
+          payload.articlePublishedTime ? `<meta property="article:published_time" content="${escapeHtml(payload.articlePublishedTime)}" />` : "",
+          payload.articleModifiedTime ? `<meta property="article:modified_time" content="${escapeHtml(payload.articleModifiedTime)}" />` : "",
+          payload.articleSection ? `<meta property="article:section" content="${escapeHtml(payload.articleSection)}" />` : "",
+          ...(payload.articleTags ?? []).map((tag) => `<meta property="article:tag" content="${escapeHtml(tag)}" />`),
+        ].filter(Boolean)
+      : [];
   return [
     `<title>${escapeHtml(fullTitle)}</title>`,
     `<meta name="description" content="${escapeHtml(payload.description)}" />`,
     `<meta name="robots" content="${escapeHtml(payload.robots ?? "index,follow")}" />`,
     `<meta name="application-name" content="${escapeHtml(SITE_NAME)}" />`,
+    `<meta name="apple-mobile-web-app-title" content="${escapeHtml(SITE_NAME)}" />`,
+    `<meta name="author" content="${escapeHtml(SITE_NAME)}" />`,
+    `<meta name="publisher" content="${escapeHtml(SITE_NAME)}" />`,
+    `<meta name="keywords" content="${escapeHtml(seoKeywords(payload))}" />`,
     `<meta http-equiv="content-language" content="${CONTENT_LANGUAGE}" />`,
     `<link rel="canonical" href="${escapeHtml(canonical)}" />`,
     `<meta property="og:site_name" content="${escapeHtml(SITE_NAME)}" />`,
@@ -1300,6 +1739,7 @@ function metaHtml(payload: SeoPayload, base: string): string {
     `<meta property="og:image:height" content="630" />`,
     `<meta property="og:image:alt" content="${escapeHtml(imageAlt)}" />`,
     `<meta property="og:locale" content="${OG_LOCALE}" />`,
+    ...articleMeta,
     `<meta name="twitter:card" content="summary_large_image" />`,
     `<meta name="twitter:title" content="${escapeHtml(fullTitle)}" />`,
     `<meta name="twitter:description" content="${escapeHtml(payload.description)}" />`,
@@ -1501,10 +1941,11 @@ export async function renderSeoHtml(c: AppContext): Promise<Response> {
 
   const url = new URL(c.req.url);
   const base = `${url.protocol}//${url.host}`;
-  const [payload, bootstrap] = await Promise.all([
-    payloadForPath(c, base, url.pathname),
+  const [anchors, bootstrap] = await Promise.all([
+    shouldLoadSeoAnchors(url.pathname) ? loadSeoAnchors(c) : Promise.resolve([]),
     bootstrapForUrl(c, url),
   ]);
+  const payload = await payloadForPath(c, base, url.pathname, anchors);
   const html = injectHtml(await assetResponse.text(), payload, base, url, bootstrap);
   const headers = new Headers(assetResponse.headers);
   headers.set("content-type", "text/html; charset=utf-8");
