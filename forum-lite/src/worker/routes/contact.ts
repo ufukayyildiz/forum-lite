@@ -3,6 +3,7 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { schema } from "../db";
 import { sendEmail } from "../lib/email";
+import { isEmailSuppressed, recordEmailSuppression } from "../lib/email-suppression";
 import { loadEmailSettings } from "../lib/notifications";
 import type { AppEnv } from "../types";
 
@@ -90,6 +91,15 @@ app.post("/", zValidator("json", contactSchema), async (c) => {
 </div>
 </body></html>`;
 
+  if (await isEmailSuppressed(db, settings.to)) {
+    await db.insert(schema.activityLog).values({
+      userId: user?.id ?? null,
+      type: "contact_message",
+      summary: `Contact message blocked: ${settings.to} is suppressed`,
+    });
+    return c.json({ error: "Message could not be sent. Please try again later." }, 502);
+  }
+
   const sent = await sendEmail(c.env, {
     to: settings.to,
     from: settings.from,
@@ -113,6 +123,14 @@ app.post("/", zValidator("json", contactSchema), async (c) => {
   });
 
   if (!sent.ok) {
+    if (sent.suppressed) {
+      await recordEmailSuppression(db, c.env, settings.to, {
+        reason: "recipient_suppressed",
+        source: "contact_send",
+        details: sent.code,
+        waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),
+      });
+    }
     return c.json({ error: "Message could not be sent. Please try again later." }, 502);
   }
 

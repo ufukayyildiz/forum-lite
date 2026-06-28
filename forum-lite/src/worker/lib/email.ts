@@ -103,6 +103,82 @@ function amzDateParts(now = new Date()) {
   };
 }
 
+async function awsSesFetch(
+  env: Bindings,
+  opts: { region: string; method: "GET" | "POST"; path: string; body?: string },
+): Promise<{ ok: boolean; status: number; bodyText: string; body: Record<string, unknown> }> {
+  const accessKeyId = env.AWS_SES_ACCESS_KEY_ID;
+  const secretAccessKey = env.AWS_SES_SECRET_ACCESS_KEY;
+  if (!accessKeyId || !secretAccessKey) {
+    throw new Error("AWS SES credentials are not configured");
+  }
+
+  const service = "ses";
+  const host = `email.${opts.region}.amazonaws.com`;
+  const payload = opts.body ?? "";
+  const { amzDate, dateStamp } = amzDateParts();
+  const payloadHash = await sha256Hex(payload);
+  const headers: Record<string, string> = {
+    host,
+    "x-amz-content-sha256": payloadHash,
+    "x-amz-date": amzDate,
+  };
+  if (opts.body !== undefined) headers["content-type"] = "application/json";
+  if (env.AWS_SES_SESSION_TOKEN) headers["x-amz-security-token"] = env.AWS_SES_SESSION_TOKEN;
+
+  const headerKeys = Object.keys(headers).sort();
+  const canonicalHeaders = headerKeys.map((key) => `${key}:${sanitizeHeaderValue(headers[key])}\n`).join("");
+  const signedHeaders = headerKeys.join(";");
+  const canonicalRequest = [opts.method, opts.path, "", canonicalHeaders, signedHeaders, payloadHash].join("\n");
+  const credentialScope = `${dateStamp}/${opts.region}/${service}/aws4_request`;
+  const stringToSign = ["AWS4-HMAC-SHA256", amzDate, credentialScope, await sha256Hex(canonicalRequest)].join("\n");
+  const signingKey = await awsSigningKey(secretAccessKey, dateStamp, opts.region, service);
+  const signature = hex(await hmacSha256(signingKey, stringToSign));
+  const authorization = `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+  const res = await fetch(`https://${host}${opts.path}`, {
+    method: opts.method,
+    headers: {
+      ...headers,
+      Authorization: authorization,
+    },
+    body: opts.body,
+  });
+  const bodyText = await res.text();
+  const body = bodyText ? JSON.parse(bodyText) as Record<string, unknown> : {};
+  return { ok: res.ok, status: res.status, bodyText, body };
+}
+
+function awsErrorMessage(body: Record<string, unknown>, bodyText: string, fallback: string): { code: string; message: string } {
+  const code = String(body.__type || body.name || body.Code || fallback);
+  const message = String(body.message || body.Message || bodyText || fallback);
+  return { code, message: message.slice(0, 700) };
+}
+
+async function checkSesSuppression(env: Bindings, email: string, region: string): Promise<EmailSendResult | null> {
+  const path = `/v2/email/suppression/addresses/${encodeURIComponent(email)}`;
+  const result = await awsSesFetch(env, { region, method: "GET", path });
+  if (result.ok) {
+    const suppressed = result.body.SuppressedDestination as Record<string, unknown> | undefined;
+    return {
+      ok: false,
+      code: "E_AWS_SES_RECIPIENT_SUPPRESSED",
+      message: `Recipient is on the AWS SES suppression list${suppressed?.Reason ? ` (${suppressed.Reason})` : ""}`,
+      suppressed: true,
+      provider: "ses",
+    };
+  }
+  if (result.status === 404) return null;
+  const error = awsErrorMessage(result.body, result.bodyText, `SES suppression check failed (${result.status})`);
+  return {
+    ok: false,
+    code: error.code || "E_AWS_SES_SUPPRESSION_CHECK_FAILED",
+    message: `AWS SES suppression check failed: ${error.message}`,
+    suppressed: false,
+    provider: "ses",
+  };
+}
+
 function generateMimeBoundary(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(12));
   return "=_" + [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -188,9 +264,14 @@ async function sendSesEmail(env: Bindings, opts: EmailSendOptions): Promise<Emai
   }
 
   const region = (opts.sesRegion || DEFAULT_SES_REGION).trim() || DEFAULT_SES_REGION;
-  const service = "ses";
-  const host = `email.${region}.amazonaws.com`;
-  const endpoint = `https://${host}/v2/email/outbound-emails`;
+  const suppressionResult = await checkSesSuppression(env, opts.to, region).catch((error) => ({
+    ok: false,
+    code: "E_AWS_SES_SUPPRESSION_CHECK_FAILED",
+    message: error instanceof Error ? error.message : "AWS SES suppression check failed",
+    provider: "ses" as const,
+  }));
+  if (suppressionResult) return suppressionResult;
+
   const replyTo = opts.headers?.["Reply-To"] || opts.headers?.["reply-to"];
   const customHeaders = Object.entries(opts.headers ?? {})
     .filter(([name]) => name.toLowerCase() !== "reply-to")
@@ -212,41 +293,12 @@ async function sendSesEmail(env: Bindings, opts: EmailSendOptions): Promise<Emai
     Content: { Simple: simple },
   });
 
-  const { amzDate, dateStamp } = amzDateParts();
-  const payloadHash = await sha256Hex(payload);
-  const headers: Record<string, string> = {
-    "content-type": "application/json",
-    host,
-    "x-amz-content-sha256": payloadHash,
-    "x-amz-date": amzDate,
-  };
-  if (env.AWS_SES_SESSION_TOKEN) headers["x-amz-security-token"] = env.AWS_SES_SESSION_TOKEN;
-  const headerKeys = Object.keys(headers).sort();
-  const canonicalHeaders = headerKeys.map((key) => `${key}:${sanitizeHeaderValue(headers[key])}\n`).join("");
-  const signedHeaders = headerKeys.join(";");
-  const canonicalRequest = ["POST", "/v2/email/outbound-emails", "", canonicalHeaders, signedHeaders, payloadHash].join("\n");
-  const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`;
-  const stringToSign = ["AWS4-HMAC-SHA256", amzDate, credentialScope, await sha256Hex(canonicalRequest)].join("\n");
-  const signingKey = await awsSigningKey(secretAccessKey, dateStamp, region, service);
-  const signature = hex(await hmacSha256(signingKey, stringToSign));
-  const authorization = `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
-
   try {
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        ...headers,
-        Authorization: authorization,
-      },
-      body: payload,
-    });
-    const bodyText = await res.text();
-    const body = bodyText ? JSON.parse(bodyText) as Record<string, unknown> : {};
-    if (res.ok) {
-      return { ok: true, provider: "ses", messageId: String(body.MessageId ?? "") || undefined };
+    const result = await awsSesFetch(env, { region, method: "POST", path: "/v2/email/outbound-emails", body: payload });
+    if (result.ok) {
+      return { ok: true, provider: "ses", messageId: String(result.body.MessageId ?? "") || undefined };
     }
-    const code = String(body.__type || body.name || body.Code || `SES_${res.status}`);
-    const message = String(body.message || body.Message || bodyText || res.statusText);
+    const { code, message } = awsErrorMessage(result.body, result.bodyText, `SES_${result.status}`);
     return { ok: false, code, message: message.slice(0, 700), suppressed: sesErrorSuppressed(code, message), provider: "ses" };
   } catch (error) {
     const message = error instanceof Error ? error.message : "AWS SES send failed";

@@ -1,6 +1,7 @@
 import type { Bindings } from "../types";
 import type { DB } from "../db";
 import { sendEmail } from "./email";
+import { isEmailSuppressed, recordEmailSuppression } from "./email-suppression";
 import { loadEmailSettings } from "./notifications";
 
 type WaitUntilContext = {
@@ -77,18 +78,31 @@ function queueAdminEmail(
     .filter(Boolean)
     .join("\n");
 
-  const task = loadEmailSettings(db, requestUrl)
-    .then((settings) => sendEmail(env, {
-      to,
-      from: settings.from,
-      provider: settings.provider,
-      sesRegion: settings.sesRegion,
-      subject: clip(subject, 140),
-      text,
-      html,
-    }))
-    .then((result) => {
+  const task = Promise.all([loadEmailSettings(db, requestUrl), isEmailSuppressed(db, to)])
+    .then(([settings, suppressed]) => {
+      if (suppressed) {
+        console.warn("admin_alert_email_suppressed", to);
+        return { ok: false, code: "LOCAL_SUPPRESSION", message: "Admin alert recipient is locally suppressed" };
+      }
+      return sendEmail(env, {
+        to,
+        from: settings.from,
+        provider: settings.provider,
+        sesRegion: settings.sesRegion,
+        subject: clip(subject, 140),
+        text,
+        html,
+      });
+    })
+    .then(async (result) => {
       if (!result.ok) console.error("admin_alert_email_failed", result.code, result.message);
+      if (result.suppressed) {
+        await recordEmailSuppression(db, env, to, {
+          reason: "recipient_suppressed",
+          source: "admin_alert",
+          details: result.code,
+        });
+      }
     })
     .catch((error) => console.error("admin_alert_email_error", error));
 
