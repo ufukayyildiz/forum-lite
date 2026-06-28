@@ -40,8 +40,8 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
   const warmQuery = (to: string) => {
     if (to === "/") {
       qc.prefetchQuery({
-        queryKey: ["threads", "all", "recent", "all"],
-        queryFn: () => api.threads({ sort: "recent", all: 1 }),
+        queryKey: ["threads", "all", "recent", "page", 1],
+        queryFn: () => api.threads({ sort: "recent", page: 1 }),
       }).catch(() => undefined);
     } else if (to === "/members") {
       qc.prefetchQuery({
@@ -55,8 +55,8 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
   const warmCategory = (id: string | number) => {
     qc.prefetchQuery({ queryKey: ["category", String(id)], queryFn: () => api.category(id) }).catch(() => undefined);
     qc.prefetchQuery({
-      queryKey: ["threads", "cat", String(id), "recent", "all"],
-      queryFn: () => api.threads({ category: id, sort: "recent", all: 1 }),
+      queryKey: ["threads", "cat", String(id), "recent", "page", 1],
+      queryFn: () => api.threads({ category: id, sort: "recent", page: 1 }),
     }).catch(() => undefined);
   };
 

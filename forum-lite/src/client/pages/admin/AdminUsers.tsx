@@ -95,14 +95,23 @@ export default function AdminUsers() {
         </div>
       )}
 
-      <table className="gb-table">
+      <table className="gb-table gb-admin-users-table">
+        <colgroup>
+          <col className="gb-admin-users-col-index" />
+          <col className="gb-admin-users-col-avatar" />
+          <col />
+          <col className="gb-admin-users-col-posts" />
+          <col className="gb-admin-users-col-active" />
+          <col className="gb-admin-users-col-role" />
+          <col className="gb-admin-users-col-actions" />
+        </colgroup>
         <thead>
           <tr>
             <th style={{ textAlign: "right", paddingRight: 16 }}>#</th>
             <th style={{ width: 36 }} />
             <th>NAME</th>
             <th style={{ textAlign: "right", paddingRight: 16 }}>POSTS</th>
-            <th style={{ textAlign: "right", paddingRight: 16 }}>LAST ACTIVE</th>
+            <th className="gb-admin-users-last-active">LAST ACTIVE</th>
             <th style={{ paddingRight: 16 }}>ROLE</th>
             <th>ACTIONS</th>
           </tr>
@@ -141,7 +150,8 @@ export default function AdminUsers() {
                 </td>
                 <td style={{ textAlign: "right", paddingRight: 16, color: "var(--gb-aqua)", fontSize: 13 }}>{u.postCount}</td>
                 <td
-                  style={{ textAlign: "right", paddingRight: 16, color: u.lastActiveAt ? "var(--gb-green)" : "var(--gb-gray)", fontSize: 12, whiteSpace: "nowrap" }}
+                  className="gb-admin-users-last-active"
+                  style={{ color: u.lastActiveAt ? "var(--gb-green)" : "var(--gb-gray)" }}
                   title={u.lastActiveAt ?? "no recorded activity"}
                 >
                   {u.lastActiveAt ? relativeTime(u.lastActiveAt) : "-"}

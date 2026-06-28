@@ -5,7 +5,7 @@ import { api } from "../../lib/api";
 import { relativeTime } from "../../lib/utils";
 import { GbSelect, type GbSelectOption } from "../../components/GbSelect";
 
-const MAX_BULK_RECIPIENTS = 20;
+const MAX_BULK_RECIPIENTS = 250;
 const DUPLICATE_SETTING_KEY = "marketing_block_duplicate_sends";
 
 type BulkResult = {

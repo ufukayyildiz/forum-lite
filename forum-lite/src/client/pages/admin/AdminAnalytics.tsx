@@ -83,6 +83,59 @@ function SourceBadge({ source, medium }: { source: string; medium: string }) {
   return <span style={{ color }}>{source}<span style={{ color: "var(--gb-gray)" }}> / {medium}</span></span>;
 }
 
+type AnalyticsVisitRow = AdminAnalyticsResponse["online"][number] | AdminAnalyticsResponse["recent"][number];
+
+function shortUrl(url?: string | null) {
+  if (!url) return "";
+  try {
+    const parsed = new URL(url);
+    return `${parsed.host}${parsed.pathname}${parsed.search}`.slice(0, 140);
+  } catch {
+    return url.slice(0, 140);
+  }
+}
+
+function compactParts(parts: Array<[string, string | null | undefined]>) {
+  return parts.filter(([, value]) => Boolean(value)).map(([key, value]) => `${key}=${value}`).join(" · ");
+}
+
+function SourceDetail({ row }: { row: AnalyticsVisitRow }) {
+  const utm = compactParts([
+    ["source", row.utmSource],
+    ["medium", row.utmMedium],
+    ["campaign", row.utmCampaign ?? row.campaign],
+    ["term", row.utmTerm],
+    ["content", row.utmContent],
+  ]);
+  const hasEntry = Boolean(row.entrySource && row.entryMedium);
+  const entryDiffers = hasEntry && (
+    row.entrySource !== row.source ||
+    row.entryMedium !== row.medium ||
+    row.entryCampaign !== row.campaign ||
+    row.entryPath !== row.path
+  );
+  const showEntry = entryDiffers && (row.source === "internal" || row.medium === "internal" || row.source === "direct" || row.medium === "none");
+  return (
+    <div className="gb-analytics-source-detail">
+      <div><SourceBadge source={row.source} medium={row.medium} /></div>
+      {(row.campaign || row.utmCampaign) && <div>campaign: {row.utmCampaign ?? row.campaign}</div>}
+      {utm && <div>utm: {utm}</div>}
+      {(row.referrerHost || row.referrer) && (
+        <div title={row.referrer ?? undefined}>
+          ref: {row.referrerHost || "unknown"}{row.referrer ? ` · ${shortUrl(row.referrer)}` : ""}
+        </div>
+      )}
+      {showEntry && (
+        <div>
+          entry: <SourceBadge source={row.entrySource || "direct"} medium={row.entryMedium || "none"} />
+          {row.entryCampaign ? ` · ${row.entryCampaign}` : ""}
+          {row.entryPath ? ` · ${row.entryPath}` : ""}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminAnalytics() {
   const [days, setDays] = useState(7);
   const { data, isLoading } = useQuery({
@@ -102,7 +155,7 @@ export default function AdminAnalytics() {
         <div>
           <div style={{ color: "var(--gb-yellow)", fontWeight: 700 }}>$ analytics</div>
           <div style={{ color: "var(--gb-gray)", fontSize: 12, marginTop: 6 }}>
-            Traffic source, country, duration, user/anonymous and repeat visitor overview.
+            Traffic source, real referrer, UTM campaign, country, duration and visitor overview.
           </div>
         </div>
         <div className="gb-analytics-range" aria-label="Analytics range">
@@ -170,7 +223,7 @@ export default function AdminAnalytics() {
                     <td style={{ maxWidth: 420 }}>
                       <span className="gb-analytics-ellipsis">{row.path}</span>
                     </td>
-                    <td><SourceBadge source={row.source} medium={row.medium} /></td>
+                    <td style={{ minWidth: 260 }}><SourceDetail row={row} /></td>
                     <td style={{ color: "var(--gb-gray)" }}>{row.country || "-"} {row.city ? `/ ${row.city}` : ""} {row.colo ? `/ ${row.colo}` : ""}</td>
                     <td style={{ color: "var(--gb-gray)" }}>{row.deviceType} / {row.browser} / {row.os}</td>
                     <td style={{ textAlign: "right" }}>{duration(row.durationMs)}</td>
@@ -196,6 +249,30 @@ export default function AdminAnalytics() {
               ]}
             />
             <MiniTable
+              title='" utm campaigns'
+              rows={data?.campaigns ?? []}
+              columns={[
+                {
+                  key: "utmCampaign",
+                  label: "UTM",
+                  render: (row) => (
+                    <div className="gb-analytics-source-detail">
+                      <div><SourceBadge source={row.utmSource || row.source} medium={row.utmMedium || row.medium} /></div>
+                      <div>campaign: {row.utmCampaign || row.campaign || "-"}</div>
+                      {row.utmTerm && <div>term: {row.utmTerm}</div>}
+                      {row.utmContent && <div>content: {row.utmContent}</div>}
+                    </div>
+                  ),
+                },
+                { key: "views", label: "VIEWS", align: "right", render: (row) => fmt(row.views) },
+                { key: "visitors", label: "USERS", align: "right", render: (row) => fmt(row.visitors) },
+                { key: "avgDurationMs", label: "TIME", align: "right", render: (row) => duration(row.avgDurationMs) },
+              ]}
+            />
+          </div>
+
+          <div className="gb-analytics-grid">
+            <MiniTable
               title='" countries'
               rows={data?.countries ?? []}
               columns={[
@@ -204,9 +281,6 @@ export default function AdminAnalytics() {
                 { key: "visitors", label: "USERS", align: "right", render: (row) => fmt(row.visitors) },
               ]}
             />
-          </div>
-
-          <div className="gb-analytics-grid">
             <MiniTable
               title='" route types'
               rows={data?.routes ?? []}
@@ -280,7 +354,21 @@ export default function AdminAnalytics() {
               title='" referrers'
               rows={data?.referrers ?? []}
               columns={[
-                { key: "referrerHost", label: "REFERRER", render: (row) => <span style={{ color: row.referrerHost === "direct" ? "var(--gb-gray)" : "var(--gb-fg)" }}>{row.referrerHost}</span> },
+                {
+                  key: "referrerHost",
+                  label: "REFERRER",
+                  render: (row) => (
+                    <span style={{ color: row.referrerHost === "direct" ? "var(--gb-gray)" : "var(--gb-fg)" }}>
+                      {row.referrerHost}
+                      {row.sampleReferrer && (
+                        <>
+                          <br />
+                          <span className="gb-analytics-referrer-url" title={row.sampleReferrer}>{shortUrl(row.sampleReferrer)}</span>
+                        </>
+                      )}
+                    </span>
+                  ),
+                },
                 { key: "views", label: "VIEWS", align: "right", render: (row) => fmt(row.views) },
                 { key: "visitors", label: "USERS", align: "right", render: (row) => fmt(row.visitors) },
               ]}
@@ -318,7 +406,7 @@ export default function AdminAnalytics() {
                     <td style={{ maxWidth: 420 }}>
                       <span className="gb-analytics-ellipsis">{row.path}</span>
                     </td>
-                    <td><SourceBadge source={row.source} medium={row.medium} /></td>
+                    <td style={{ minWidth: 260 }}><SourceDetail row={row} /></td>
                     <td style={{ color: "var(--gb-gray)" }}>{row.country || "-"} {row.city ? `/ ${row.city}` : ""} {row.colo ? `/ ${row.colo}` : ""}</td>
                     <td style={{ color: "var(--gb-gray)" }}>{row.deviceType} / {row.browser} / {row.os}</td>
                     <td style={{ textAlign: "right" }}>{duration(row.durationMs)}</td>

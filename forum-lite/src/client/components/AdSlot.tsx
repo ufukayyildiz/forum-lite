@@ -58,11 +58,9 @@ function houseAdHtml(variant: number, reason: string) {
 
   return `
     <a class="gb-house-ad gb-house-ad-${ad.tone} gb-house-ad-${ad.layout}" href="${url.toString()}" target="_blank" rel="noopener sponsored">
-      <span class="gb-house-ad-main">
-        <span class="gb-house-ad-brand">MANUFOX</span>
-        <strong>${ad.title}</strong>
-        <span>${ad.copy}</span>
-      </span>
+      <span class="gb-house-ad-brand">MANUFOX</span>
+      <strong>${ad.title}</strong>
+      <span class="gb-house-ad-copy">${ad.copy}</span>
       <span class="gb-house-ad-cta">${ad.cta}</span>
     </a>
   `;

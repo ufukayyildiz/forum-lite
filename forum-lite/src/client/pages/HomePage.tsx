@@ -1,6 +1,7 @@
 import { Fragment, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { api } from "../lib/api";
 import { TopicRow, EmptyRows } from "../components/TopicRow";
 import { GbToolbar } from "../components/layout/Header";
@@ -13,11 +14,12 @@ const THREAD_ROWS = 15;
 
 export default function HomePage() {
   const [sort, setSort] = useState("recent");
+  const [page, setPage] = useState(1);
   const { data: me } = useMe();
 
   const { data: threads, isLoading: tLoading } = useQuery({
-    queryKey: ["threads", "all", sort, "all"],
-    queryFn: () => api.threads({ sort, all: 1 }),
+    queryKey: ["threads", "all", sort, "page", page],
+    queryFn: () => api.threads({ sort, page }),
     placeholderData: (previous) => previous,
   });
   const { data: adsConfig } = useQuery({ queryKey: ["ads-config"], queryFn: api.adsConfig });
@@ -25,6 +27,9 @@ export default function HomePage() {
   const list = threads?.threads ?? [];
   const emptyCount = Math.max(0, THREAD_ROWS - list.length);
   const showLoading = tLoading && !threads;
+  const total = threads?.total ?? 0;
+  const perPage = threads?.perPage ?? 20;
+  const pageCount = Math.max(1, Math.ceil(total / perPage));
 
   return (
     <>
@@ -61,7 +66,7 @@ export default function HomePage() {
       <div className="gb-tabs">
         {[["recent","RECENT"],["replies","MOST REPLIES"],["popular","POPULAR"]].map(([v, l]) => (
           <div key={v} className={`gb-tab-item${sort === v ? " active" : ""}`}
-            onClick={() => setSort(v)}>{l}</div>
+            onClick={() => { setSort(v); setPage(1); }}>{l}</div>
         ))}
       </div>
 
@@ -86,7 +91,7 @@ export default function HomePage() {
                 <ListAdRow config={adsConfig} index={0} colSpan={6} lead />
               )}
               {list.map((t, i) => {
-                const position = i + 1;
+                const position = (page - 1) * perPage + i + 1;
                 return (
                   <Fragment key={t.id}>
                     <TopicRow thread={t} showCategory lineNum={position} />
@@ -108,7 +113,17 @@ export default function HomePage() {
             </tbody>
           </table>
         )}
-
+        {pageCount > 1 && (
+          <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, padding: "10px 0", color: "var(--gb-gray)", fontSize: 12 }}>
+            <button className="gb-btn" aria-label="Previous page" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
+              <ChevronLeft size={13} />
+            </button>
+            <span>{page} / {pageCount}</span>
+            <button className="gb-btn" aria-label="Next page" disabled={page >= pageCount} onClick={() => setPage((value) => Math.min(pageCount, value + 1))}>
+              <ChevronRight size={13} />
+            </button>
+          </div>
+        )}
       </div>
     </>
   );

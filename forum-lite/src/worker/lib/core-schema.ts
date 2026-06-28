@@ -33,6 +33,7 @@ const CORE_COLUMN_CHECKS: Array<[string, string[]]> = [
   ["posts", ["like_count", "edited_at"]],
   ["email_suppressions", ["cf_suppression_status", "cf_suppressed_at", "cf_suppression_error"]],
   ["email_events", ["tracking_token", "opened_at", "last_opened_at", "open_count", "clicked_at", "last_clicked_at", "click_count"]],
+  ["analytics_pageviews", ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"]],
   ["anchor_links", ["title", "enabled", "click_count", "created_by_user_id", "created_at", "updated_at"]],
 ];
 
@@ -298,6 +299,11 @@ async function createFeatureTables(db: D1Database) {
     source text DEFAULT 'direct' NOT NULL,
     medium text DEFAULT 'none' NOT NULL,
     campaign text,
+    utm_source text,
+    utm_medium text,
+    utm_campaign text,
+    utm_term text,
+    utm_content text,
     country text,
     city text,
     colo text,
@@ -398,6 +404,12 @@ async function repairColumns(db: D1Database) {
   await addColumnIfMissing(db, "email_events", "clicked_at", "clicked_at INTEGER");
   await addColumnIfMissing(db, "email_events", "last_clicked_at", "last_clicked_at INTEGER");
   await addColumnIfMissing(db, "email_events", "click_count", "click_count INTEGER NOT NULL DEFAULT 0");
+
+  await addColumnIfMissing(db, "analytics_pageviews", "utm_source", "utm_source TEXT");
+  await addColumnIfMissing(db, "analytics_pageviews", "utm_medium", "utm_medium TEXT");
+  await addColumnIfMissing(db, "analytics_pageviews", "utm_campaign", "utm_campaign TEXT");
+  await addColumnIfMissing(db, "analytics_pageviews", "utm_term", "utm_term TEXT");
+  await addColumnIfMissing(db, "analytics_pageviews", "utm_content", "utm_content TEXT");
 
   await addColumnIfMissing(db, "anchor_links", "title", "title TEXT NOT NULL DEFAULT ''");
   await addColumnIfMissing(db, "anchor_links", "enabled", "enabled INTEGER NOT NULL DEFAULT 1");

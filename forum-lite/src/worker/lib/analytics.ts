@@ -6,6 +6,16 @@ type AppContext = Context<{ Bindings: Bindings; Variables: Variables }>;
 
 const VISITOR_COOKIE = "fstdesk_vid";
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 400;
+const UTM_COLUMNS: Array<[string, string]> = [
+  ["utm_source", "utm_source TEXT"],
+  ["utm_medium", "utm_medium TEXT"],
+  ["utm_campaign", "utm_campaign TEXT"],
+  ["utm_term", "utm_term TEXT"],
+  ["utm_content", "utm_content TEXT"],
+];
+
+let analyticsUtmColumnsReady = false;
+let analyticsUtmColumnsPromise: Promise<boolean> | null = null;
 
 function clampText(value: unknown, max: number): string | null {
   const text = String(value ?? "").replace(/\s+/g, " ").trim();
@@ -21,6 +31,29 @@ function cleanVisitorId(value: string | undefined): string | null {
   if (!value) return null;
   const clean = value.replace(/[^a-zA-Z0-9]/g, "").slice(0, 64);
   return clean.length >= 16 ? clean : null;
+}
+
+async function ensureAnalyticsUtmColumns(db: D1Database) {
+  if (analyticsUtmColumnsReady) return true;
+  if (analyticsUtmColumnsPromise) return analyticsUtmColumnsPromise;
+  analyticsUtmColumnsPromise = (async () => {
+    try {
+      const info = await db.prepare("PRAGMA table_info(analytics_pageviews)").all<{ name: string }>();
+      const columns = new Set((info.results ?? []).map((row) => row.name));
+      for (const [column, definition] of UTM_COLUMNS) {
+        if (!columns.has(column)) {
+          await db.prepare(`ALTER TABLE analytics_pageviews ADD COLUMN ${definition}`).run();
+        }
+      }
+      analyticsUtmColumnsReady = true;
+      return true;
+    } catch {
+      return false;
+    } finally {
+      analyticsUtmColumnsPromise = null;
+    }
+  })();
+  return analyticsUtmColumnsPromise;
 }
 
 export function ensureAnalyticsVisitor(c: AppContext): string {
@@ -75,31 +108,41 @@ function hostFromUrl(rawUrl: string | null): string | null {
 function sourceFrom(path: string, referrer: string | null, requestUrl: string) {
   const current = new URL(path, requestUrl);
   const utmSource = clampText(current.searchParams.get("utm_source"), 80);
+  const utmMedium = clampText(current.searchParams.get("utm_medium"), 80);
+  const utmCampaign = clampText(current.searchParams.get("utm_campaign"), 120);
+  const utmTerm = clampText(current.searchParams.get("utm_term"), 160);
+  const utmContent = clampText(current.searchParams.get("utm_content"), 160);
   if (utmSource) {
     return {
       source: utmSource.toLowerCase(),
-      medium: clampText(current.searchParams.get("utm_medium"), 80) || "utm",
-      campaign: clampText(current.searchParams.get("utm_campaign"), 120),
+      medium: utmMedium || "utm",
+      campaign: utmCampaign,
       referrerHost: hostFromUrl(referrer),
+      utmSource,
+      utmMedium,
+      utmCampaign,
+      utmTerm,
+      utmContent,
     };
   }
 
   const requestHost = new URL(requestUrl).host.toLowerCase();
   const referrerHost = hostFromUrl(referrer);
-  if (!referrerHost) return { source: "direct", medium: "none", campaign: null, referrerHost };
-  if (referrerHost === requestHost) return { source: "internal", medium: "internal", campaign: null, referrerHost };
+  const utm = { utmSource, utmMedium, utmCampaign, utmTerm, utmContent };
+  if (!referrerHost) return { source: "direct", medium: "none", campaign: null, referrerHost, ...utm };
+  if (referrerHost === requestHost) return { source: "internal", medium: "internal", campaign: null, referrerHost, ...utm };
 
   const search = ["google.", "bing.", "yandex.", "duckduckgo.", "yahoo.", "baidu."];
   const social = ["facebook.", "instagram.", "linkedin.", "twitter.", "x.com", "t.co", "reddit.", "youtube.", "pinterest."];
   if (search.some((domain) => referrerHost.includes(domain))) {
     const name = referrerHost.split(".").find(Boolean) || "search";
-    return { source: name, medium: "organic", campaign: null, referrerHost };
+    return { source: name, medium: "organic", campaign: null, referrerHost, ...utm };
   }
   if (social.some((domain) => referrerHost.includes(domain))) {
     const name = referrerHost.replace(/^www\./, "").split(".")[0] || "social";
-    return { source: name, medium: "social", campaign: null, referrerHost };
+    return { source: name, medium: "social", campaign: null, referrerHost, ...utm };
   }
-  return { source: referrerHost.replace(/^www\./, ""), medium: "referral", campaign: null, referrerHost };
+  return { source: referrerHost.replace(/^www\./, ""), medium: "referral", campaign: null, referrerHost, ...utm };
 }
 
 function deviceFromUserAgent(userAgent: string) {
@@ -144,13 +187,9 @@ export async function createAnalyticsPageview(c: AppContext, body: Record<string
   const previous = await c.env.DB.prepare(
     "SELECT id FROM analytics_pageviews WHERE visitor_id = ? LIMIT 1",
   ).bind(visitorId).first<{ id: number }>();
+  const hasUtmColumns = await ensureAnalyticsUtmColumns(c.env.DB);
 
-  const result = await c.env.DB.prepare(
-    `INSERT INTO analytics_pageviews (
-      visitor_id, user_id, path, route_type, referrer, referrer_host, source, medium, campaign,
-      country, city, colo, timezone, device_type, browser, os, is_repeat, is_bot, duration_ms, created_at, last_seen_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-  ).bind(
+  const baseBindings = [
     visitorId,
     user?.id ?? null,
     path,
@@ -160,6 +199,8 @@ export async function createAnalyticsPageview(c: AppContext, body: Record<string
     source.source,
     source.medium,
     source.campaign,
+  ];
+  const tailBindings = [
     cf.country,
     cf.city,
     cf.colo,
@@ -171,7 +212,32 @@ export async function createAnalyticsPageview(c: AppContext, body: Record<string
     device.isBot ? 1 : 0,
     now,
     now,
-  ).run();
+  ];
+  const result = hasUtmColumns
+    ? await c.env.DB.prepare(
+      `INSERT INTO analytics_pageviews (
+        visitor_id, user_id, path, route_type, referrer, referrer_host, source, medium, campaign,
+        utm_source, utm_medium, utm_campaign, utm_term, utm_content,
+        country, city, colo, timezone, device_type, browser, os, is_repeat, is_bot, duration_ms, created_at, last_seen_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+    ).bind(
+      ...baseBindings,
+      source.utmSource,
+      source.utmMedium,
+      source.utmCampaign,
+      source.utmTerm,
+      source.utmContent,
+      ...tailBindings,
+    ).run()
+    : await c.env.DB.prepare(
+      `INSERT INTO analytics_pageviews (
+        visitor_id, user_id, path, route_type, referrer, referrer_host, source, medium, campaign,
+        country, city, colo, timezone, device_type, browser, os, is_repeat, is_bot, duration_ms, created_at, last_seen_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+    ).bind(
+      ...baseBindings,
+      ...tailBindings,
+    ).run();
 
   return {
     id: Number((result.meta as { last_row_id?: number | string } | undefined)?.last_row_id ?? 0),

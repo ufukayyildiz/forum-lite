@@ -382,6 +382,11 @@ function numericId(value: string): number {
   return Number.isInteger(n) && n > 0 ? n : -1;
 }
 
+function positivePage(value: unknown): number {
+  const page = Number(value ?? 1);
+  return Number.isFinite(page) && page > 0 ? Math.floor(page) : 1;
+}
+
 function apiDate(value: unknown): string {
   return isoDate(value);
 }
@@ -521,7 +526,7 @@ function mapThreadApi(row: Record<string, unknown>) {
 
 async function loadThreadsApi(c: AppContext, opts: { categoryId?: number; sort?: string; page?: number; all?: boolean } = {}) {
   const sort = opts.sort ?? "recent";
-  const page = Math.max(1, opts.page ?? 1);
+  const page = positivePage(opts.page);
   const where = opts.categoryId ? "WHERE t.category_id = ?" : "";
   const orderBy =
     sort === "popular"
@@ -1111,7 +1116,8 @@ async function homePayload(c: AppContext, base: string, anchors: SeoAnchorLink[]
     FROM threads t
     INNER JOIN categories c ON c.id = t.category_id
     INNER JOIN users u ON u.id = t.user_id
-    ORDER BY t.pinned DESC, t.last_post_at DESC`,
+    ORDER BY t.pinned DESC, t.last_post_at DESC
+    LIMIT 50`,
   ).all<Record<string, unknown>>();
   const threads = rows.results ?? [];
   const stats = await c.env.DB.prepare(
@@ -1759,15 +1765,16 @@ async function bootstrapForUrl(c: AppContext, url: URL): Promise<BootstrapBuild>
   queries.push({ key: ["stats"], data: stats });
 
   if (pathname === "/") {
-    const threads = await loadThreadsApi(c, { sort: "recent", all: true });
-    queries.push({ key: ["threads", "all", "recent", "all"], data: threads });
+    const threads = await loadThreadsApi(c, { sort: "recent", page: 1 });
+    queries.push({ key: ["threads", "all", "recent", "page", 1], data: threads });
   } else if (parts[0] === "c" && parts[1]) {
     const sort = url.searchParams.get("sort") ?? "recent";
+    const page = positivePage(url.searchParams.get("page"));
     const category = await loadCategoryApi(c, parts[1]);
     if (category) {
-      const threads = await loadThreadsApi(c, { categoryId: category.id, sort, all: true });
+      const threads = await loadThreadsApi(c, { categoryId: category.id, sort, page });
       queries.push({ key: ["category", parts[1]], data: category });
-      queries.push({ key: ["threads", "cat", parts[1], sort, "all"], data: threads });
+      queries.push({ key: ["threads", "cat", parts[1], sort, "page", page], data: threads });
     }
   } else if (parts[0] === "t" && parts[1]) {
     const thread = await loadThreadApi(c, parts[1]);

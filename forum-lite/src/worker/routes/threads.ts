@@ -68,6 +68,11 @@ function numericId(value: string): number | null {
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 
+function positivePage(value: string | undefined): number {
+  const page = Number(value ?? 1);
+  return Number.isFinite(page) && page > 0 ? Math.floor(page) : 1;
+}
+
 function threadIdentifierWhere(identifier: string) {
   const n = numericId(identifier);
   const clauses: any[] = [eq(schema.threads.publicId, identifier)];
@@ -94,7 +99,7 @@ app.get("/", async (c) => {
   const db = c.get("db");
   const categoryFilter = c.req.query("category");
   const sort = c.req.query("sort") ?? "recent";
-  const page = Math.max(1, Number(c.req.query("page") ?? 1));
+  const page = positivePage(c.req.query("page"));
   const loadAllThreads = c.req.query("all") === "1";
 
   let where: any = undefined;

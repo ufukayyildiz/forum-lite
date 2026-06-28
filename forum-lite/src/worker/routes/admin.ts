@@ -18,6 +18,7 @@ import { syncCloudflareEmailSuppressions } from "../lib/email-sync";
 const app = new Hono<AppEnv>();
 const WE_ARE_BACK_CAMPAIGN = "we-are-back";
 const MARKETING_BLOCK_DUPLICATE_SENDS_KEY = "marketing_block_duplicate_sends";
+const MARKETING_BULK_RECIPIENT_LIMIT = 250;
 
 app.use("/*", requireRole("admin"));
 
@@ -1287,6 +1288,7 @@ app.get("/analytics", async (c) => {
     summary,
     onlineSummary,
     sourceRows,
+    campaignRows,
     countryRows,
     routeRows,
     deviceRows,
@@ -1336,6 +1338,21 @@ app.get("/analytics", async (c) => {
        LIMIT 12`,
     ).all<Record<string, unknown>>(),
     bindSince(
+      `SELECT source, medium, campaign,
+        utm_source AS utmSource, utm_medium AS utmMedium, utm_campaign AS utmCampaign,
+        utm_term AS utmTerm, utm_content AS utmContent,
+        COUNT(*) AS views, COUNT(DISTINCT visitor_id) AS visitors, AVG(NULLIF(duration_ms, 0)) AS avgDurationMs
+       FROM analytics_pageviews
+       WHERE created_at >= ?
+        AND (
+          utm_source IS NOT NULL OR utm_medium IS NOT NULL OR utm_campaign IS NOT NULL
+          OR utm_term IS NOT NULL OR utm_content IS NOT NULL OR campaign IS NOT NULL
+        )
+       GROUP BY source, medium, campaign, utm_source, utm_medium, utm_campaign, utm_term, utm_content
+       ORDER BY views DESC
+       LIMIT 20`,
+    ).all<Record<string, unknown>>(),
+    bindSince(
       `SELECT COALESCE(NULLIF(country, ''), 'unknown') AS country, COUNT(*) AS views, COUNT(DISTINCT visitor_id) AS visitors
        FROM analytics_pageviews
        WHERE created_at >= ?
@@ -1379,7 +1396,9 @@ app.get("/analytics", async (c) => {
        LIMIT 20`,
     ).all<Record<string, unknown>>(),
     bindSince(
-      `SELECT COALESCE(NULLIF(referrer_host, ''), 'direct') AS referrerHost, COUNT(*) AS views, COUNT(DISTINCT visitor_id) AS visitors
+      `SELECT COALESCE(NULLIF(referrer_host, ''), 'direct') AS referrerHost,
+        MIN(NULLIF(referrer, '')) AS sampleReferrer,
+        COUNT(*) AS views, COUNT(DISTINCT visitor_id) AS visitors
        FROM analytics_pageviews
        WHERE created_at >= ?
        GROUP BY COALESCE(NULLIF(referrer_host, ''), 'direct')
@@ -1405,23 +1424,51 @@ app.get("/analytics", async (c) => {
         FROM analytics_pageviews ap
         INNER JOIN latest_seen ls ON ls.visitor_id = ap.visitor_id AND ls.lastSeenAt = ap.last_seen_at
         GROUP BY ap.visitor_id
+      ),
+      visitor_entry AS (
+        SELECT visitor_id, MIN(id) AS entryId
+        FROM analytics_pageviews
+        GROUP BY visitor_id
       )
-      SELECT ap.id, ap.path, ap.route_type AS routeType, ap.source, ap.medium, ap.country, ap.city, ap.colo,
+      SELECT ap.id, ap.path, ap.route_type AS routeType, ap.source, ap.medium, ap.campaign,
+        ap.referrer, ap.referrer_host AS referrerHost,
+        ap.utm_source AS utmSource, ap.utm_medium AS utmMedium, ap.utm_campaign AS utmCampaign,
+        ap.utm_term AS utmTerm, ap.utm_content AS utmContent,
+        entry.path AS entryPath, entry.source AS entrySource, entry.medium AS entryMedium,
+        entry.campaign AS entryCampaign, entry.referrer_host AS entryReferrerHost,
+        entry.utm_source AS entryUtmSource, entry.utm_medium AS entryUtmMedium, entry.utm_campaign AS entryUtmCampaign,
+        ap.country, ap.city, ap.colo,
         ap.device_type AS deviceType, ap.browser, ap.os, ap.is_repeat AS isRepeat, ap.is_bot AS isBot,
         ap.duration_ms AS durationMs, ap.created_at AS createdAt, ap.last_seen_at AS lastSeenAt,
         u.username, u.display_name AS displayName
        FROM latest
        INNER JOIN analytics_pageviews ap ON ap.id = latest.id
+       LEFT JOIN visitor_entry ve ON ve.visitor_id = ap.visitor_id
+       LEFT JOIN analytics_pageviews entry ON entry.id = ve.entryId
        LEFT JOIN users u ON u.id = ap.user_id
        ORDER BY ap.last_seen_at DESC
        LIMIT 80`,
     ).bind(onlineSince).all<Record<string, unknown>>(),
     bindSince(
-      `SELECT ap.id, ap.path, ap.route_type AS routeType, ap.source, ap.medium, ap.country, ap.city, ap.colo,
+      `WITH visitor_entry AS (
+        SELECT visitor_id, MIN(id) AS entryId
+        FROM analytics_pageviews
+        GROUP BY visitor_id
+      )
+      SELECT ap.id, ap.path, ap.route_type AS routeType, ap.source, ap.medium, ap.campaign,
+        ap.referrer, ap.referrer_host AS referrerHost,
+        ap.utm_source AS utmSource, ap.utm_medium AS utmMedium, ap.utm_campaign AS utmCampaign,
+        ap.utm_term AS utmTerm, ap.utm_content AS utmContent,
+        entry.path AS entryPath, entry.source AS entrySource, entry.medium AS entryMedium,
+        entry.campaign AS entryCampaign, entry.referrer_host AS entryReferrerHost,
+        entry.utm_source AS entryUtmSource, entry.utm_medium AS entryUtmMedium, entry.utm_campaign AS entryUtmCampaign,
+        ap.country, ap.city, ap.colo,
         ap.device_type AS deviceType, ap.browser, ap.os, ap.is_repeat AS isRepeat, ap.is_bot AS isBot,
         ap.duration_ms AS durationMs, ap.created_at AS createdAt, ap.last_seen_at AS lastSeenAt,
         u.username, u.display_name AS displayName
        FROM analytics_pageviews ap
+       LEFT JOIN visitor_entry ve ON ve.visitor_id = ap.visitor_id
+       LEFT JOIN analytics_pageviews entry ON entry.id = ve.entryId
        LEFT JOIN users u ON u.id = ap.user_id
        WHERE ap.created_at >= ?
        ORDER BY ap.created_at DESC
@@ -1451,6 +1498,7 @@ app.get("/analytics", async (c) => {
       onlineLastSeenAt: onlineSummary?.lastSeenAt ? safeISO(asNumber(onlineSummary.lastSeenAt)) : null,
     },
     sources: rows(sourceRows).map((row) => ({ ...row, views: asNumber(row.views), visitors: asNumber(row.visitors), avgDurationMs: Math.round(asNumber(row.avgDurationMs)) })),
+    campaigns: rows(campaignRows).map((row) => ({ ...row, views: asNumber(row.views), visitors: asNumber(row.visitors), avgDurationMs: Math.round(asNumber(row.avgDurationMs)) })),
     countries: rows(countryRows).map((row) => ({ ...row, views: asNumber(row.views), visitors: asNumber(row.visitors) })),
     routes: rows(routeRows).map((row) => ({ ...row, views: asNumber(row.views), visitors: asNumber(row.visitors), avgDurationMs: Math.round(asNumber(row.avgDurationMs)) })),
     devices: rows(deviceRows).map((row) => ({ ...row, views: asNumber(row.views), visitors: asNumber(row.visitors) })),
@@ -1850,7 +1898,7 @@ app.delete("/anchors/:id", async (c) => {
 app.post("/marketing/send", zValidator("json", z.object({
   campaignKey: z.literal(WE_ARE_BACK_CAMPAIGN).default(WE_ARE_BACK_CAMPAIGN),
   userId: z.number().int().optional(),
-  userIds: z.array(z.number().int()).max(20).optional(),
+  userIds: z.array(z.number().int()).max(MARKETING_BULK_RECIPIENT_LIMIT).optional(),
   test: z.boolean().optional(),
 })), async (c) => {
   const db = c.get("db");
@@ -1972,7 +2020,7 @@ app.post("/marketing/send", zValidator("json", z.object({
   };
 
   if (!body.test && body.userIds?.length) {
-    const ids = [...new Set(body.userIds)].slice(0, 20);
+    const ids = [...new Set(body.userIds)].slice(0, MARKETING_BULK_RECIPIENT_LIMIT);
     if (!ids.length) return c.json({ error: "Select users" }, 400);
     const results = [];
     for (const id of ids) {

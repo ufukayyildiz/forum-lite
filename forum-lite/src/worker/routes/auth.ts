@@ -12,6 +12,7 @@ import {
   secureRandomInt,
   SESSION_COOKIE,
   SESSION_TTL_MS,
+  safeISO,
 } from "../lib/auth";
 import { requireAuth } from "../lib/middleware";
 import { toPublicUser, type AppEnv } from "../types";
@@ -134,6 +135,16 @@ function setSessionCookie(c: any, token: string) {
   });
 }
 
+function toSessionUser(user: typeof schema.users.$inferSelect) {
+  return {
+    ...toPublicUser(user),
+    email: user.email,
+    emailVerifiedAt: user.emailVerifiedAt ? safeISO(user.emailVerifiedAt) : null,
+    emailSuppressedAt: user.emailSuppressedAt ? safeISO(user.emailSuppressedAt) : null,
+    emailSuppressionReason: user.emailSuppressionReason ?? null,
+  };
+}
+
 app.get("/availability", async (c) => {
   const db = c.get("db");
   const username = (c.req.query("username") ?? "").trim().toLowerCase();
@@ -249,13 +260,19 @@ app.post("/login", zValidator("json", loginSchema), async (c) => {
   if (user.banned) return c.json({ error: "Your account has been suspended" }, 403);
 
   const now = new Date();
+  const emailVerifiedAt = user.emailVerifiedAt ?? now;
   await db
     .update(schema.users)
     .set({
       lastLoginAt: now,
-      emailVerifiedAt: user.emailVerifiedAt ?? now,
+      emailVerifiedAt,
     })
     .where(eq(schema.users.id, user.id));
+  const loggedInUser = {
+    ...user,
+    lastLoginAt: now,
+    emailVerifiedAt,
+  };
 
   const token = generateToken();
   await db.insert(schema.sessions).values({
@@ -272,7 +289,7 @@ app.post("/login", zValidator("json", loginSchema), async (c) => {
     country: c.req.header("CF-IPCountry") ?? "",
     userAgent: c.req.header("user-agent") ?? "",
   });
-  return c.json({ user: toPublicUser(user) });
+  return c.json({ user: toSessionUser(loggedInUser) });
 });
 
 app.post("/reset-password", zValidator("json", resetPasswordSchema), async (c) => {
@@ -340,7 +357,7 @@ app.post("/logout", async (c) => {
 
 app.get("/me", async (c) => {
   const user = c.get("user");
-  return c.json({ user: user ? toPublicUser(user) : null });
+  return c.json({ user: user ? toSessionUser(user) : null });
 });
 
 export default app;
