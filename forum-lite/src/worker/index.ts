@@ -33,7 +33,6 @@ function isD1Backpressure(error: unknown) {
   return /D1_ERROR: D1 DB is overloaded|Requests queued for too long|database is locked|too many requests/i.test(message);
 }
 
-const API_SCHEMA_TIMEOUT_MS = 1_200;
 const ADS_SETTINGS_TIMEOUT_MS = 800;
 const API_LIGHT_PATHS = new Set([
   "/api/ads",
@@ -49,6 +48,16 @@ function requestPath(url: string) {
 
 function isLightApiPath(path: string) {
   return API_LIGHT_PATHS.has(path);
+}
+
+function scheduleCoreSchemaWarmup(c: any) {
+  c.executionCtx.waitUntil(
+    ensureCoreSchema(c.env.DB).catch((error) => {
+      if (!isD1Backpressure(error)) {
+        console.warn("core_schema_warmup_failed", errorToRecord(error).message);
+      }
+    }),
+  );
 }
 
 async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
@@ -74,16 +83,7 @@ app.use("/api/*", async (c, next) => {
 app.use("/api/*", withDb);
 app.use("/api/*", async (c, next) => {
   const path = requestPath(c.req.url);
-  if (isLightApiPath(path)) return next();
-
-  const ready = await withTimeout(ensureCoreSchema(c.env.DB), API_SCHEMA_TIMEOUT_MS, false);
-  if (!ready) {
-    if (c.req.method === "GET" && !path.startsWith("/api/admin")) {
-      await next();
-      return;
-    }
-    return c.json({ error: "Database is busy. Try again shortly." }, 503);
-  }
+  if (!isLightApiPath(path)) scheduleCoreSchemaWarmup(c);
   await next();
 });
 app.use("/api/*", async (c, next) => {
@@ -242,11 +242,7 @@ function shouldEnsureCoreSchema(path: string) {
 app.use("*", async (c, next) => {
   const path = requestPath(c.req.url);
   if (!shouldEnsureCoreSchema(path)) return next();
-  const ready = await withTimeout(ensureCoreSchema(c.env.DB), API_SCHEMA_TIMEOUT_MS, false);
-  if (!ready) {
-    await next();
-    return;
-  }
+  scheduleCoreSchemaWarmup(c);
   await next();
 });
 

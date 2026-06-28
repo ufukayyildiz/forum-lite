@@ -61,7 +61,7 @@ export default function AdminUsers() {
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
   const [editId, setEditId] = useState<number | null>(null);
-  const { data, isLoading } = useQuery({ queryKey: ["admin-users", page], queryFn: () => api.adminUsers(page) });
+  const { data, isLoading, error } = useQuery({ queryKey: ["admin-users", page], queryFn: () => api.adminUsers(page) });
 
   const setRole = useMutation({
     mutationFn: ({ id, role }: { id: number; role: string }) => api.adminSetRole(id, role),
@@ -85,6 +85,7 @@ export default function AdminUsers() {
 
   const totalPages = data ? Math.ceil(data.total / 25) : 1;
   const list = data?.users ?? [];
+  const errorMessage = error instanceof Error ? error.message : error ? "Could not load users" : "";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -112,7 +113,12 @@ export default function AdminUsers() {
               <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16 }}>~</td>
               <td colSpan={6} style={{ color: "var(--gb-gray)" }}>$ loading...</td>
             </tr>
-          ) : list.map((u, i) => (
+          ) : error ? (
+            <tr>
+              <td style={{ color: "var(--gb-red)", textAlign: "right", paddingRight: 16 }}>!</td>
+              <td colSpan={6} style={{ color: "var(--gb-red)" }}>{errorMessage}</td>
+            </tr>
+          ) : list.length ? list.map((u, i) => (
             <React.Fragment key={u.id}>
               <tr style={editId === u.id ? { background: "var(--gb-bg1)" } : undefined}>
                 <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>
@@ -184,7 +190,12 @@ export default function AdminUsers() {
                 />
               )}
             </React.Fragment>
-          ))}
+          )) : (
+            <tr>
+              <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16 }}>~</td>
+              <td colSpan={6} style={{ color: "var(--gb-gray)" }}>no users found</td>
+            </tr>
+          )}
         </tbody>
       </table>
 

@@ -467,14 +467,18 @@ app.get("/users", async (c) => {
   const lastSeenByUser = new Map<number, number>();
   if (rows.length) {
     const placeholders = rows.map(() => "?").join(",");
-    const seenRows = await c.env.DB.prepare(
-      `SELECT user_id AS userId, MAX(last_seen_at) AS lastSeenAt
-       FROM analytics_pageviews
-       WHERE user_id IN (${placeholders})
-       GROUP BY user_id`,
-    ).bind(...rows.map((row) => row.id)).all<{ userId: number; lastSeenAt: number }>();
-    for (const row of seenRows.results ?? []) {
-      lastSeenByUser.set(Number(row.userId), Number(row.lastSeenAt ?? 0));
+    try {
+      const seenRows = await c.env.DB.prepare(
+        `SELECT user_id AS userId, MAX(last_seen_at) AS lastSeenAt
+         FROM analytics_pageviews
+         WHERE user_id IN (${placeholders})
+         GROUP BY user_id`,
+      ).bind(...rows.map((row) => row.id)).all<{ userId: number; lastSeenAt: number }>();
+      for (const row of seenRows.results ?? []) {
+        lastSeenByUser.set(Number(row.userId), Number(row.lastSeenAt ?? 0));
+      }
+    } catch (error) {
+      console.warn("admin_users_last_seen_skipped", error instanceof Error ? error.message : error);
     }
   }
   const total = await db.$count(schema.users);
@@ -1032,7 +1036,7 @@ app.patch("/users/:id/role", requireRole("admin"), zValidator("json", z.object({
   return c.json({ ok: true });
 });
 
-app.patch("/users/:id/ban", requireRole("admin"), async (c) => {
+app.on(["PATCH", "POST"], "/users/:id/ban", requireRole("admin"), async (c) => {
   const db = c.get("db");
   const id = Number(c.req.param("id"));
   const user = await db.query.users.findFirst({ where: eq(schema.users.id, id) });

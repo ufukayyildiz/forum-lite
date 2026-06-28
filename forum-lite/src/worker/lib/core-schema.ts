@@ -2,6 +2,37 @@ let coreSchemaReady = false;
 let coreSchemaPromise: Promise<boolean> | null = null;
 let coreSchemaRetryAfter = 0;
 const CORE_SCHEMA_RETRY_MS = 30_000;
+const CORE_TABLES = [
+  "users",
+  "sessions",
+  "categories",
+  "threads",
+  "posts",
+  "likes",
+  "tags",
+  "thread_tags",
+  "attachments",
+  "settings",
+  "activity_log",
+  "email_suppressions",
+  "notification_preferences",
+  "email_events",
+  "marketing_sends",
+  "analytics_pageviews",
+  "error_events",
+  "anchor_links",
+];
+
+const CORE_COLUMN_CHECKS: Array<[string, string[]]> = [
+  ["users", ["public_id", "email_verified_at", "last_login_at", "email_suppressed_at", "email_suppression_reason", "post_count", "thread_count"]],
+  ["sessions", ["created_at"]],
+  ["categories", ["public_id"]],
+  ["threads", ["public_id", "pinned", "locked", "featured", "views", "reply_count", "updated_at", "last_post_at"]],
+  ["posts", ["like_count", "edited_at"]],
+  ["email_suppressions", ["cf_suppression_status", "cf_suppressed_at", "cf_suppression_error"]],
+  ["email_events", ["tracking_token", "opened_at", "last_opened_at", "open_count", "clicked_at", "last_clicked_at", "click_count"]],
+  ["anchor_links", ["title", "enabled", "click_count", "created_by_user_id", "created_at", "updated_at"]],
+];
 
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 
@@ -22,6 +53,26 @@ async function columnSet(db: D1Database, table: string): Promise<Set<string>> {
 async function addColumnIfMissing(db: D1Database, table: string, column: string, definition: string) {
   const columns = await columnSet(db, table);
   if (!columns.has(column)) await run(db, `ALTER TABLE ${ident(table)} ADD COLUMN ${definition}`);
+}
+
+async function coreSchemaLooksReady(db: D1Database): Promise<boolean | null> {
+  try {
+    const placeholders = CORE_TABLES.map(() => "?").join(",");
+    const row = await db.prepare(
+      `SELECT COUNT(*) AS count
+       FROM sqlite_master
+      WHERE type = 'table'
+         AND name IN (${placeholders})`,
+    ).bind(...CORE_TABLES).first<{ count: number }>();
+    if (Number(row?.count ?? 0) !== CORE_TABLES.length) return false;
+    for (const [table, requiredColumns] of CORE_COLUMN_CHECKS) {
+      const columns = await columnSet(db, table);
+      if (requiredColumns.some((column) => !columns.has(column))) return false;
+    }
+    return true;
+  } catch {
+    return null;
+  }
 }
 
 async function createCoreTables(db: D1Database) {
@@ -373,6 +424,15 @@ async function createOrRepairCoreSchema(db: D1Database): Promise<boolean> {
 export async function ensureCoreSchema(db: D1Database) {
   if (coreSchemaReady) return true;
   if (Date.now() < coreSchemaRetryAfter) return false;
+  const readyEnough = await coreSchemaLooksReady(db);
+  if (readyEnough === true) {
+    coreSchemaReady = true;
+    return true;
+  }
+  if (readyEnough === null) {
+    coreSchemaRetryAfter = Date.now() + CORE_SCHEMA_RETRY_MS;
+    return false;
+  }
   if (!coreSchemaPromise) coreSchemaPromise = createOrRepairCoreSchema(db);
   const ready = await coreSchemaPromise;
   coreSchemaPromise = null;

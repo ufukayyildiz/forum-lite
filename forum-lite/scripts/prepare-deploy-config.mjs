@@ -5,11 +5,33 @@ import { join, resolve } from "node:path";
 const PLACEHOLDER_RE = /PASTE_|YOUR_|PLACEHOLDER/i;
 
 function configFiles() {
+  const expectedName = expectedWorkerName();
   const dist = resolve("dist");
   if (!existsSync(dist)) return [];
   return readdirSync(dist)
     .map((name) => join(dist, name, "wrangler.json"))
-    .filter((file) => existsSync(file));
+    .filter((file) => existsSync(file))
+    .filter((file) => {
+      if (!expectedName) return true;
+      try {
+        const config = JSON.parse(readFileSync(file, "utf8"));
+        return config.name === expectedName || config.topLevelName === expectedName;
+      } catch {
+        return false;
+      }
+    });
+}
+
+function expectedWorkerName() {
+  for (const file of ["wrangler.local.jsonc", "wrangler.jsonc"]) {
+    if (!existsSync(file)) continue;
+    try {
+      const config = JSON.parse(readFileSync(file, "utf8"));
+      if (typeof config.name === "string" && config.name.trim()) return config.name.trim();
+    } catch {
+      continue;
+    }
+  }
 }
 
 function envCandidates(binding, databaseName) {
@@ -61,6 +83,16 @@ if (!files.length) {
 for (const file of files) {
   const config = JSON.parse(readFileSync(file, "utf8"));
   let changed = false;
+
+  if (config.no_bundle === true) {
+    delete config.no_bundle;
+    changed = true;
+  }
+
+  if (Array.isArray(config.rules)) {
+    delete config.rules;
+    changed = true;
+  }
 
   for (const db of config.d1_databases ?? []) {
     if (!needsDatabaseId(db.database_id)) continue;

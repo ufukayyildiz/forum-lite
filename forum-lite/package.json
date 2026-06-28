@@ -8,7 +8,7 @@
     "build": "vite build",
     "postbuild": "node scripts/compat-client-assets.mjs",
     "preview": "vite preview",
-    "deploy": "npm run build && node scripts/prepare-deploy-config.mjs && wrangler deploy --config dist/*/wrangler.json",
+    "deploy": "npm run build && node scripts/prepare-deploy-config.mjs && wrangler deploy --config dist/forum_lite/wrangler.json",
     "cf-typegen": "wrangler types",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply forum-db --local --config wrangler.local.jsonc",
