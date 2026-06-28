@@ -3,12 +3,12 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { schema } from "../db";
 import { sendEmail } from "../lib/email";
+import { loadEmailSettings } from "../lib/notifications";
 import type { AppEnv } from "../types";
 
 const app = new Hono<AppEnv>();
 
 const DEFAULT_CONTACT_TO = "ufuk@devfox.net";
-const DEFAULT_FROM = "noreply@devfox.net";
 
 const contactSchema = z.object({
   name: z.string().trim().min(2).max(80),
@@ -35,10 +35,13 @@ async function loadContactSettings(db: AppEnv["Variables"]["db"], requestUrl: st
   const rows = await db.select().from(schema.settings);
   const settings: Record<string, string> = {};
   for (const row of rows) settings[row.key] = row.value;
+  const emailSettings = await loadEmailSettings(db, requestUrl);
   return {
     to: settings.forum_contact_email?.trim() || DEFAULT_CONTACT_TO,
-    from: settings.email_from?.trim() || DEFAULT_FROM,
-    siteUrl: settings.site_url?.trim() || new URL(requestUrl).origin,
+    from: emailSettings.from,
+    provider: emailSettings.provider,
+    sesRegion: emailSettings.sesRegion,
+    siteUrl: emailSettings.siteUrl,
   };
 }
 
@@ -90,6 +93,8 @@ app.post("/", zValidator("json", contactSchema), async (c) => {
   const sent = await sendEmail(c.env, {
     to: settings.to,
     from: settings.from,
+    provider: settings.provider,
+    sesRegion: settings.sesRegion,
     subject,
     text,
     html,

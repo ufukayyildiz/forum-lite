@@ -12,6 +12,9 @@ export type Bindings = {
   CF_ACCOUNT_ID?: string;
   CF_EMAIL_API_TOKEN?: string;
   CF_ZONE_ID?: string;
+  AWS_SES_ACCESS_KEY_ID?: string;
+  AWS_SES_SECRET_ACCESS_KEY?: string;
+  AWS_SES_SESSION_TOKEN?: string;
 };
 
 export type Variables = {

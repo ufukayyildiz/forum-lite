@@ -6,10 +6,10 @@ import { schema } from "../db";
 import { requireRole } from "../lib/middleware";
 import { safeISO } from "../lib/auth";
 import { toPublicUser, type AppEnv } from "../types";
-import { loadEmailSettings, sendManagedEmail, weAreBackEmail } from "../lib/notifications";
+import { DEFAULT_EMAIL_TEST_TO, loadEmailSettings, sendManagedEmail, weAreBackEmail } from "../lib/notifications";
 import { ensureAnchorLinksSchema } from "../lib/anchor-links";
 import { ensureErrorEventsSchema } from "../lib/error-events";
-import { cloudflareEmailApiConfigured, type CloudflareEmailFailure } from "../lib/email";
+import { cloudflareEmailApiConfigured, isAwsSesConfigured, sendEmail, type CloudflareEmailFailure } from "../lib/email";
 import { classifyCloudflareEmailFailure, type EmailFailureClassification } from "../lib/email-classification";
 import { classificationForPreflight, preflightEmail, type EmailPreflightResult } from "../lib/email-preflight";
 import { isEmailSuppressed, normalizeEmailAddress, recordEmailSuppression } from "../lib/email-suppression";
@@ -1880,7 +1880,7 @@ app.post("/marketing/send", zValidator("json", z.object({
         previousSentAt: previous.createdAt ? safeISO(previous.createdAt) : null,
       };
     }
-    const { siteUrl, from } = emailSettings;
+    const { siteUrl, from, provider, sesRegion } = emailSettings;
     if (mode !== "test") {
       const risky = await c.env.DB.prepare(
         `SELECT status, error_code AS errorCode, created_at AS createdAt
@@ -1939,6 +1939,8 @@ app.post("/marketing/send", zValidator("json", z.object({
       ...mail,
       siteUrl,
       from,
+      provider,
+      sesRegion,
       campaignKey: body.campaignKey,
       ignorePreferences: mode === "test",
       waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),
@@ -2021,6 +2023,14 @@ app.get("/settings", async (c) => {
   const rows = await db.select().from(schema.settings);
   const result: Record<string, string> = {};
   for (const r of rows) result[r.key] = r.value;
+  const emailSettings = await loadEmailSettings(db, c.req.url);
+  result.email_provider = result.email_provider || emailSettings.provider;
+  result.email_from = result.email_from || emailSettings.cloudflareFrom;
+  result.email_ses_from = result.email_ses_from || emailSettings.sesFrom;
+  result.email_ses_region = result.email_ses_region || emailSettings.sesRegion;
+  result.email_test_to = result.email_test_to || emailSettings.testTo;
+  result._email_cf_configured = c.env.SEND_EMAIL ? "true" : "false";
+  result._email_ses_configured = isAwsSesConfigured(c.env) ? "true" : "false";
   return c.json(result);
 });
 
@@ -2034,6 +2044,102 @@ app.post("/settings", zValidator("json", z.record(z.string())), async (c) => {
       .onConflictDoUpdate({ target: schema.settings.key, set: { value } });
   }
   return c.json({ ok: true });
+});
+
+app.post("/settings/email-test", zValidator("json", z.object({
+  to: z.string().trim().email().optional(),
+})), async (c) => {
+  const db = c.get("db");
+  const admin = c.get("user")!;
+  const body = c.req.valid("json");
+  const settings = await loadEmailSettings(db, c.req.url);
+  const to = (body.to || settings.testTo || DEFAULT_EMAIL_TEST_TO).trim().toLowerCase();
+  if (await isEmailSuppressed(db, to)) {
+    return c.json({ ok: false, status: "suppressed", error: "Recipient is locally suppressed", to }, 409);
+  }
+
+  const subject = `FSTDESK test email via ${settings.provider.toUpperCase()}`;
+  const text = [
+    "FSTDESK email provider test",
+    "",
+    `Provider: ${settings.provider}`,
+    `From: ${settings.from}`,
+    `To: ${to}`,
+    `Site: ${settings.siteUrl}`,
+    "",
+    "If you received this, the selected provider can send mail.",
+  ].join("\n");
+  const html = `<!doctype html><html><body style="margin:0;background:#282828;color:#ebdbb2;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">
+<div style="max-width:640px;margin:0 auto;padding:28px 20px">
+  <div style="color:#fabd2f;font-weight:700;font-size:15px;margin-bottom:20px">FSTDESK</div>
+  <div style="border:1px solid #504945;background:#3c3836;padding:22px">
+    <h1 style="font-size:21px;color:#fabd2f;margin:0 0 16px">Email provider test</h1>
+    <p>Provider: <strong>${settings.provider}</strong></p>
+    <p>From: <strong>${settings.from}</strong></p>
+    <p>To: <strong>${to}</strong></p>
+    <p>If you received this, the selected provider can send mail.</p>
+  </div>
+</div>
+</body></html>`;
+  const [event] = await db.insert(schema.emailEvents).values({
+    userId: null,
+    email: to,
+    kind: "email_test",
+    subject,
+    status: "pending",
+    message: `Testing ${settings.provider} provider`,
+    createdAt: new Date(),
+  }).returning({ id: schema.emailEvents.id });
+
+  const sent = await sendEmail(c.env, {
+    to,
+    from: settings.from,
+    provider: settings.provider,
+    sesRegion: settings.sesRegion,
+    subject,
+    text,
+    html,
+    headers: { "X-FSTDESK-Mail-Type": "email_test" },
+  });
+
+  const status = sent.ok ? "sent" : sent.suppressed ? "suppressed" : "error";
+  await db.update(schema.emailEvents)
+    .set({
+      status,
+      message: sent.ok ? `Sent via ${settings.provider}` : sent.message?.slice(0, 1000) ?? null,
+      errorCode: sent.code ?? null,
+    })
+    .where(eq(schema.emailEvents.id, event.id));
+
+  if (sent.suppressed) {
+    await recordEmailSuppression(db, c.env, to, {
+      reason: "recipient_suppressed",
+      source: "admin_email_test",
+      details: sent.code,
+      waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),
+    });
+  }
+
+  await db.insert(schema.activityLog).values({
+    userId: admin.id,
+    type: "settings",
+    summary: sent.ok
+      ? `Sent ${settings.provider} test email to ${to}`
+      : `Failed ${settings.provider} test email to ${to}: ${sent.code ?? "email_error"}`,
+    createdAt: new Date(),
+  });
+
+  return c.json({
+    ok: sent.ok,
+    status,
+    error: sent.ok ? null : sent.message ?? sent.code ?? "Email test failed",
+    provider: settings.provider,
+    from: settings.from,
+    to,
+    code: sent.code ?? null,
+    message: sent.message ?? null,
+    eventId: event.id,
+  }, sent.ok ? 200 : 502);
 });
 
 export default app;

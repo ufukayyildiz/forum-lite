@@ -3,10 +3,10 @@ import { schema, type DB } from "../db";
 import type { User } from "../db/schema";
 import type { Bindings } from "../types";
 import { generateToken } from "./auth";
-import { sendEmail } from "./email";
+import { DEFAULT_CLOUDFLARE_FROM, DEFAULT_SES_FROM, DEFAULT_SES_REGION, sendEmail, type EmailProvider } from "./email";
 import { isEmailSuppressed, recordEmailSuppression } from "./email-suppression";
 
-const DEFAULT_FROM = "noreply@devfox.net";
+export const DEFAULT_EMAIL_TEST_TO = "ufuk@devfox.net";
 
 type NotificationKind = "reply" | "like" | "marketing" | "account" | "email_verify";
 
@@ -20,6 +20,8 @@ type ManagedEmailInput = {
   html: string;
   siteUrl: string;
   from?: string;
+  provider?: EmailProvider;
+  sesRegion?: string;
   relatedType?: string;
   relatedId?: number;
   campaignKey?: string;
@@ -220,7 +222,9 @@ export async function sendManagedEmail(input: ManagedEmailInput): Promise<{ stat
   const trackedHtml = addEmailTracking(htmlWithFooter, input.siteUrl, trackingToken);
   const sent = await sendEmail(input.env, {
     to: email,
-    from: input.from || DEFAULT_FROM,
+    from: input.from,
+    provider: input.provider,
+    sesRegion: input.sesRegion,
     subject: input.subject,
     text: `${input.text}\n\nUnsubscribe: ${unsubscribeUrl}`,
     html: trackedHtml,
@@ -344,16 +348,30 @@ ${button("Open FSTDESK", loginUrl)}
   return { subject, text, html };
 }
 
-export async function loadEmailSettings(db: DB, requestUrl: string): Promise<{ siteUrl: string; from: string }> {
-  const rows = await db
-    .select()
-    .from(schema.settings)
-    .where(eq(schema.settings.key, "site_url"));
-  const siteUrl = rows[0]?.value || new URL(requestUrl).origin;
+export type EmailSettings = {
+  siteUrl: string;
+  provider: EmailProvider;
+  from: string;
+  cloudflareFrom: string;
+  sesFrom: string;
+  sesRegion: string;
+  testTo: string;
+};
 
-  const fromRows = await db
-    .select()
-    .from(schema.settings)
-    .where(eq(schema.settings.key, "email_from"));
-  return { siteUrl, from: fromRows[0]?.value || DEFAULT_FROM };
+export async function loadEmailSettings(db: DB, requestUrl: string): Promise<EmailSettings> {
+  const rows = await db.select().from(schema.settings);
+  const settings: Record<string, string> = {};
+  for (const row of rows) settings[row.key] = row.value;
+  const provider: EmailProvider = settings.email_provider === "ses" ? "ses" : "cloudflare";
+  const cloudflareFrom = settings.email_from?.trim() || DEFAULT_CLOUDFLARE_FROM;
+  const sesFrom = settings.email_ses_from?.trim() || DEFAULT_SES_FROM;
+  return {
+    siteUrl: settings.site_url?.trim() || new URL(requestUrl).origin,
+    provider,
+    from: provider === "ses" ? sesFrom : cloudflareFrom,
+    cloudflareFrom,
+    sesFrom,
+    sesRegion: settings.email_ses_region?.trim() || DEFAULT_SES_REGION,
+    testTo: settings.email_test_to?.trim() || DEFAULT_EMAIL_TEST_TO,
+  };
 }

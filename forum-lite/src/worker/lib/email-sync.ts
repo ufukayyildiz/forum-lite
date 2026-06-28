@@ -128,7 +128,7 @@ export async function syncCloudflareEmailSuppressions(
     }
 
     try {
-      const { from } = await loadEmailSettings(db, opts.requestUrl);
+      const { cloudflareFrom: from } = await loadEmailSettings(db, opts.requestUrl);
       const sendingDomain = from.replace(/^.*@/, "").toLowerCase();
       const failures = await listCloudflareDeliveryFailures(env, { sendingDomain, hours });
       deliveryFailures = failures.length;

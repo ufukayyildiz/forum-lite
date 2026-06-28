@@ -561,6 +561,8 @@ export const api = {
   adminDeleteAnchor: (id: number) => del<{ ok: boolean }>(`/admin/anchors/${id}`),
   adminSettings: () => get<Record<string, string>>("/admin/settings"),
   adminSaveSettings: (b: Record<string, string>) => post<{ ok: boolean }>("/admin/settings", b),
+  adminSendTestEmail: (b: { to?: string }) =>
+    post<{ ok: boolean; status: string; provider: string; from: string; to: string; code: string | null; message: string | null; eventId: number }>("/admin/settings/email-test", b),
 
   // attachments
   attachmentConfig: () => get<{ enabled: boolean; maxMb: number; allowedMime: string[] }>("/attachments/config"),

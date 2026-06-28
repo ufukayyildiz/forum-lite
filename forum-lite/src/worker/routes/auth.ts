@@ -189,7 +189,8 @@ app.post("/register", zValidator("json", registerSchema), async (c) => {
     })
     .returning();
 
-  const { siteUrl, from } = await loadEmailSettings(db, c.req.url);
+  const emailSettings = await loadEmailSettings(db, c.req.url);
+  const { siteUrl, from, provider, sesRegion } = emailSettings;
   const mail = accountCreatedPasswordEmail(user.username, temporaryPassword, siteUrl);
   const sent = await sendManagedEmail({
     db,
@@ -199,6 +200,8 @@ app.post("/register", zValidator("json", registerSchema), async (c) => {
     ...mail,
     siteUrl,
     from,
+    provider,
+    sesRegion,
     relatedType: "user",
     relatedId: user.id,
     ignorePreferences: true,
@@ -259,7 +262,7 @@ app.post("/login", zValidator("json", loginSchema), async (c) => {
     expiresAt: new Date(Date.now() + SESSION_TTL_MS),
   });
   setSessionCookie(c, token);
-  notifyAdminLogin(c.env, c.executionCtx, {
+  notifyAdminLogin(db, c.env, c.executionCtx, c.req.url, {
     username: user.username,
     displayName: user.displayName,
     email: user.email,
@@ -290,7 +293,8 @@ app.post("/reset-password", zValidator("json", resetPasswordSchema), async (c) =
       return c.json({ ok: true, message: "If that email exists, a new password has been sent." });
     }
 
-    const { siteUrl, from } = await loadEmailSettings(db, c.req.url);
+    const emailSettings = await loadEmailSettings(db, c.req.url);
+    const { siteUrl, from, provider, sesRegion } = emailSettings;
     const nextPassword = generateTemporaryPassword();
     const mail = newPasswordEmail(user.username, nextPassword, siteUrl);
     const sent = await sendManagedEmail({
@@ -301,6 +305,8 @@ app.post("/reset-password", zValidator("json", resetPasswordSchema), async (c) =
       ...mail,
       siteUrl,
       from,
+      provider,
+      sesRegion,
       relatedType: "user",
       relatedId: user.id,
       ignorePreferences: true,

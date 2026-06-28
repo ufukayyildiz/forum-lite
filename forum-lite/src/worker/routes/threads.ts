@@ -205,7 +205,7 @@ app.post("/", requireAuth, zValidator("json", createBody), async (c) => {
     .set({ threadCount: sql`${schema.users.threadCount} + 1` })
     .where(eq(schema.users.id, user.id));
 
-  notifyAdminNewThread(c.env, c.executionCtx, {
+  notifyAdminNewThread(db, c.env, c.executionCtx, c.req.url, {
     publicId: thread.publicId,
     title: thread.title,
     content: body.content,

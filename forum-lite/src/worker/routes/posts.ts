@@ -110,7 +110,7 @@ app.post("/", requireAuth, zValidator("json", createBody), async (c) => {
     .set({ postCount: sql`${schema.users.postCount} + 1` })
     .where(eq(schema.users.id, user.id));
 
-  notifyAdminNewPost(c.env, c.executionCtx, {
+  notifyAdminNewPost(db, c.env, c.executionCtx, c.req.url, {
     postId: post.id,
     threadPublicId: thread.publicId,
     threadTitle: thread.title,
@@ -124,7 +124,8 @@ app.post("/", requireAuth, zValidator("json", createBody), async (c) => {
     const recipient = await db.query.users.findFirst({ where: eq(schema.users.id, thread.userId) });
     if (recipient) {
       const notify = async () => {
-        const { siteUrl, from } = await loadEmailSettings(db, c.req.url);
+        const emailSettings = await loadEmailSettings(db, c.req.url);
+        const { siteUrl, from, provider, sesRegion } = emailSettings;
         const threadUrl = new URL(`/t/${thread.publicId}`, siteUrl).toString();
         const mail = replyNotificationEmail({
           recipientName: recipient.displayName,
@@ -141,6 +142,8 @@ app.post("/", requireAuth, zValidator("json", createBody), async (c) => {
           ...mail,
           siteUrl,
           from,
+          provider,
+          sesRegion,
           relatedType: "post",
           relatedId: post.id,
           waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),
@@ -241,7 +244,8 @@ app.post("/:id/like", requireAuth, async (c) => {
       const thread = await db.query.threads.findFirst({ where: eq(schema.threads.id, post.threadId) });
       if (recipient && thread) {
         const notify = async () => {
-          const { siteUrl, from } = await loadEmailSettings(db, c.req.url);
+          const emailSettings = await loadEmailSettings(db, c.req.url);
+          const { siteUrl, from, provider, sesRegion } = emailSettings;
           const threadUrl = new URL(`/t/${thread.publicId}`, siteUrl).toString();
           const mail = likeNotificationEmail({
             recipientName: recipient.displayName,
@@ -257,6 +261,8 @@ app.post("/:id/like", requireAuth, async (c) => {
             ...mail,
             siteUrl,
             from,
+            provider,
+            sesRegion,
             relatedType: "post",
             relatedId: post.id,
             waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),

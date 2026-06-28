@@ -1,5 +1,7 @@
 import type { Bindings } from "../types";
+import type { DB } from "../db";
 import { sendEmail } from "./email";
+import { loadEmailSettings } from "./notifications";
 
 type WaitUntilContext = {
   waitUntil?: (promise: Promise<unknown>) => void;
@@ -49,8 +51,10 @@ function row(label: string, value: unknown): string {
 }
 
 function queueAdminEmail(
+  db: DB,
   env: Bindings,
   ctx: WaitUntilContext | undefined,
+  requestUrl: string,
   subject: string,
   title: string,
   rows: Array<[string, unknown]>,
@@ -73,7 +77,16 @@ function queueAdminEmail(
     .filter(Boolean)
     .join("\n");
 
-  const task = sendEmail(env, { to, subject: clip(subject, 140), text, html })
+  const task = loadEmailSettings(db, requestUrl)
+    .then((settings) => sendEmail(env, {
+      to,
+      from: settings.from,
+      provider: settings.provider,
+      sesRegion: settings.sesRegion,
+      subject: clip(subject, 140),
+      text,
+      html,
+    }))
     .then((result) => {
       if (!result.ok) console.error("admin_alert_email_failed", result.code, result.message);
     })
@@ -84,8 +97,10 @@ function queueAdminEmail(
 }
 
 export function notifyAdminLogin(
+  db: DB,
   env: Bindings,
   ctx: WaitUntilContext | undefined,
+  requestUrl: string,
   data: {
     username: string;
     displayName?: string | null;
@@ -96,8 +111,10 @@ export function notifyAdminLogin(
   },
 ) {
   queueAdminEmail(
+    db,
     env,
     ctx,
+    requestUrl,
     `FSTDESK login: ${data.username}`,
     "User login",
     [
@@ -113,8 +130,10 @@ export function notifyAdminLogin(
 }
 
 export function notifyAdminNewThread(
+  db: DB,
   env: Bindings,
   ctx: WaitUntilContext | undefined,
+  requestUrl: string,
   data: {
     publicId: string;
     title: string;
@@ -126,8 +145,10 @@ export function notifyAdminNewThread(
   },
 ) {
   queueAdminEmail(
+    db,
     env,
     ctx,
+    requestUrl,
     `FSTDESK new thread: ${data.title}`,
     "New thread",
     [
@@ -142,8 +163,10 @@ export function notifyAdminNewThread(
 }
 
 export function notifyAdminNewPost(
+  db: DB,
   env: Bindings,
   ctx: WaitUntilContext | undefined,
+  requestUrl: string,
   data: {
     postId: number;
     threadPublicId: string;
@@ -155,8 +178,10 @@ export function notifyAdminNewPost(
   },
 ) {
   queueAdminEmail(
+    db,
     env,
     ctx,
+    requestUrl,
     `FSTDESK new reply: ${data.threadTitle}`,
     "New reply",
     [
