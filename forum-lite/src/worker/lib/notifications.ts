@@ -3,7 +3,7 @@ import { schema, type DB } from "../db";
 import type { User } from "../db/schema";
 import type { Bindings } from "../types";
 import { generateToken } from "./auth";
-import { DEFAULT_CLOUDFLARE_FROM, DEFAULT_SES_FROM, DEFAULT_SES_REGION, sendEmail, type EmailProvider } from "./email";
+import { DEFAULT_CLOUDFLARE_FROM, DEFAULT_SES_FROM, DEFAULT_SES_REGION, DEFAULT_SES_SMTP_PORT, DEFAULT_SES_TRANSPORT, sendEmail, type EmailProvider, type SesTransport } from "./email";
 import { isEmailSuppressed, recordEmailSuppression } from "./email-suppression";
 
 export const DEFAULT_EMAIL_TEST_TO = "ufuk@devfox.net";
@@ -22,6 +22,8 @@ type ManagedEmailInput = {
   from?: string;
   provider?: EmailProvider;
   sesRegion?: string;
+  sesTransport?: SesTransport;
+  sesPort?: number;
   relatedType?: string;
   relatedId?: number;
   campaignKey?: string;
@@ -225,6 +227,8 @@ export async function sendManagedEmail(input: ManagedEmailInput): Promise<{ stat
     from: input.from,
     provider: input.provider,
     sesRegion: input.sesRegion,
+    sesTransport: input.sesTransport,
+    sesPort: input.sesPort,
     subject: input.subject,
     text: `${input.text}\n\nUnsubscribe: ${unsubscribeUrl}`,
     html: trackedHtml,
@@ -355,6 +359,8 @@ export type EmailSettings = {
   cloudflareFrom: string;
   sesFrom: string;
   sesRegion: string;
+  sesTransport: SesTransport;
+  sesPort: number;
   testTo: string;
 };
 
@@ -363,6 +369,8 @@ export async function loadEmailSettings(db: DB, requestUrl: string): Promise<Ema
   const settings: Record<string, string> = {};
   for (const row of rows) settings[row.key] = row.value;
   const provider: EmailProvider = settings.email_provider === "ses" ? "ses" : "cloudflare";
+  const sesTransport: SesTransport = settings.email_ses_transport === "api" ? "api" : DEFAULT_SES_TRANSPORT;
+  const parsedSesPort = Number(settings.email_ses_port || DEFAULT_SES_SMTP_PORT);
   const cloudflareFrom = settings.email_from?.trim() || DEFAULT_CLOUDFLARE_FROM;
   const sesFrom = settings.email_ses_from?.trim() || DEFAULT_SES_FROM;
   return {
@@ -372,6 +380,8 @@ export async function loadEmailSettings(db: DB, requestUrl: string): Promise<Ema
     cloudflareFrom,
     sesFrom,
     sesRegion: settings.email_ses_region?.trim() || DEFAULT_SES_REGION,
+    sesTransport,
+    sesPort: Number.isInteger(parsedSesPort) && parsedSesPort > 0 && parsedSesPort < 65536 ? parsedSesPort : DEFAULT_SES_SMTP_PORT,
     testTo: settings.email_test_to?.trim() || DEFAULT_EMAIL_TEST_TO,
   };
 }

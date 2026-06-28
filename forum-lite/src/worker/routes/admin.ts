@@ -1880,7 +1880,7 @@ app.post("/marketing/send", zValidator("json", z.object({
         previousSentAt: previous.createdAt ? safeISO(previous.createdAt) : null,
       };
     }
-    const { siteUrl, from, provider, sesRegion } = emailSettings;
+    const { siteUrl, from, provider, sesRegion, sesTransport, sesPort } = emailSettings;
     if (mode !== "test") {
       const risky = await c.env.DB.prepare(
         `SELECT status, error_code AS errorCode, created_at AS createdAt
@@ -1941,6 +1941,8 @@ app.post("/marketing/send", zValidator("json", z.object({
       from,
       provider,
       sesRegion,
+      sesTransport,
+      sesPort,
       campaignKey: body.campaignKey,
       ignorePreferences: mode === "test",
       waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),
@@ -2028,9 +2030,13 @@ app.get("/settings", async (c) => {
   result.email_from = result.email_from || emailSettings.cloudflareFrom;
   result.email_ses_from = result.email_ses_from || emailSettings.sesFrom;
   result.email_ses_region = result.email_ses_region || emailSettings.sesRegion;
+  result.email_ses_transport = result.email_ses_transport || emailSettings.sesTransport;
+  result.email_ses_port = result.email_ses_port || String(emailSettings.sesPort);
   result.email_test_to = result.email_test_to || emailSettings.testTo;
   result._email_cf_configured = c.env.SEND_EMAIL ? "true" : "false";
-  result._email_ses_configured = isAwsSesConfigured(c.env) ? "true" : "false";
+  result._email_ses_configured = isAwsSesConfigured(c.env, emailSettings.sesTransport) ? "true" : "false";
+  result._email_ses_smtp_configured = isAwsSesConfigured(c.env, "smtp") ? "true" : "false";
+  result._email_ses_api_configured = isAwsSesConfigured(c.env, "api") ? "true" : "false";
   return c.json(result);
 });
 
@@ -2058,11 +2064,12 @@ app.post("/settings/email-test", zValidator("json", z.object({
     return c.json({ ok: false, status: "suppressed", error: "Recipient is locally suppressed", to }, 409);
   }
 
-  const subject = `FSTDESK test email via ${settings.provider.toUpperCase()}`;
+  const subject = `FSTDESK test email via ${settings.provider.toUpperCase()}${settings.provider === "ses" ? ` ${settings.sesTransport.toUpperCase()}` : ""}`;
   const text = [
     "FSTDESK email provider test",
     "",
     `Provider: ${settings.provider}`,
+    ...(settings.provider === "ses" ? [`Transport: ${settings.sesTransport}`, `Port: ${settings.sesPort}`] : []),
     `From: ${settings.from}`,
     `To: ${to}`,
     `Site: ${settings.siteUrl}`,
@@ -2075,6 +2082,7 @@ app.post("/settings/email-test", zValidator("json", z.object({
   <div style="border:1px solid #504945;background:#3c3836;padding:22px">
     <h1 style="font-size:21px;color:#fabd2f;margin:0 0 16px">Email provider test</h1>
     <p>Provider: <strong>${settings.provider}</strong></p>
+    ${settings.provider === "ses" ? `<p>Transport: <strong>${settings.sesTransport}:${settings.sesPort}</strong></p>` : ""}
     <p>From: <strong>${settings.from}</strong></p>
     <p>To: <strong>${to}</strong></p>
     <p>If you received this, the selected provider can send mail.</p>
@@ -2096,6 +2104,8 @@ app.post("/settings/email-test", zValidator("json", z.object({
     from: settings.from,
     provider: settings.provider,
     sesRegion: settings.sesRegion,
+    sesTransport: settings.sesTransport,
+    sesPort: settings.sesPort,
     subject,
     text,
     html,

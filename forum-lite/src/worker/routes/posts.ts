@@ -125,7 +125,7 @@ app.post("/", requireAuth, zValidator("json", createBody), async (c) => {
     if (recipient) {
       const notify = async () => {
         const emailSettings = await loadEmailSettings(db, c.req.url);
-        const { siteUrl, from, provider, sesRegion } = emailSettings;
+        const { siteUrl, from, provider, sesRegion, sesTransport, sesPort } = emailSettings;
         const threadUrl = new URL(`/t/${thread.publicId}`, siteUrl).toString();
         const mail = replyNotificationEmail({
           recipientName: recipient.displayName,
@@ -144,6 +144,8 @@ app.post("/", requireAuth, zValidator("json", createBody), async (c) => {
           from,
           provider,
           sesRegion,
+          sesTransport,
+          sesPort,
           relatedType: "post",
           relatedId: post.id,
           waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),
@@ -245,7 +247,7 @@ app.post("/:id/like", requireAuth, async (c) => {
       if (recipient && thread) {
         const notify = async () => {
           const emailSettings = await loadEmailSettings(db, c.req.url);
-          const { siteUrl, from, provider, sesRegion } = emailSettings;
+          const { siteUrl, from, provider, sesRegion, sesTransport, sesPort } = emailSettings;
           const threadUrl = new URL(`/t/${thread.publicId}`, siteUrl).toString();
           const mail = likeNotificationEmail({
             recipientName: recipient.displayName,
@@ -263,6 +265,8 @@ app.post("/:id/like", requireAuth, async (c) => {
             from,
             provider,
             sesRegion,
+            sesTransport,
+            sesPort,
             relatedType: "post",
             relatedId: post.id,
             waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),

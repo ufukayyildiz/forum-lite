@@ -141,10 +141,9 @@ async function awsSesFetch(
   env: Bindings,
   opts: { region: string; method: "GET" | "POST"; path: string; body?: string },
 ): Promise<{ ok: boolean; status: number; bodyText: string; body: Record<string, unknown> }> {
-  const accessKeyId = env.AWS_SES_ACCESS_KEY_ID;
-  const secretAccessKey = env.AWS_SES_SECRET_ACCESS_KEY;
-  if (!accessKeyId || !secretAccessKey) {
-    throw new Error("AWS SES credentials are not configured");
+  const credentials = sesApiCredentials(env, true);
+  if (!credentials) {
+    throw new Error("AWS SES API credentials are not configured");
   }
 
   const service = "ses";
@@ -158,7 +157,7 @@ async function awsSesFetch(
     "x-amz-date": amzDate,
   };
   if (opts.body !== undefined) headers["content-type"] = "application/json";
-  if (env.AWS_SES_SESSION_TOKEN) headers["x-amz-security-token"] = env.AWS_SES_SESSION_TOKEN;
+  if (credentials.sessionToken) headers["x-amz-security-token"] = credentials.sessionToken;
 
   const headerKeys = Object.keys(headers).sort();
   const canonicalHeaders = headerKeys.map((key) => `${key}:${sanitizeHeaderValue(headers[key])}\n`).join("");
@@ -166,9 +165,9 @@ async function awsSesFetch(
   const canonicalRequest = [opts.method, opts.path, "", canonicalHeaders, signedHeaders, payloadHash].join("\n");
   const credentialScope = `${dateStamp}/${opts.region}/${service}/aws4_request`;
   const stringToSign = ["AWS4-HMAC-SHA256", amzDate, credentialScope, await sha256Hex(canonicalRequest)].join("\n");
-  const signingKey = await awsSigningKey(secretAccessKey, dateStamp, opts.region, service);
+  const signingKey = await awsSigningKey(credentials.secretAccessKey, dateStamp, opts.region, service);
   const signature = hex(await hmacSha256(signingKey, stringToSign));
-  const authorization = `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+  const authorization = `AWS4-HMAC-SHA256 Credential=${credentials.accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
 
   const res = await fetch(`https://${host}${opts.path}`, {
     method: opts.method,
@@ -234,10 +233,14 @@ function buildMime({
   headers?: Record<string, string>;
 }): string {
   const boundary = generateMimeBoundary();
+  const messageIdDomain = envelopeAddress(from).split("@")[1] || "fstdesk.com";
+  const messageId = `<${crypto.randomUUID()}@${messageIdDomain}>`;
   return [
     `From: ${from}`,
     `To: ${to}`,
     `Subject: ${subject}`,
+    `Date: ${new Date().toUTCString()}`,
+    `Message-ID: ${messageId}`,
     ...Object.entries(headers ?? {}).map(([key, value]) => `${key}: ${value.replace(/[\r\n]/g, " ")}`),
     `MIME-Version: 1.0`,
     `Content-Type: multipart/alternative; boundary="${boundary}"`,
@@ -256,6 +259,126 @@ function buildMime({
     ``,
     `--${boundary}--`,
   ].join("\r\n");
+}
+
+function envelopeAddress(value: string): string {
+  const trimmed = value.trim();
+  const match = trimmed.match(/<([^<>@\s]+@[^<>\s]+)>/);
+  return (match?.[1] || trimmed).replace(/^mailto:/i, "").trim();
+}
+
+function dotStuff(message: string): string {
+  const normalized = message.replace(/\r?\n/g, "\r\n").replace(/\r\n?$/g, "");
+  return normalized
+    .split("\r\n")
+    .map((line) => line.startsWith(".") ? `.${line}` : line)
+    .join("\r\n");
+}
+
+function smtpEndpoint(region: string, port: number): { host: string; port: number } {
+  const cleanRegion = region.trim() || DEFAULT_SES_REGION;
+  return { host: `email-smtp.${cleanRegion}.amazonaws.com`, port };
+}
+
+function smtpPort(value: unknown): number {
+  const port = Number(value);
+  return Number.isInteger(port) && port > 0 && port < 65536 ? port : DEFAULT_SES_SMTP_PORT;
+}
+
+function smtpConfiguredMessage(): string {
+  return "AWS SES SMTP credentials are not configured. Add SMTP username/password as AWS_SES_ACCESS_KEY_ID and AWS_SES_SECRET_ACCESS_KEY, or AWS_SES_SMTP_USERNAME and AWS_SES_SMTP_PASSWORD.";
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+class SmtpSession {
+  private reader: ReadableStreamDefaultReader<Uint8Array>;
+  private writer: WritableStreamDefaultWriter<Uint8Array>;
+  private decoder = new TextDecoder();
+  private encoder = new TextEncoder();
+  private buffer = "";
+
+  constructor(
+    private socket: Socket,
+    private readonly host: string,
+  ) {
+    this.reader = socket.readable.getReader();
+    this.writer = socket.writable.getWriter();
+  }
+
+  async close() {
+    try {
+      this.reader.releaseLock();
+    } catch {
+      // already released
+    }
+    try {
+      this.writer.releaseLock();
+    } catch {
+      // already released
+    }
+    await this.socket.close().catch(() => undefined);
+  }
+
+  private async readLine(): Promise<string> {
+    for (;;) {
+      const index = this.buffer.indexOf("\n");
+      if (index !== -1) {
+        const line = this.buffer.slice(0, index + 1);
+        this.buffer = this.buffer.slice(index + 1);
+        return line.replace(/\r?\n$/, "");
+      }
+
+      const chunk = await withTimeout(this.reader.read(), 15000, "SMTP read timed out");
+      if (chunk.done) throw new Error("SMTP connection closed unexpectedly");
+      this.buffer += this.decoder.decode(chunk.value, { stream: true });
+    }
+  }
+
+  async readResponse(expect?: number | number[]): Promise<SmtpResponse> {
+    const expected = Array.isArray(expect) ? expect : expect ? [expect] : undefined;
+    const lines: string[] = [];
+    let code = 0;
+
+    for (;;) {
+      const line = await this.readLine();
+      lines.push(line);
+      const parsed = Number(line.slice(0, 3));
+      if (Number.isInteger(parsed)) code = parsed;
+      if (!/^\d{3}-/.test(line)) break;
+    }
+
+    const response = { code, lines, text: lines.join("\n") };
+    if (expected && !expected.includes(code)) {
+      throw new Error(`SMTP expected ${expected.join("/")} but got ${code}: ${response.text}`);
+    }
+    return response;
+  }
+
+  async sendLine(line: string) {
+    await withTimeout(this.writer.write(this.encoder.encode(`${line}\r\n`)), 15000, "SMTP write timed out");
+  }
+
+  async sendData(message: string) {
+    await withTimeout(this.writer.write(this.encoder.encode(`${dotStuff(message)}\r\n.\r\n`)), 15000, "SMTP DATA write timed out");
+  }
+
+  async startTls(): Promise<SmtpSession> {
+    this.reader.releaseLock();
+    this.writer.releaseLock();
+    const secureSocket = this.socket.startTls({ expectedServerHostname: this.host });
+    return new SmtpSession(secureSocket, this.host);
+  }
 }
 
 export async function sendEmail(
@@ -291,12 +414,14 @@ function sesErrorSuppressed(code: string, message: string): boolean {
 }
 
 async function sendSesEmail(env: Bindings, opts: EmailSendOptions): Promise<EmailSendResult> {
-  const accessKeyId = env.AWS_SES_ACCESS_KEY_ID;
-  const secretAccessKey = env.AWS_SES_SECRET_ACCESS_KEY;
-  if (!accessKeyId || !secretAccessKey) {
-    return { ok: false, code: "E_AWS_SES_CONFIG_MISSING", message: "AWS SES credentials are not configured", provider: "ses" };
-  }
+  const transport = normalizeSesTransport(opts.sesTransport);
+  return transport === "api" ? sendSesApiEmail(env, opts) : sendSesSmtpEmail(env, opts);
+}
 
+async function sendSesApiEmail(env: Bindings, opts: EmailSendOptions): Promise<EmailSendResult> {
+  if (!sesApiCredentials(env, true)) {
+    return { ok: false, code: "E_AWS_SES_API_CONFIG_MISSING", message: "AWS SES API credentials are not configured", provider: "ses" };
+  }
   const region = (opts.sesRegion || DEFAULT_SES_REGION).trim() || DEFAULT_SES_REGION;
   const suppressionResult = await checkSesSuppression(env, opts.to, region).catch((error) => ({
     ok: false,
@@ -337,6 +462,73 @@ async function sendSesEmail(env: Bindings, opts: EmailSendOptions): Promise<Emai
   } catch (error) {
     const message = error instanceof Error ? error.message : "AWS SES send failed";
     return { ok: false, code: "E_AWS_SES_SEND_FAILED", message, provider: "ses" };
+  }
+}
+
+function smtpAuthLine(value: string): string {
+  return btoa(value);
+}
+
+async function smtpCommand(session: SmtpSession, line: string, expect: number | number[]): Promise<SmtpResponse> {
+  await session.sendLine(line);
+  return session.readResponse(expect);
+}
+
+async function sendSesSmtpEmail(env: Bindings, opts: EmailSendOptions): Promise<EmailSendResult> {
+  const credentials = sesSmtpCredentials(env);
+  if (!credentials) {
+    return { ok: false, code: "E_AWS_SES_SMTP_CONFIG_MISSING", message: smtpConfiguredMessage(), provider: "ses" };
+  }
+
+  const region = (opts.sesRegion || DEFAULT_SES_REGION).trim() || DEFAULT_SES_REGION;
+  const port = smtpPort(opts.sesPort ?? env.AWS_SES_SMTP_PORT);
+  const endpoint = {
+    host: env.AWS_SES_SMTP_HOST?.trim() || smtpEndpoint(region, port).host,
+    port,
+  };
+  const from = opts.from || DEFAULT_SES_FROM;
+  const fromAddress = envelopeAddress(from);
+  const toAddress = envelopeAddress(opts.to);
+  const raw = buildMime({ from, to: opts.to, subject: opts.subject, text: opts.text, html: opts.html, headers: opts.headers });
+  let session: SmtpSession | null = null;
+
+  try {
+    const socket = connect(
+      { hostname: endpoint.host, port: endpoint.port },
+      { secureTransport: endpoint.port === 465 ? "on" : "off", allowHalfOpen: false },
+    );
+    session = new SmtpSession(socket, endpoint.host);
+    await session.readResponse(220);
+    await smtpCommand(session, "EHLO fstdesk.com", 250);
+
+    if (endpoint.port !== 465) {
+      await smtpCommand(session, "STARTTLS", 220);
+      session = await session.startTls();
+      await smtpCommand(session, "EHLO fstdesk.com", 250);
+    }
+
+    await smtpCommand(session, "AUTH LOGIN", 334);
+    await smtpCommand(session, smtpAuthLine(credentials.username), 334);
+    await smtpCommand(session, smtpAuthLine(credentials.password), 235);
+    await smtpCommand(session, `MAIL FROM:<${fromAddress}>`, 250);
+    await smtpCommand(session, `RCPT TO:<${toAddress}>`, [250, 251]);
+    await smtpCommand(session, "DATA", 354);
+    await session.sendData(raw);
+    const accepted = await session.readResponse(250);
+    await smtpCommand(session, "QUIT", 221).catch(() => undefined);
+    const messageId = accepted.text.match(/\b([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+)\b/)?.[1];
+    return { ok: true, provider: "ses", messageId };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "AWS SES SMTP send failed";
+    return {
+      ok: false,
+      code: "E_AWS_SES_SMTP_SEND_FAILED",
+      message: message.slice(0, 700),
+      suppressed: sesErrorSuppressed("E_AWS_SES_SMTP_SEND_FAILED", message),
+      provider: "ses",
+    };
+  } finally {
+    await session?.close();
   }
 }
 

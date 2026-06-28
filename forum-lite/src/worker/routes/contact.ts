@@ -42,6 +42,8 @@ async function loadContactSettings(db: AppEnv["Variables"]["db"], requestUrl: st
     from: emailSettings.from,
     provider: emailSettings.provider,
     sesRegion: emailSettings.sesRegion,
+    sesTransport: emailSettings.sesTransport,
+    sesPort: emailSettings.sesPort,
     siteUrl: emailSettings.siteUrl,
   };
 }
@@ -105,6 +107,8 @@ app.post("/", zValidator("json", contactSchema), async (c) => {
     from: settings.from,
     provider: settings.provider,
     sesRegion: settings.sesRegion,
+    sesTransport: settings.sesTransport,
+    sesPort: settings.sesPort,
     subject,
     text,
     html,

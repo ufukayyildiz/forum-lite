@@ -190,7 +190,7 @@ app.post("/register", zValidator("json", registerSchema), async (c) => {
     .returning();
 
   const emailSettings = await loadEmailSettings(db, c.req.url);
-  const { siteUrl, from, provider, sesRegion } = emailSettings;
+  const { siteUrl, from, provider, sesRegion, sesTransport, sesPort } = emailSettings;
   const mail = accountCreatedPasswordEmail(user.username, temporaryPassword, siteUrl);
   const sent = await sendManagedEmail({
     db,
@@ -202,6 +202,8 @@ app.post("/register", zValidator("json", registerSchema), async (c) => {
     from,
     provider,
     sesRegion,
+    sesTransport,
+    sesPort,
     relatedType: "user",
     relatedId: user.id,
     ignorePreferences: true,
@@ -294,7 +296,7 @@ app.post("/reset-password", zValidator("json", resetPasswordSchema), async (c) =
     }
 
     const emailSettings = await loadEmailSettings(db, c.req.url);
-    const { siteUrl, from, provider, sesRegion } = emailSettings;
+    const { siteUrl, from, provider, sesRegion, sesTransport, sesPort } = emailSettings;
     const nextPassword = generateTemporaryPassword();
     const mail = newPasswordEmail(user.username, nextPassword, siteUrl);
     const sent = await sendManagedEmail({
@@ -307,6 +309,8 @@ app.post("/reset-password", zValidator("json", resetPasswordSchema), async (c) =
       from,
       provider,
       sesRegion,
+      sesTransport,
+      sesPort,
       relatedType: "user",
       relatedId: user.id,
       ignorePreferences: true,

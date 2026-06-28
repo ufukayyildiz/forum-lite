@@ -89,6 +89,8 @@ function queueAdminEmail(
         from: settings.from,
         provider: settings.provider,
         sesRegion: settings.sesRegion,
+        sesTransport: settings.sesTransport,
+        sesPort: settings.sesPort,
         subject: clip(subject, 140),
         text,
         html,

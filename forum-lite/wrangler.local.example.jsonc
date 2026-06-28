@@ -9,12 +9,16 @@
 //         npx wrangler secret put CF_EMAIL_API_TOKEN --config wrangler.local.jsonc
 //         npx wrangler secret put CF_ZONE_ID --config wrangler.local.jsonc
 // The token needs Email Sending suppression read/write + GraphQL Analytics read.
-// Optional AWS SES API secrets for admin-selected SES sending:
-//         npx wrangler secret put AWS_SES_ACCESS_KEY_ID --config wrangler.local.jsonc
-//         npx wrangler secret put AWS_SES_SECRET_ACCESS_KEY --config wrangler.local.jsonc
-//         npx wrangler secret put AWS_SES_SESSION_TOKEN --config wrangler.local.jsonc
-// SES uses the admin settings sender/region, default support@fstdesk.com / eu-west-1.
-// The IAM user needs SES SendEmail and GetSuppressedDestination permissions.
+// Optional AWS SES SMTP secrets for admin-selected SES sending over STARTTLS 587:
+//         npx wrangler secret put AWS_SES_SMTP_USERNAME --config wrangler.local.jsonc
+//         npx wrangler secret put AWS_SES_SMTP_PASSWORD --config wrangler.local.jsonc
+// Existing AWS_SES_ACCESS_KEY_ID / AWS_SES_SECRET_ACCESS_KEY secrets are also accepted as SMTP username/password.
+// SES uses the admin settings sender/region/port, default support@fstdesk.com / eu-west-1 / 587.
+// Optional SES API secrets, only if --ses-transport is set to api:
+//         npx wrangler secret put AWS_SES_API_ACCESS_KEY_ID --config wrangler.local.jsonc
+//         npx wrangler secret put AWS_SES_API_SECRET_ACCESS_KEY --config wrangler.local.jsonc
+//         npx wrangler secret put AWS_SES_API_SESSION_TOKEN --config wrangler.local.jsonc
+// The API IAM user needs SES SendEmail and GetSuppressedDestination permissions.
 // Optional self-hosted SMTP verifier:
 //         add EMAIL_VERIFY_ENDPOINT as a non-secret var in Cloudflare dashboard
 //         npx wrangler secret put EMAIL_VERIFY_SECRET --config wrangler.local.jsonc

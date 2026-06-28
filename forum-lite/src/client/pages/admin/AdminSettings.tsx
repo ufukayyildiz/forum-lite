@@ -20,6 +20,8 @@ const FIELDS = [
   { key: "email_from",            label: "--email-from",           placeholder: "noreply@devfox.net", hint: "From address for outgoing email" },
   { key: "email_ses_from",        label: "--ses-from",             placeholder: "support@fstdesk.com", hint: "SES sender identity" },
   { key: "email_ses_region",      label: "--ses-region",           placeholder: "eu-west-1", hint: "AWS SES region" },
+  { key: "email_ses_transport",   label: "--ses-transport",        placeholder: "smtp", hint: "smtp STARTTLS / api", type: "select", options: ["smtp", "api"] },
+  { key: "email_ses_port",        label: "--ses-port",             placeholder: "587", hint: "SMTP STARTTLS port" },
   { key: "email_test_to",         label: "--test-email-to",        placeholder: "ufuk@devfox.net", hint: "Default test recipient" },
   { key: "site_url",              label: "--site-url",             placeholder: "https://fstdesk.com", hint: "Public site URL (used in emails)" },
 ];
@@ -51,6 +53,8 @@ export default function AdminSettings() {
   });
 
   const provider = form.email_provider || "cloudflare";
+  const sesTransport = form.email_ses_transport || "smtp";
+  const sesPort = form.email_ses_port || "587";
   const providerConfigured = provider === "ses"
     ? data?._email_ses_configured === "true"
     : data?._email_cf_configured === "true";
@@ -61,6 +65,7 @@ export default function AdminSettings() {
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", color: "var(--gb-gray)", fontSize: 12 }}>
           <span>provider: <strong style={{ color: providerConfigured ? "var(--gb-green)" : "var(--gb-red)" }}>{provider}</strong></span>
           <span>{providerConfigured ? "configured" : "missing secrets/binding"}</span>
+          {provider === "ses" && <span>transport: {sesTransport}{sesTransport === "smtp" ? `:${sesPort}` : ""}</span>}
           {provider === "ses" && <span>sender: {form.email_ses_from || "support@fstdesk.com"}</span>}
         </div>
       )}
