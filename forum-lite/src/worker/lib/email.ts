@@ -495,7 +495,7 @@ async function sendSesSmtpEmail(env: Bindings, opts: EmailSendOptions): Promise<
   try {
     const socket = connect(
       { hostname: endpoint.host, port: endpoint.port },
-      { secureTransport: endpoint.port === 465 ? "on" : "off", allowHalfOpen: false },
+      { secureTransport: endpoint.port === 465 ? "on" : "starttls", allowHalfOpen: false },
     );
     session = new SmtpSession(socket, endpoint.host);
     await session.readResponse(220);
