@@ -8,7 +8,7 @@ import { AdSlot } from "../AdSlot";
 
 const CAT_COLORS = ["#b8bb26","#83a598","#fabd2f","#d3869b","#8ec07c","#fe8019","#fb4934","#a89984"];
 
-function SidebarStickyAd() {
+function SidebarStickyAd({ routeKey }: { routeKey: string }) {
   const { data: config } = useQuery({
     queryKey: ["ads-config"],
     queryFn: api.adsConfig,
@@ -27,14 +27,16 @@ function SidebarStickyAd() {
   };
 
   return (
-    <div className="gb-sidebar-ad-wrap" aria-label="Sidebar advertisement">
-      <AdSlot config={sidebarConfig} index={9001} height={config.sidebar?.height ?? 160} />
+    <div className="gb-sidebar-ad-wrap" data-ad-route-key={routeKey} aria-label="Sidebar advertisement">
+      <AdSlot key={routeKey} config={sidebarConfig} index={9001} height={config.sidebar?.height ?? 160} />
     </div>
   );
 }
 
 export function Sidebar({ onClose }: { onClose?: () => void }) {
-  const { pathname } = useLocation();
+  const location = useLocation();
+  const { pathname } = location;
+  const adRouteKey = `${location.pathname}${location.search}${location.hash}`;
   const qc = useQueryClient();
   const { data: categories } = useQuery({ queryKey: ["categories"], queryFn: api.categories });
   const [catsOpen, setCatsOpen] = useState(true);
@@ -87,11 +89,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
       </div>
 
       <div className="gb-sidebar-bottom">
-        <div className="gb-sidebar-footer-links">
-          <Link to="/contact" onClick={onClose}>contact</Link>
-          <Link to="/about" onClick={onClose}>about</Link>
-        </div>
-        <SidebarStickyAd />
+        <SidebarStickyAd routeKey={adRouteKey} />
       </div>
     </div>
   );
