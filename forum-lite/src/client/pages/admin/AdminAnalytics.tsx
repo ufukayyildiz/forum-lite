@@ -115,6 +115,13 @@ function SourceDetail({ row }: { row: AnalyticsVisitRow }) {
     row.entryPath !== row.path
   );
   const showEntry = entryDiffers && (row.source === "internal" || row.medium === "internal" || row.source === "direct" || row.medium === "none");
+  const entryUtm = compactParts([
+    ["source", row.entryUtmSource],
+    ["medium", row.entryUtmMedium],
+    ["campaign", row.entryUtmCampaign ?? row.entryCampaign],
+    ["term", row.entryUtmTerm],
+    ["content", row.entryUtmContent],
+  ]);
   return (
     <div className="gb-analytics-source-detail">
       <div><SourceBadge source={row.source} medium={row.medium} /></div>
@@ -132,6 +139,7 @@ function SourceDetail({ row }: { row: AnalyticsVisitRow }) {
           {row.entryPath ? ` · ${row.entryPath}` : ""}
         </div>
       )}
+      {showEntry && entryUtm && <div>entry utm: {entryUtm}</div>}
     </div>
   );
 }

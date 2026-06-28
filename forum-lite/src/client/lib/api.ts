@@ -215,6 +215,8 @@ export type AdminAnalyticsResponse = {
     entryUtmSource: string | null;
     entryUtmMedium: string | null;
     entryUtmCampaign: string | null;
+    entryUtmTerm: string | null;
+    entryUtmContent: string | null;
     country: string | null;
     city: string | null;
     colo: string | null;
@@ -251,6 +253,8 @@ export type AdminAnalyticsResponse = {
     entryUtmSource: string | null;
     entryUtmMedium: string | null;
     entryUtmCampaign: string | null;
+    entryUtmTerm: string | null;
+    entryUtmContent: string | null;
     country: string | null;
     city: string | null;
     colo: string | null;
