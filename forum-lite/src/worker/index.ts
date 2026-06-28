@@ -142,13 +142,35 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-function ignoredClientErrorEvent(body: Record<string, unknown>) {
+function metadataString(metadata: Record<string, unknown>, key: string) {
+  const value = metadata[key];
+  return typeof value === "string" ? value : null;
+}
+
+function isLikelyBotUserAgent(userAgent: string | null | undefined) {
+  return /bot|crawler|spider|slurp|google-inspectiontool|lighthouse|pagespeed|baiduspider/i.test(userAgent ?? "");
+}
+
+function isBenignBrowserBridgeError(text: string) {
+  return /Object Not Found Matching Id:\d+,\s*MethodName:[a-zA-Z0-9_]+,\s*ParamCount:\d+/i.test(text);
+}
+
+function ignoredClientErrorEvent(body: Record<string, unknown>, userAgent?: string | null) {
   const kind = typeof body.kind === "string" ? body.kind : "";
   const message = typeof body.message === "string" ? body.message : "";
+  const reason = typeof body.reason === "string" ? body.reason : "";
+  const stack = typeof body.stack === "string" ? body.stack : "";
   const metadata = isRecord(body.metadata) ? body.metadata : {};
   const status = typeof metadata.status === "number" ? metadata.status : null;
+  const path = metadataString(metadata, "path");
 
+  if (isBenignBrowserBridgeError(`${message}\n${reason}\n${stack}`)) {
+    return true;
+  }
   if (kind === "api_network_error" && /failed to fetch|load failed|network request failed|cancelled/i.test(message)) {
+    return true;
+  }
+  if (kind === "api_error_response" && path === "/auth/me" && status !== null && status >= 500 && isLikelyBotUserAgent(userAgent)) {
     return true;
   }
   if (kind === "api_error_response" && /<unknown status code>|forbidden/i.test(message) && !status) {
@@ -165,7 +187,7 @@ function ignoredClientErrorEvent(body: Record<string, unknown>) {
 
 app.post("/api/client-errors", async (c) => {
   const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
-  if (ignoredClientErrorEvent(body)) return c.json({ ok: true, ignored: true });
+  if (ignoredClientErrorEvent(body, c.req.header("user-agent"))) return c.json({ ok: true, ignored: true });
   const source = body.source === "react" ? "react" : "client";
   const kind = typeof body.kind === "string" ? body.kind : "client_error";
   const message = typeof body.message === "string" ? body.message : "Client error";

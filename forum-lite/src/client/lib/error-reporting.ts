@@ -19,12 +19,23 @@ function ignoredClientError(message: string, stack?: string | null, reason?: str
     /ResizeObserver loop limit exceeded/i,
     /AbortError: The operation was aborted/i,
     /adsbygoogle\.push\(\) error: All 'ins' elements .* already have ads in them/i,
+    /Object Not Found Matching Id:\d+,\s*MethodName:[a-zA-Z0-9_]+,\s*ParamCount:\d+/i,
   ].some((pattern) => pattern.test(text));
 }
 
 function metadataNumber(metadata: Record<string, unknown> | undefined, key: string) {
   const value = metadata?.[key];
   return typeof value === "number" ? value : null;
+}
+
+function metadataString(metadata: Record<string, unknown> | undefined, key: string) {
+  const value = metadata?.[key];
+  return typeof value === "string" ? value : null;
+}
+
+function isLikelyBotRuntime() {
+  if (typeof navigator === "undefined") return false;
+  return /bot|crawler|spider|slurp|google-inspectiontool|lighthouse|pagespeed|baiduspider/i.test(navigator.userAgent);
 }
 
 function shouldReportClientError(input: ClientErrorPayload) {
@@ -35,6 +46,10 @@ function shouldReportClientError(input: ClientErrorPayload) {
   }
 
   const status = metadataNumber(input.metadata, "status");
+  const path = metadataString(input.metadata, "path");
+  if (input.kind === "api_error_response" && path === "/auth/me" && status !== null && status >= 500 && isLikelyBotRuntime()) {
+    return false;
+  }
   if (input.kind === "api_error_response" && status === 599) return false;
   if (input.kind === "api_error_response" && status && status < 500 && status !== 429) {
     return false;

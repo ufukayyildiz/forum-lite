@@ -2,6 +2,11 @@ import { reportClientError } from "./error-reporting";
 
 const BASE = "/api";
 const API_TIMEOUT_MS = 8_000;
+const API_MARKETING_SEND_TIMEOUT_MS = 120_000;
+
+type ApiRequestInit = RequestInit & {
+  timeoutMs?: number;
+};
 
 function isBenignNetworkError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
@@ -14,12 +19,12 @@ function shouldReportApiStatus(status: number) {
   return status >= 500 || status === 429;
 }
 
-async function req<T>(path: string, init?: RequestInit): Promise<T> {
+async function req<T>(path: string, init?: ApiRequestInit): Promise<T> {
   let res: Response;
   const controller = init?.signal ? null : new AbortController();
-  const timeout = controller ? globalThis.setTimeout(() => controller.abort(), API_TIMEOUT_MS) : undefined;
+  const timeout = controller ? globalThis.setTimeout(() => controller.abort(), init?.timeoutMs ?? API_TIMEOUT_MS) : undefined;
   try {
-    const { signal: _signal, ...restInit } = init ?? {};
+    const { signal: _signal, timeoutMs: _timeoutMs, ...restInit } = init ?? {};
     res = await fetch(`${BASE}${path}`, {
       credentials: "include",
       headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
@@ -598,7 +603,11 @@ export const api = {
     get<{ total: number; summary: { subscribed: number; unsubscribed: number; suppressed: number; risk: number }; users: Array<any & { marketingStatus: "subscribed" | "unsubscribed" | "suppressed" | "risk"; canReceiveMarketing: boolean; marketingUnsubscribed: boolean; suppressionReason?: string | null; riskReason?: string | null; riskCheckedAt?: string | null; sendCount: number; lastSentAt?: string | null }> }>(`/admin/marketing/users?campaign=${encodeURIComponent(campaign)}&q=${encodeURIComponent(q)}`),
   adminMarketingSends: (page = 1) => get<{ sends: Array<any & { openCount: number; clickCount: number; openedAt: string | null; clickedAt: string | null; lastOpenedAt: string | null; lastClickedAt: string | null }>; total: number; page: number; perPage: number }>(`/admin/marketing/sends?page=${page}`),
   adminSendMarketing: (b: { campaignKey: string; userId?: number; userIds?: number[]; test?: boolean }) =>
-    post<{ ok: boolean; status: string; previousSentAt?: string | null; total?: number; sent?: number; duplicate?: number; skipped?: number; suppressed?: number; error?: number; results?: any[] }>("/admin/marketing/send", b),
+    req<{ ok: boolean; status: string; previousSentAt?: string | null; total?: number; sent?: number; duplicate?: number; skipped?: number; suppressed?: number; error?: number; results?: any[] }>("/admin/marketing/send", {
+      method: "POST",
+      body: JSON.stringify(b),
+      timeoutMs: b.userIds?.length ? API_MARKETING_SEND_TIMEOUT_MS : 30_000,
+    }),
   adminAnchors: (q = "") =>
     get<{ anchors: AnchorLink[]; total: number }>(`/admin/anchors${q ? `?q=${encodeURIComponent(q)}` : ""}`),
   adminCreateAnchor: (b: { term: string; url: string; title?: string; enabled?: boolean }) =>

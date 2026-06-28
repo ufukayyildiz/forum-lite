@@ -303,69 +303,52 @@ export default function AdminMarketing() {
       message: `${recipients.length} recipients queued`,
     });
 
-    const results: BulkResult[] = [...initialResults];
-    let requestFailed = "";
-    for (let index = 0; index < recipients.length; index += 1) {
-      const user = recipients[index];
-      try {
-        const res = await api.adminSendMarketing({ campaignKey, userId: user.id });
-        const row = (res.results?.[0] as BulkResult | undefined) ?? {
+    try {
+      const res = await api.adminSendMarketing({ campaignKey, userIds: recipients.map((user) => user.id) });
+      const rowsByUserId = new Map<number, BulkResult>(
+        ((res.results ?? []) as BulkResult[])
+          .filter((row) => typeof row.userId === "number")
+          .map((row) => [row.userId as number, row]),
+      );
+      const finalResults = recipients.map((user) => {
+        const row = rowsByUserId.get(user.id);
+        return {
           userId: user.id,
           username: user.username,
           email: user.email,
-          status: res.status || "done",
-          previousSentAt: res.previousSentAt ?? null,
+          ...(row ?? { status: "error", error: "No result returned" }),
+          status: row?.status || "error",
         };
-        results[index] = {
-          userId: user.id,
-          username: user.username,
-          email: user.email,
-          ...row,
-          status: row.status || res.status || "done",
-        };
-        setBulkLog((current) => ({
-          ...current,
-          open: true,
-          phase: "sending",
-          results: [...results],
-          message: summarizeBulk(results, recipients.length),
-        }));
-      } catch (error) {
-        requestFailed = errorMessage(error);
-        results[index] = {
-          userId: user.id,
-          username: user.username,
-          email: user.email,
-          status: "error",
-          error: requestFailed,
-        };
-        for (let rest = index + 1; rest < results.length; rest += 1) {
-          if (results[rest].status === "sending") {
-            results[rest] = { ...results[rest], status: "error", error: "not sent after request failed" };
-          }
-        }
-        break;
-      }
+      });
+      const finalMessage = summarizeBulk(finalResults, recipients.length);
+      const hasFailures = finalResults.some((row) => row.status === "error");
+      setBulkLog((current) => ({
+        ...current,
+        open: true,
+        phase: hasFailures ? "error" : "done",
+        results: finalResults,
+        message: finalMessage,
+      }));
+      setCheckedIds([]);
+      qc.invalidateQueries({ queryKey: ["admin-marketing-users"] });
+      qc.invalidateQueries({ queryKey: ["admin-marketing-sends"] });
+      qc.invalidateQueries({ queryKey: ["admin-email-events"] });
+      hasFailures ? toast.error(finalMessage) : toast.success(finalMessage);
+    } catch (error) {
+      const requestFailed = errorMessage(error);
+      const finalResults = withFailedPending(initialResults, requestFailed);
+      const finalMessage = `${requestFailed}. ${summarizeBulk(finalResults, recipients.length)}`;
+      setBulkLog((current) => ({
+        ...current,
+        open: true,
+        phase: "error",
+        results: finalResults,
+        message: finalMessage,
+      }));
+      toast.error(finalMessage);
+    } finally {
+      setBulkSending(false);
     }
-
-    const finalResults = withFailedPending(results, requestFailed || "send stopped");
-    const finalMessage = requestFailed
-      ? `${requestFailed}. ${summarizeBulk(finalResults, recipients.length)}`
-      : summarizeBulk(finalResults, recipients.length);
-    const hasFailures = finalResults.some((row) => row.status === "error");
-    setBulkLog((current) => ({
-      ...current,
-      open: true,
-      phase: hasFailures ? "error" : "done",
-      results: finalResults,
-      message: finalMessage,
-    }));
-    setBulkSending(false);
-    setCheckedIds([]);
-    qc.invalidateQueries({ queryKey: ["admin-marketing-users"] });
-    qc.invalidateQueries({ queryKey: ["admin-marketing-sends"] });
-    qc.invalidateQueries({ queryKey: ["admin-email-events"] });
-    hasFailures ? toast.error(finalMessage) : toast.success(finalMessage);
   }
 
   const toggleChecked = useCallback((user: MarketingUser) => {
