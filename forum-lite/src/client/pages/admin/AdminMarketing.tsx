@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useState, type UIEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { api } from "../../lib/api";
+import { api, type AdminMarketingJob } from "../../lib/api";
 import { relativeTime } from "../../lib/utils";
 import { GbSelect, type GbSelectOption } from "../../components/GbSelect";
 
@@ -22,6 +22,8 @@ type BulkSendLog = {
   phase: "sending" | "done" | "error";
   recipients: MarketingUser[];
   results: BulkResult[];
+  jobId?: string;
+  job?: AdminMarketingJob | null;
   message?: string;
 };
 
@@ -70,6 +72,19 @@ function summarizeBulk(results: BulkResult[], total: number) {
     return acc;
   }, {});
   return `${results.filter((row) => row.status !== "sending").length}/${total} processed: ${counts.sent ?? 0} sent, ${counts.duplicate ?? 0} duplicate, ${counts.skipped ?? 0} skipped, ${counts.suppressed ?? 0} suppressed, ${counts.error ?? 0} failed`;
+}
+
+function summarizeJob(job: AdminMarketingJob) {
+  return `${job.status}: ${job.processed}/${job.total} processed: ${job.sent} sent, ${job.duplicate} duplicate, ${job.skipped} skipped, ${job.suppressed} suppressed, ${job.error} failed`;
+}
+
+function resultsFromJob(recipients: MarketingUser[], job: AdminMarketingJob): BulkResult[] {
+  return recipients.map((user, index) => ({
+    userId: user.id,
+    username: user.username,
+    email: user.email,
+    status: index < job.processed ? "processed" : "sending",
+  }));
 }
 
 const MarketingUserRow = memo(function MarketingUserRow({
@@ -305,35 +320,16 @@ export default function AdminMarketing() {
 
     try {
       const res = await api.adminSendMarketing({ campaignKey, userIds: recipients.map((user) => user.id) });
-      const rowsByUserId = new Map<number, BulkResult>(
-        ((res.results ?? []) as BulkResult[])
-          .filter((row) => typeof row.userId === "number")
-          .map((row) => [row.userId as number, row]),
-      );
-      const finalResults = recipients.map((user) => {
-        const row = rowsByUserId.get(user.id);
-        return {
-          userId: user.id,
-          username: user.username,
-          email: user.email,
-          ...(row ?? { status: "error", error: "No result returned" }),
-          status: row?.status || "error",
-        };
-      });
-      const finalMessage = summarizeBulk(finalResults, recipients.length);
-      const hasFailures = finalResults.some((row) => row.status === "error");
+      if (!res.jobId) throw new Error("Marketing job was not created");
       setBulkLog((current) => ({
         ...current,
         open: true,
-        phase: hasFailures ? "error" : "done",
-        results: finalResults,
-        message: finalMessage,
+        phase: "sending",
+        jobId: res.jobId,
+        results: initialResults,
+        message: `job ${res.jobId} queued: 0/${recipients.length} processed`,
       }));
-      setCheckedIds([]);
-      qc.invalidateQueries({ queryKey: ["admin-marketing-users"] });
-      qc.invalidateQueries({ queryKey: ["admin-marketing-sends"] });
-      qc.invalidateQueries({ queryKey: ["admin-email-events"] });
-      hasFailures ? toast.error(finalMessage) : toast.success(finalMessage);
+      toast.success(`Marketing job started: ${recipients.length} recipients`);
     } catch (error) {
       const requestFailed = errorMessage(error);
       const finalResults = withFailedPending(initialResults, requestFailed);
@@ -346,10 +342,57 @@ export default function AdminMarketing() {
         message: finalMessage,
       }));
       toast.error(finalMessage);
-    } finally {
       setBulkSending(false);
+    } finally {
+      // The background job owns completion; polling will clear this.
     }
   }
+
+  const activeJobId = bulkLog.open && bulkLog.phase === "sending" ? bulkLog.jobId : undefined;
+  useEffect(() => {
+    if (!activeJobId) return;
+    let cancelled = false;
+    let timer: number | undefined;
+
+    async function poll() {
+      try {
+        const { job } = await api.adminMarketingJob(activeJobId);
+        if (cancelled) return;
+        const done = job.status === "done" || job.status === "error";
+        setBulkLog((current) => {
+          if (current.jobId !== activeJobId) return current;
+          return {
+            ...current,
+            phase: done ? (job.status === "done" ? "done" : "error") : "sending",
+            job,
+            results: resultsFromJob(current.recipients, job),
+            message: summarizeJob(job),
+          };
+        });
+        if (done) {
+          setBulkSending(false);
+          setCheckedIds([]);
+          qc.invalidateQueries({ queryKey: ["admin-marketing-users"] });
+          qc.invalidateQueries({ queryKey: ["admin-marketing-sends"] });
+          qc.invalidateQueries({ queryKey: ["admin-email-events"] });
+          job.status === "done" ? toast.success(summarizeJob(job)) : toast.error(summarizeJob(job));
+          return;
+        }
+      } catch (error) {
+        if (!cancelled) {
+          const message = errorMessage(error);
+          setBulkLog((current) => current.jobId === activeJobId ? { ...current, message } : current);
+        }
+      }
+      if (!cancelled) timer = window.setTimeout(poll, 2000);
+    }
+
+    poll();
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [activeJobId, qc]);
 
   const toggleChecked = useCallback((user: MarketingUser) => {
     if (!canSelectForBulk(user)) return;
@@ -636,7 +679,7 @@ export default function AdminMarketing() {
                       <td style={{ color: "var(--gb-fg)", fontSize: 12 }}>@{row.username ?? "unknown"}</td>
                       <td style={{ color: "var(--gb-gray)", fontSize: 11 }}>{row.email ?? "-"}</td>
                       <td style={{
-                        color: row.status === "sent" ? "var(--gb-green)" : row.status === "sending" || row.status === "duplicate" ? "var(--gb-yellow)" : "var(--gb-red)",
+                        color: row.status === "sent" || row.status === "processed" ? "var(--gb-green)" : row.status === "sending" || row.status === "duplicate" ? "var(--gb-yellow)" : "var(--gb-red)",
                         fontSize: 12,
                       }}>
                         {row.status}

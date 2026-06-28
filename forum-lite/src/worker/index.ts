@@ -9,7 +9,7 @@ import postRoutes from "./routes/posts";
 import memberRoutes from "./routes/members";
 import tagRoutes from "./routes/tags";
 import searchRoutes from "./routes/search";
-import adminRoutes from "./routes/admin";
+import adminRoutes, { processMarketingJobs } from "./routes/admin";
 import attachmentRoutes from "./routes/attachments";
 import contactRoutes from "./routes/contact";
 import anchorRoutes from "./routes/anchors";
@@ -675,6 +675,7 @@ async function handleScheduled(_controller: ScheduledController, env: Bindings, 
     userId: null,
     logMissingConfig: false,
   }));
+  ctx.waitUntil(processMarketingJobs(env, ctx));
 }
 
 export default {

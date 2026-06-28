@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { and, eq, desc, sql } from "drizzle-orm";
-import { schema } from "../db";
+import { getDb, schema } from "../db";
 import { requireRole } from "../lib/middleware";
 import { safeISO } from "../lib/auth";
 import { toPublicUser, type AppEnv } from "../types";
@@ -19,8 +19,437 @@ const app = new Hono<AppEnv>();
 const WE_ARE_BACK_CAMPAIGN = "we-are-back";
 const MARKETING_BLOCK_DUPLICATE_SENDS_KEY = "marketing_block_duplicate_sends";
 const MARKETING_BULK_RECIPIENT_LIMIT = 250;
+const MARKETING_JOB_MAX_CONCURRENCY = 24;
+const MARKETING_JOB_SMTP_CONCURRENCY = 6;
+const MARKETING_JOB_LOCK_SECONDS = 90;
 
 app.use("/*", requireRole("admin"));
+
+type EmailSettings = Awaited<ReturnType<typeof loadEmailSettings>>;
+type MarketingJobRow = {
+  id: string;
+  campaignKey: string;
+  userIdsJson: string;
+  status: "queued" | "running" | "done" | "error";
+  total: number;
+  processed: number;
+  sent: number;
+  duplicate: number;
+  skipped: number;
+  suppressed: number;
+  failed: number;
+  createdByUserId: number | null;
+  requestUrl: string;
+  lockedUntil: number | null;
+  errorMessage: string | null;
+  createdAt: number;
+  updatedAt: number;
+  startedAt: number | null;
+  finishedAt: number | null;
+};
+
+type MarketingSendResult = {
+  userId?: number;
+  username?: string;
+  email?: string;
+  status: string;
+  previousSentAt?: string | null;
+  error?: string;
+};
+
+const nowSeconds = () => Math.floor(Date.now() / 1000);
+
+function jobId() {
+  return crypto.randomUUID().replace(/-/g, "").slice(0, 20);
+}
+
+async function ensureMarketingJobsSchema(db: D1Database) {
+  await db.prepare(`CREATE TABLE IF NOT EXISTS marketing_jobs (
+    id TEXT PRIMARY KEY,
+    campaign_key TEXT NOT NULL,
+    user_ids_json TEXT NOT NULL,
+    status TEXT NOT NULL,
+    total INTEGER NOT NULL DEFAULT 0,
+    processed INTEGER NOT NULL DEFAULT 0,
+    sent INTEGER NOT NULL DEFAULT 0,
+    duplicate INTEGER NOT NULL DEFAULT 0,
+    skipped INTEGER NOT NULL DEFAULT 0,
+    suppressed INTEGER NOT NULL DEFAULT 0,
+    failed INTEGER NOT NULL DEFAULT 0,
+    created_by_user_id INTEGER,
+    request_url TEXT NOT NULL,
+    locked_until INTEGER,
+    error_message TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    started_at INTEGER,
+    finished_at INTEGER
+  )`).run();
+  await db.prepare("CREATE INDEX IF NOT EXISTS marketing_jobs_status_idx ON marketing_jobs(status, locked_until, created_at)").run();
+  await db.prepare("CREATE INDEX IF NOT EXISTS marketing_jobs_created_by_idx ON marketing_jobs(created_by_user_id, created_at)").run();
+}
+
+function mapMarketingJob(row: any): MarketingJobRow {
+  return {
+    id: String(row.id),
+    campaignKey: String(row.campaignKey ?? row.campaign_key),
+    userIdsJson: String(row.userIdsJson ?? row.user_ids_json ?? "[]"),
+    status: String(row.status) as MarketingJobRow["status"],
+    total: Number(row.total ?? 0),
+    processed: Number(row.processed ?? 0),
+    sent: Number(row.sent ?? 0),
+    duplicate: Number(row.duplicate ?? 0),
+    skipped: Number(row.skipped ?? 0),
+    suppressed: Number(row.suppressed ?? 0),
+    failed: Number(row.failed ?? 0),
+    createdByUserId: row.createdByUserId ?? row.created_by_user_id ?? null,
+    requestUrl: String(row.requestUrl ?? row.request_url ?? "https://fstdesk.com/"),
+    lockedUntil: row.lockedUntil ?? row.locked_until ?? null,
+    errorMessage: row.errorMessage ?? row.error_message ?? null,
+    createdAt: Number(row.createdAt ?? row.created_at ?? 0),
+    updatedAt: Number(row.updatedAt ?? row.updated_at ?? 0),
+    startedAt: row.startedAt ?? row.started_at ?? null,
+    finishedAt: row.finishedAt ?? row.finished_at ?? null,
+  };
+}
+
+function publicMarketingJob(row: MarketingJobRow) {
+  return {
+    id: row.id,
+    campaignKey: row.campaignKey,
+    status: row.status,
+    total: row.total,
+    processed: row.processed,
+    sent: row.sent,
+    duplicate: row.duplicate,
+    skipped: row.skipped,
+    suppressed: row.suppressed,
+    error: row.failed,
+    errorMessage: row.errorMessage,
+    createdAt: safeISO(row.createdAt),
+    updatedAt: safeISO(row.updatedAt),
+    startedAt: row.startedAt ? safeISO(row.startedAt) : null,
+    finishedAt: row.finishedAt ? safeISO(row.finishedAt) : null,
+  };
+}
+
+function countMarketingResult(acc: Record<string, number>, result: MarketingSendResult) {
+  const key = result.status === "error" ? "failed" : result.status;
+  acc[key] = (acc[key] ?? 0) + 1;
+}
+
+async function mapLimit<T, R>(items: T[], limit: number, worker: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let index = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (;;) {
+      const current = index;
+      index += 1;
+      if (current >= items.length) return;
+      results[current] = await worker(items[current]);
+    }
+  });
+  await Promise.all(runners);
+  return results;
+}
+
+function marketingJobConcurrency(settings: EmailSettings) {
+  return settings.provider === "ses" && settings.sesTransport === "smtp"
+    ? MARKETING_JOB_SMTP_CONCURRENCY
+    : MARKETING_JOB_MAX_CONCURRENCY;
+}
+
+async function sendMarketingEmailToUser(input: {
+  env: AppEnv["Bindings"];
+  db: AppEnv["Variables"]["db"];
+  adminId: number;
+  campaignKey: string;
+  requestUrl: string;
+  user: typeof schema.users.$inferSelect;
+  mode: "test" | "single" | "bulk";
+  blockDuplicateSends: boolean;
+  emailSettings: EmailSettings;
+  waitUntil?: (promise: Promise<unknown>) => void;
+}): Promise<MarketingSendResult> {
+  const { env, db, adminId, campaignKey, user, mode, blockDuplicateSends, emailSettings, waitUntil } = input;
+  const previous = await db.query.marketingSends.findFirst({
+    where: and(eq(schema.marketingSends.campaignKey, campaignKey), eq(schema.marketingSends.userId, user.id)),
+    orderBy: desc(schema.marketingSends.createdAt),
+  });
+  if (mode !== "test" && blockDuplicateSends && previous) {
+    if (mode === "single") {
+      await db.insert(schema.activityLog).values({
+        userId: adminId,
+        type: "marketing",
+        summary: `Skipped duplicate ${campaignKey} to ${user.username}`,
+        createdAt: new Date(),
+      });
+    }
+    return {
+      userId: user.id,
+      username: user.username,
+      email: user.email,
+      status: "duplicate",
+      previousSentAt: previous.createdAt ? safeISO(previous.createdAt) : null,
+    };
+  }
+
+  const { siteUrl, from, provider, sesRegion, sesTransport, sesPort } = emailSettings;
+  if (mode !== "test") {
+    const risky = await env.DB.prepare(
+      `SELECT status, error_code AS errorCode, created_at AS createdAt
+       FROM email_events
+       WHERE kind = 'email_verify'
+         AND LOWER(email) = LOWER(?)
+         AND status IN ('preflight_risky', 'error', 'suppressed')
+       ORDER BY created_at DESC
+       LIMIT 1`,
+    ).bind(user.email).first<{ status: string; errorCode: string | null; createdAt: number | null }>();
+    if (risky) {
+      const mail = weAreBackEmail({ recipientName: user.displayName, siteUrl });
+      const [event] = await db.insert(schema.emailEvents).values({
+        userId: user.id,
+        email: user.email.trim().toLowerCase(),
+        kind: "marketing",
+        subject: mail.subject,
+        status: "skipped",
+        relatedType: "marketing",
+        campaignKey,
+        message: `Marketing skipped because Email Verify marked this recipient risky${risky.errorCode ? `: ${risky.errorCode}` : ""}`,
+        errorCode: "email_verify_risk",
+        createdAt: new Date(),
+      }).returning({ id: schema.emailEvents.id });
+      await db.insert(schema.marketingSends).values({
+        campaignKey,
+        userId: user.id,
+        email: user.email,
+        status: "skipped",
+        emailEventId: event?.id ?? null,
+        sentByUserId: adminId,
+        createdAt: new Date(),
+      });
+      if (mode !== "bulk") {
+        await db.insert(schema.activityLog).values({
+          userId: adminId,
+          type: "marketing",
+          summary: `Skipped ${campaignKey} to ${user.username} (email verify risk)`,
+          createdAt: new Date(),
+        });
+      }
+      return {
+        userId: user.id,
+        username: user.username,
+        email: user.email,
+        status: "skipped",
+        error: "email_verify_risk",
+        previousSentAt: previous?.createdAt ? safeISO(previous.createdAt) : null,
+      };
+    }
+  }
+
+  const mail = weAreBackEmail({ recipientName: user.displayName, siteUrl });
+  const result = await sendManagedEmail({
+    db,
+    env,
+    user,
+    kind: "marketing",
+    ...mail,
+    siteUrl,
+    from,
+    provider,
+    sesRegion,
+    sesTransport,
+    sesPort,
+    campaignKey,
+    ignorePreferences: mode === "test",
+    waitUntil,
+  });
+
+  await db.insert(schema.marketingSends).values({
+    campaignKey,
+    userId: user.id,
+    email: user.email,
+    status: result.status,
+    emailEventId: result.eventId,
+    sentByUserId: adminId,
+    createdAt: new Date(),
+  });
+  if (mode !== "bulk") {
+    await db.insert(schema.activityLog).values({
+      userId: adminId,
+      type: "marketing",
+      summary: `${mode === "test" ? "Tested" : "Sent"} ${campaignKey} to ${user.username} (${result.status})`,
+    });
+  }
+  return {
+    userId: user.id,
+    username: user.username,
+    email: user.email,
+    status: result.status,
+    previousSentAt: previous?.createdAt ? safeISO(previous.createdAt) : null,
+  };
+}
+
+async function readMarketingJob(env: AppEnv["Bindings"], id: string): Promise<MarketingJobRow | null> {
+  await ensureMarketingJobsSchema(env.DB);
+  const row = await env.DB.prepare(
+    `SELECT id, campaign_key AS campaignKey, user_ids_json AS userIdsJson, status, total, processed,
+      sent, duplicate, skipped, suppressed, failed, created_by_user_id AS createdByUserId,
+      request_url AS requestUrl, locked_until AS lockedUntil, error_message AS errorMessage,
+      created_at AS createdAt, updated_at AS updatedAt, started_at AS startedAt, finished_at AS finishedAt
+     FROM marketing_jobs
+     WHERE id = ?`,
+  ).bind(id).first();
+  return row ? mapMarketingJob(row) : null;
+}
+
+async function claimMarketingJob(env: AppEnv["Bindings"], id?: string): Promise<MarketingJobRow | null> {
+  await ensureMarketingJobsSchema(env.DB);
+  const now = nowSeconds();
+  const row = id
+    ? await env.DB.prepare(
+      `SELECT id, campaign_key AS campaignKey, user_ids_json AS userIdsJson, status, total, processed,
+        sent, duplicate, skipped, suppressed, failed, created_by_user_id AS createdByUserId,
+        request_url AS requestUrl, locked_until AS lockedUntil, error_message AS errorMessage,
+        created_at AS createdAt, updated_at AS updatedAt, started_at AS startedAt, finished_at AS finishedAt
+       FROM marketing_jobs
+       WHERE id = ?
+         AND status IN ('queued', 'running')
+         AND (locked_until IS NULL OR locked_until < ?)`,
+    ).bind(id, now).first()
+    : await env.DB.prepare(
+      `SELECT id, campaign_key AS campaignKey, user_ids_json AS userIdsJson, status, total, processed,
+        sent, duplicate, skipped, suppressed, failed, created_by_user_id AS createdByUserId,
+        request_url AS requestUrl, locked_until AS lockedUntil, error_message AS errorMessage,
+        created_at AS createdAt, updated_at AS updatedAt, started_at AS startedAt, finished_at AS finishedAt
+       FROM marketing_jobs
+       WHERE status IN ('queued', 'running')
+         AND (locked_until IS NULL OR locked_until < ?)
+       ORDER BY created_at ASC
+       LIMIT 1`,
+    ).bind(now).first();
+  if (!row) return null;
+
+  const job = mapMarketingJob(row);
+  await env.DB.prepare(
+    `UPDATE marketing_jobs
+     SET status = 'running', locked_until = ?, started_at = COALESCE(started_at, ?), updated_at = ?
+     WHERE id = ?`,
+  ).bind(now + MARKETING_JOB_LOCK_SECONDS, now, now, job.id).run();
+  return (await readMarketingJob(env, job.id)) ?? job;
+}
+
+function parseJobIds(job: MarketingJobRow): number[] {
+  try {
+    const values = JSON.parse(job.userIdsJson);
+    if (!Array.isArray(values)) return [];
+    return values
+      .map((value) => Number(value))
+      .filter((value) => Number.isInteger(value) && value > 0)
+      .slice(0, MARKETING_BULK_RECIPIENT_LIMIT);
+  } catch {
+    return [];
+  }
+}
+
+async function processMarketingJob(env: AppEnv["Bindings"], job: MarketingJobRow, ctx?: ExecutionContext) {
+  const db = getDb(env);
+  const ids = parseJobIds(job);
+  const adminId = Number(job.createdByUserId ?? 0);
+  const emailSettings = await loadEmailSettings(db, job.requestUrl);
+  const concurrency = marketingJobConcurrency(emailSettings);
+  const blockDuplicateSends = await marketingDuplicateBlockingEnabled(db);
+  let processed = Math.max(0, Math.min(job.processed, ids.length));
+  const totals: Record<string, number> = {
+    sent: job.sent,
+    duplicate: job.duplicate,
+    skipped: job.skipped,
+    suppressed: job.suppressed,
+    failed: job.failed,
+  };
+
+  while (processed < ids.length) {
+    const batchIds = ids.slice(processed, processed + concurrency);
+    const results = await mapLimit(batchIds, concurrency, async (id): Promise<MarketingSendResult> => {
+      try {
+        const user = await db.query.users.findFirst({ where: eq(schema.users.id, id) });
+        if (!user) return { userId: id, status: "skipped", error: "User not found" };
+        return await sendMarketingEmailToUser({
+          env,
+          db,
+          adminId,
+          campaignKey: job.campaignKey,
+          requestUrl: job.requestUrl,
+          user,
+          mode: "bulk",
+          blockDuplicateSends,
+          emailSettings,
+          waitUntil: ctx?.waitUntil.bind(ctx),
+        });
+      } catch (error) {
+        return {
+          userId: id,
+          status: "error",
+          error: error instanceof Error ? error.message : "marketing send failed",
+        };
+      }
+    });
+
+    for (const result of results) countMarketingResult(totals, result);
+    processed += batchIds.length;
+    const now = nowSeconds();
+    await env.DB.prepare(
+      `UPDATE marketing_jobs
+       SET processed = ?, sent = ?, duplicate = ?, skipped = ?, suppressed = ?, failed = ?,
+         locked_until = ?, updated_at = ?
+       WHERE id = ?`,
+    ).bind(
+      processed,
+      totals.sent ?? 0,
+      totals.duplicate ?? 0,
+      totals.skipped ?? 0,
+      totals.suppressed ?? 0,
+      totals.failed ?? 0,
+      now + MARKETING_JOB_LOCK_SECONDS,
+      now,
+      job.id,
+    ).run();
+  }
+
+  const now = nowSeconds();
+  await env.DB.prepare(
+    `UPDATE marketing_jobs
+     SET status = ?, locked_until = NULL, updated_at = ?, finished_at = ?
+     WHERE id = ?`,
+  ).bind("done", now, now, job.id).run();
+  await db.insert(schema.activityLog).values({
+    userId: adminId || null,
+    type: "marketing",
+    summary: `Marketing job ${job.id} finished ${job.campaignKey}: ${totals.sent ?? 0}/${ids.length} sent, ${totals.duplicate ?? 0} duplicate, ${totals.skipped ?? 0} skipped, ${totals.suppressed ?? 0} suppressed, ${totals.failed ?? 0} failed`,
+    createdAt: new Date(),
+  });
+}
+
+export async function processMarketingJobs(env: AppEnv["Bindings"], ctx?: ExecutionContext, opts: { jobId?: string } = {}) {
+  for (let i = 0; i < 3; i += 1) {
+    const job = await claimMarketingJob(env, opts.jobId);
+    if (!job) return;
+    try {
+      await processMarketingJob(env, job, ctx);
+    } catch (error) {
+      const now = nowSeconds();
+      const message = error instanceof Error ? error.message : "marketing job failed";
+      await env.DB.prepare(
+        `UPDATE marketing_jobs
+         SET status = 'error', locked_until = NULL, error_message = ?, updated_at = ?, finished_at = ?
+         WHERE id = ?`,
+      ).bind(message.slice(0, 1000), now, now, job.id).run();
+      console.warn("marketing_job_failed", job.id, message);
+      return;
+    }
+    if (opts.jobId) return;
+  }
+}
 
 function csvCell(value: unknown): string {
   const text = value == null ? "" : String(value);
@@ -1687,6 +2116,14 @@ app.get("/marketing/sends", async (c) => {
   });
 });
 
+app.get("/marketing/jobs/:id", async (c) => {
+  const id = c.req.param("id").trim();
+  if (!/^[a-f0-9]{20}$/i.test(id)) return c.json({ error: "Invalid job" }, 400);
+  const job = await readMarketingJob(c.env, id);
+  if (!job) return c.json({ error: "Job not found" }, 404);
+  return c.json({ job: publicMarketingJob(job) });
+});
+
 app.get("/anchors", async (c) => {
   const schemaReady = await ensureAnchorLinksSchema(c.env.DB);
   if (!schemaReady) return c.json({ anchors: [], total: 0, warning: "anchor_schema_unavailable" });
@@ -2024,35 +2461,33 @@ app.post("/marketing/send", zValidator("json", z.object({
   if (!body.test && body.userIds?.length) {
     const ids = [...new Set(body.userIds)].slice(0, MARKETING_BULK_RECIPIENT_LIMIT);
     if (!ids.length) return c.json({ error: "Select users" }, 400);
-    const results = [];
-    for (const id of ids) {
-      const user = await db.query.users.findFirst({ where: eq(schema.users.id, id) });
-      if (!user) {
-        results.push({ userId: id, status: "skipped", error: "User not found" });
-        continue;
-      }
-      results.push(await sendOne(user, "bulk"));
-    }
-    const counts = results.reduce<Record<string, number>>((acc, row) => {
-      acc[row.status] = (acc[row.status] ?? 0) + 1;
-      return acc;
-    }, {});
+    await ensureMarketingJobsSchema(c.env.DB);
+    const newJobId = jobId();
+    const now = nowSeconds();
+    await c.env.DB.prepare(
+      `INSERT INTO marketing_jobs (
+        id, campaign_key, user_ids_json, status, total, processed, sent, duplicate, skipped, suppressed, failed,
+        created_by_user_id, request_url, created_at, updated_at
+      ) VALUES (?, ?, ?, 'queued', ?, 0, 0, 0, 0, 0, 0, ?, ?, ?, ?)`,
+    ).bind(newJobId, body.campaignKey, JSON.stringify(ids), ids.length, admin.id, c.req.url, now, now).run();
     await db.insert(schema.activityLog).values({
       userId: admin.id,
       type: "marketing",
-      summary: `Bulk sent ${body.campaignKey} to ${ids.length} users (${counts.sent ?? 0} sent, ${counts.duplicate ?? 0} duplicate blocked)`,
+      summary: `Queued marketing job ${newJobId} for ${ids.length} users (${body.campaignKey})`,
     });
+    c.executionCtx.waitUntil(processMarketingJobs(c.env, c.executionCtx, { jobId: newJobId }));
     return c.json({
       ok: true,
-      status: "bulk",
-      total: results.length,
-      sent: counts.sent ?? 0,
-      duplicate: counts.duplicate ?? 0,
-      skipped: counts.skipped ?? 0,
-      suppressed: counts.suppressed ?? 0,
-      error: counts.error ?? 0,
-      results,
-    });
+      status: "queued",
+      jobId: newJobId,
+      total: ids.length,
+      sent: 0,
+      duplicate: 0,
+      skipped: 0,
+      suppressed: 0,
+      error: 0,
+      results: [],
+    }, 202);
   }
 
   const targetId = body.test ? admin.id : body.userId;
