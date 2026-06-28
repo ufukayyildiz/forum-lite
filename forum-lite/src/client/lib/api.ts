@@ -135,6 +135,11 @@ export type AdsConfig = {
     html: string;
     intervals: { post: number; topic: number; user: number; tag: number };
   };
+  sidebar?: {
+    html: string;
+    width: number;
+    height: number;
+  };
 };
 export type AnchorLink = {
   id: number;

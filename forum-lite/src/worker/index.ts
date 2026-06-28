@@ -87,7 +87,10 @@ app.use("/api/*", async (c, next) => {
   const path = requestPath(c.req.url);
   if (!isLightApiPath(path)) {
     const ready = await ensureCoreSchema(c.env.DB);
-    if (!ready) return c.json({ error: "Service warming up" }, 503);
+    if (!ready) {
+      console.warn("core_schema_check_deferred", path);
+      scheduleCoreSchemaWarmup(c);
+    }
   }
   await next();
 });
@@ -348,6 +351,7 @@ function adsConfigFromSettings(settings: Record<string, string>) {
   };
   const desktopHtml = settings["ad_desktop_html"] || settings["ad_thread_html"] || "";
   const mobileHtml = settings["ad_mobile_html"] || desktopHtml;
+  const sidebarHtml = settings["ad_sidebar_html"] || "";
   const postInterval = interval("ads_post_interval", 3);
   const desktopIntervals = {
     post: postInterval,
@@ -376,6 +380,11 @@ function adsConfigFromSettings(settings: Record<string, string>) {
     mobile: {
       html: mobileHtml,
       intervals: mobileIntervals,
+    },
+    sidebar: {
+      html: sidebarHtml,
+      width: 160,
+      height: 160,
     },
   };
 }
@@ -524,7 +533,7 @@ app.get("/ads.txt", async (c) => {
   const custom = settings["ads_txt"]?.trim();
   if (custom) return c.text(`${custom}\n`, 200, { "Content-Type": "text/plain; charset=utf-8" });
 
-  const publisherFromCode = (settings["ad_desktop_html"] || settings["ad_thread_html"] || settings["ad_mobile_html"])
+  const publisherFromCode = (settings["ad_desktop_html"] || settings["ad_thread_html"] || settings["ad_mobile_html"] || settings["ad_sidebar_html"])
     ?.match(/ca-pub-\d+/)?.[0].replace(/^ca-/, "") ?? "";
   const publisher = (settings["adsense_client"] || publisherFromCode).replace(/^ca-/, "").trim();
   const body = publisher

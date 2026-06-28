@@ -1,12 +1,41 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation, Link } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../lib/api";
 import { useMe } from "../../lib/useAuth";
 import { AlignLeft } from "lucide-react";
 
 function Tabline({ onMenu }: { onMenu: () => void }) {
+  const { pathname } = useLocation();
+  const qc = useQueryClient();
+  const { data: me } = useMe();
+  const isStaff = me?.role === "admin" || me?.role === "moderator";
+  const navItems = [
+    { to: "/", label: "threads" },
+    { to: "/members", label: "members" },
+    { to: "/tags", label: "tags" },
+  ];
+  const active = (to: string) => {
+    if (to === "/") return pathname === "/" || pathname.startsWith("/t/") || pathname.startsWith("/c/");
+    return pathname === to || pathname.startsWith(`${to}/`);
+  };
+  const warmQuery = (to: string) => {
+    if (to === "/") {
+      qc.prefetchQuery({
+        queryKey: ["threads", "all", "recent", "page", 1],
+        queryFn: () => api.threads({ sort: "recent", page: 1 }),
+      }).catch(() => undefined);
+    } else if (to === "/members") {
+      qc.prefetchQuery({
+        queryKey: ["members", "posts", "page", 1],
+        queryFn: () => api.members({ sort: "posts", page: 1, perPage: 200 }),
+      }).catch(() => undefined);
+    } else if (to === "/tags") {
+      qc.prefetchQuery({ queryKey: ["tags"], queryFn: api.tags }).catch(() => undefined);
+    }
+  };
+
   return (
     <div className="gb-tabline">
       <div className="gb-tabline-left">
@@ -16,15 +45,41 @@ function Tabline({ onMenu }: { onMenu: () => void }) {
         <div className="gb-tab active" style={{ paddingLeft: 12 }}>
           <Link to="/" style={{ color: "var(--gb-yellow)", fontWeight: 700, textDecoration: "none" }}>FSTDESK</Link>
         </div>
+        <nav className="gb-header-nav" aria-label="Primary">
+          {navItems.map((item) => (
+            <Link
+              key={item.to}
+              to={item.to}
+              className={`gb-header-link${active(item.to) ? " active" : ""}`}
+              onFocus={() => warmQuery(item.to)}
+              onPointerEnter={() => warmQuery(item.to)}
+              onPointerDown={() => warmQuery(item.to)}
+              onTouchStart={() => warmQuery(item.to)}
+            >
+              {item.label}
+            </Link>
+          ))}
+        </nav>
       </div>
-      <div className="gb-tabline-right">utf-8 | unix</div>
+      <div className="gb-tabline-right">
+        <span className="gb-encoding">utf-8 | unix</span>
+        {me ? (
+          <Link to={isStaff ? "/admin" : `/u/${me.username}`} className={`gb-header-user${isStaff ? " is-admin" : ""}`}>
+            {isStaff ? "[admin]" : `@${me.username}`}
+          </Link>
+        ) : (
+          <span className="gb-header-auth">
+            <Link to="/login">login</Link>
+            <Link to="/register">register</Link>
+          </span>
+        )}
+      </div>
     </div>
   );
 }
 
 function Statusbar() {
   const { pathname } = useLocation();
-  const { data: me } = useMe();
   const { data: stats } = useQuery({
     queryKey: ["stats"],
     queryFn: api.stats,
@@ -35,7 +90,11 @@ function Statusbar() {
 
   return (
     <div className="gb-statusbar">
-      <span className="gb-statusbar-mode">NORMAL &nbsp; {me ? me.username : "guest"}</span>
+      <span className="gb-statusbar-mode">NORMAL</span>
+      <span className="gb-statusbar-links">
+        <Link to="/contact">contact</Link>
+        <Link to="/about">about</Link>
+      </span>
       <span style={{ flex: 1 }} />
       {stats && (
         <span className="gb-statusbar-stats">
@@ -101,8 +160,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <Sidebar onClose={() => setSidebarOpen(false)} />
         </div>
         {sidebarOpen && (
-          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.5)", zIndex: 199 }}
-            onClick={() => setSidebarOpen(false)} />
+          <div className="gb-sidebar-backdrop" onClick={() => setSidebarOpen(false)} />
         )}
         <div className="gb-main">{children}</div>
       </div>

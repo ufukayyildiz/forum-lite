@@ -15,6 +15,7 @@ const DEFAULTS: Record<string, string> = {
   ads_mobile_tag_interval: "7",
   ad_desktop_html: "",
   ad_mobile_html: "",
+  ad_sidebar_html: "",
   ad_thread_html: "",
   ads_txt: "",
 };
@@ -163,6 +164,20 @@ export default function AdminAds() {
               </tr>
               <tr>
                 <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>8</td>
+                <td style={{ color: "var(--gb-gray)", width: 180, fontSize: 12 }}>--sidebar-sticky-ad-code</td>
+                <td>
+                  <textarea
+                    className="gb-input"
+                    value={form.ad_sidebar_html ?? ""}
+                    onChange={(e) => setForm((f) => ({ ...f, ad_sidebar_html: e.target.value }))}
+                    rows={8}
+                    placeholder="desktop sidebar 160x160 ad code; hidden on mobile"
+                    style={{ width: "100%", maxWidth: 620 }}
+                  />
+                </td>
+              </tr>
+              <tr>
+                <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>9</td>
                 <td style={{ color: "var(--gb-gray)", width: 180, fontSize: 12 }}>--ads-txt</td>
                 <td>
                   <textarea

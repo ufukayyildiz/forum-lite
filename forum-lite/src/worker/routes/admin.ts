@@ -514,7 +514,6 @@ type AdminUserSqlRow = {
   publicId: string;
   username: string;
   email: string;
-  passwordHash: string;
   displayName: string;
   avatarUrl: string | null;
   bio: string | null;
@@ -543,7 +542,7 @@ function userFromAdminSql(row: AdminUserSqlRow): typeof schema.users.$inferSelec
     publicId: String(row.publicId),
     username: String(row.username),
     email: String(row.email),
-    passwordHash: String(row.passwordHash),
+    passwordHash: "",
     displayName: String(row.displayName),
     avatarUrl: row.avatarUrl ?? null,
     bio: row.bio ?? null,
@@ -953,7 +952,6 @@ app.get("/users", async (c) => {
          u.public_id AS publicId,
          u.username,
          u.email,
-         u.password_hash AS passwordHash,
          u.display_name AS displayName,
          u.avatar_url AS avatarUrl,
          u.bio,
