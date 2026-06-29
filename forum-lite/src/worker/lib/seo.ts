@@ -98,6 +98,8 @@ const VALUABLE_THREAD_MIN_AGE_DAYS = 180;
 const VALUABLE_THREAD_MIN_VIEWS = 500;
 const VALUABLE_THREAD_MIN_REPLIES = 3;
 const BEST_DISCUSSIONS_LIMIT = 8;
+const PUBLIC_HTML_BROWSER_TTL = 30;
+const PUBLIC_HTML_EDGE_TTL = 180;
 
 function cleanText(input: unknown, max = 160): string {
   const text = String(input ?? "")
@@ -2022,6 +2024,24 @@ function shouldRenderHtml(c: AppContext): boolean {
   return !accept || accept.includes("text/html") || accept.includes("*/*");
 }
 
+function isPublicHtmlCacheable(c: AppContext, url: URL): boolean {
+  if (c.req.header("cookie")) return false;
+  const section = url.pathname.split("/").filter(Boolean)[0] ?? "";
+  if (["admin", "login", "register", "new-thread", "search"].includes(section)) return false;
+  return true;
+}
+
+function publicHtmlCacheKey(url: URL): Request {
+  return new Request(url.toString(), {
+    method: "GET",
+    headers: { Accept: "text/html" },
+  });
+}
+
+function publicHtmlCacheControl() {
+  return `public, max-age=${PUBLIC_HTML_BROWSER_TTL}, stale-while-revalidate=${PUBLIC_HTML_EDGE_TTL}`;
+}
+
 function stripFallbackHead(html: string): string {
   return html
     .replace(/<html\s+lang="[^"]*"/i, `<html lang="${HTML_LANG}"`)
@@ -2302,6 +2322,20 @@ function injectHtml(indexHtml: string, payload: SeoPayload, base: string, url: U
 
 export async function renderSeoHtml(c: AppContext): Promise<Response> {
   if (!shouldRenderHtml(c)) return c.env.ASSETS.fetch(c.req.raw);
+  const url = new URL(c.req.url);
+  const cacheable = isPublicHtmlCacheable(c, url);
+  const cacheKey = cacheable ? publicHtmlCacheKey(url) : null;
+  if (cacheKey) {
+    const cached = await caches.default.match(cacheKey);
+    if (cached) {
+      const response = new Response(cached.body, cached);
+      response.headers.set("Cache-Control", publicHtmlCacheControl());
+      response.headers.set("CDN-Cache-Control", `public, max-age=${PUBLIC_HTML_EDGE_TTL}`);
+      response.headers.set("Cloudflare-CDN-Cache-Control", `public, max-age=${PUBLIC_HTML_EDGE_TTL}`);
+      response.headers.set("X-FSTDESK-HTML-Cache", "HIT");
+      return response;
+    }
+  }
 
   const assetResponse = await c.env.ASSETS.fetch(c.req.raw);
   const contentType = assetResponse.headers.get("content-type") ?? "";
@@ -2309,7 +2343,6 @@ export async function renderSeoHtml(c: AppContext): Promise<Response> {
 
   const fallbackResponse = assetResponse.clone();
   try {
-    const url = new URL(c.req.url);
     const base = `${url.protocol}//${url.host}`;
     const [anchors, bootstrap] = await Promise.all([
       shouldLoadSeoAnchors(url.pathname) ? loadSeoAnchors(c) : Promise.resolve([]),
@@ -2319,11 +2352,20 @@ export async function renderSeoHtml(c: AppContext): Promise<Response> {
     const html = injectHtml(await assetResponse.text(), payload, base, url, bootstrap);
     const headers = new Headers(assetResponse.headers);
     headers.set("content-type", "text/html; charset=utf-8");
-    headers.set("cache-control", "no-store, max-age=0, must-revalidate");
-    headers.set("cdn-cache-control", "no-store");
-    headers.set("cloudflare-cdn-cache-control", "no-store");
+    if (cacheable && (payload.status ?? assetResponse.status) === 200) {
+      headers.set("cache-control", publicHtmlCacheControl());
+      headers.set("cdn-cache-control", `public, max-age=${PUBLIC_HTML_EDGE_TTL}`);
+      headers.set("cloudflare-cdn-cache-control", `public, max-age=${PUBLIC_HTML_EDGE_TTL}`);
+      headers.set("X-FSTDESK-HTML-Cache", "MISS");
+    } else {
+      headers.set("cache-control", "no-store, max-age=0, must-revalidate");
+      headers.set("cdn-cache-control", "no-store");
+      headers.set("cloudflare-cdn-cache-control", "no-store");
+    }
     headers.set("vary", "Accept");
-    return new Response(html, { status: payload.status ?? assetResponse.status, headers });
+    const response = new Response(html, { status: payload.status ?? assetResponse.status, headers });
+    if (cacheKey && response.status === 200) c.executionCtx.waitUntil(caches.default.put(cacheKey, response.clone()));
+    return response;
   } catch (error) {
     console.warn("seo_render_fallback", error instanceof Error ? error.message : String(error));
     return fallbackResponse;

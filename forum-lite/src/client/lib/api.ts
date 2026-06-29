@@ -506,6 +506,8 @@ export type AdminErrorEvent = {
 export type AdminErrorEventsResponse = {
   events: AdminErrorEvent[];
   total: number;
+  totalExact?: boolean;
+  hasMore?: boolean;
   page: number;
   perPage: number;
 };
@@ -641,18 +643,19 @@ export const api = {
   adminEditUser: (id: number, data: { displayName?: string; email?: string; bio?: string; avatarUrl?: string }) =>
     patch<{ ok: boolean; user: PublicUser }>(`/admin/users/${id}`, data),
   adminDeleteUser: (id: number) => del<{ ok: boolean }>(`/admin/users/${id}`),
-  adminLogs: (params: number | { page?: number; type?: string; perPage?: number } = 1) => {
+  adminLogs: (params: number | { page?: number; type?: string; perPage?: number; includeTotal?: boolean } = 1) => {
     const page = typeof params === "number" ? params : params.page ?? 1;
     const type = typeof params === "number" ? "" : params.type ?? "";
     const perPage = typeof params === "number" ? 30 : params.perPage ?? 50;
-    return get<{ logs: AdminActivityLog[]; total: number; page: number; perPage: number }>(
-      `/admin/logs?${new URLSearchParams({ page: String(page), type, perPage: String(perPage) }).toString()}`,
+    const includeTotal = typeof params === "number" ? false : Boolean(params.includeTotal);
+    return get<{ logs: AdminActivityLog[]; total: number; totalExact?: boolean; hasMore?: boolean; page: number; perPage: number }>(
+      `/admin/logs?${new URLSearchParams({ page: String(page), type, perPage: String(perPage), includeTotal: includeTotal ? "1" : "" }).toString()}`,
     );
   },
   adminLogsExportUrl: (params: { type?: string; format?: "csv" | "json" } = {}) =>
     `/api/admin/logs/export?${new URLSearchParams({ type: params.type ?? "", format: params.format ?? "csv" }).toString()}`,
   adminClearLogs: () => del<{ ok: boolean; deleted: number }>("/admin/logs"),
-  adminErrorEvents: (params: { page?: number; level?: string; source?: string; q?: string; perPage?: number } = {}) =>
+  adminErrorEvents: (params: { page?: number; level?: string; source?: string; q?: string; perPage?: number; includeTotal?: boolean } = {}) =>
     get<AdminErrorEventsResponse>(
       `/admin/error-events?${new URLSearchParams({
         page: String(params.page ?? 1),
@@ -660,6 +663,7 @@ export const api = {
         level: params.level ?? "",
         source: params.source ?? "",
         q: params.q ?? "",
+        includeTotal: params.includeTotal ? "1" : "",
       }).toString()}`,
     ),
   adminErrorEventsExportUrl: (params: { level?: string; source?: string; q?: string; format?: "csv" | "json" } = {}) =>

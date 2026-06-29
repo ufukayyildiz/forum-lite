@@ -1959,6 +1959,23 @@ textarea.gb-input {
   color: var(--gb-yellow);
   text-decoration-color: var(--gb-yellow);
 }
+.gb-member-bio {
+  color: var(--gb-fg4);
+  font-size: 13px;
+  line-height: 1.45;
+  max-width: 760px;
+  overflow-wrap: anywhere;
+}
+.gb-member-bio p {
+  margin: 0;
+}
+.gb-member-bio a {
+  color: var(--gb-blue);
+  font-weight: 700;
+}
+.gb-member-bio a:hover {
+  color: var(--gb-yellow);
+}
 .gb-anchor-context-menu {
   position: fixed;
   z-index: 10000;

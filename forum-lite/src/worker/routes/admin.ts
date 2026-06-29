@@ -14,6 +14,7 @@ import { classifyCloudflareEmailFailure, type EmailFailureClassification } from 
 import { classificationForPreflight, preflightEmail, type EmailPreflightResult } from "../lib/email-preflight";
 import { isEmailSuppressed, normalizeEmailAddress, recordEmailSuppression } from "../lib/email-suppression";
 import { syncCloudflareEmailSuppressions } from "../lib/email-sync";
+import { assertReachableHttpsUrl, assertValidBioLinks } from "../lib/profile-links";
 
 const app = new Hono<AppEnv>();
 const WE_ARE_BACK_CAMPAIGN = "we-are-back";
@@ -1605,8 +1606,26 @@ app.patch("/users/:id",
         update.emailSuppressionReason = null;
       }
     }
-    if (body.bio !== undefined) update.bio = body.bio;
-    if (body.avatarUrl !== undefined) update.avatarUrl = body.avatarUrl || null;
+    if (body.bio !== undefined) {
+      const bio = body.bio.trim();
+      try {
+        await assertValidBioLinks(bio);
+      } catch (error) {
+        return c.json({ error: error instanceof Error ? error.message : "Invalid bio link" }, 400);
+      }
+      update.bio = bio;
+    }
+    if (body.avatarUrl !== undefined) {
+      const avatarUrl = body.avatarUrl.trim();
+      if (avatarUrl) {
+        try {
+          await assertReachableHttpsUrl(avatarUrl, "Avatar URL");
+        } catch (error) {
+          return c.json({ error: error instanceof Error ? error.message : "Invalid avatar URL" }, 400);
+        }
+      }
+      update.avatarUrl = avatarUrl || null;
+    }
     if (!Object.keys(update).length) return c.json({ ok: true });
     await db.update(schema.users).set(update).where(eq(schema.users.id, id));
     const updated = await db.query.users.findFirst({ where: eq(schema.users.id, id) });
@@ -1677,18 +1696,27 @@ app.get("/logs", async (c) => {
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
   const type = c.req.query("type") ?? "";
   const perPage = Math.min(200, Math.max(10, Number(c.req.query("perPage") ?? 30)));
+  const includeTotal = c.req.query("includeTotal") === "1";
+  const offset = (page - 1) * perPage;
   const where = type ? eq(schema.activityLog.type, type) : undefined;
   const rows = await db
     .select()
     .from(schema.activityLog)
     .where(where)
     .orderBy(desc(schema.activityLog.createdAt))
-    .limit(perPage)
-    .offset((page - 1) * perPage);
-  const total = await db.$count(schema.activityLog, where);
+    .limit(perPage + 1)
+    .offset(offset);
+  const logs = rows.slice(0, perPage);
+  const hasMore = rows.length > perPage;
+  const computedTotal = offset + logs.length + (hasMore ? 1 : 0);
+  const total = includeTotal ? await db.$count(schema.activityLog, where) : computedTotal;
   return c.json({
-    logs: rows.map((r) => ({ ...r, createdAt: safeISO(r.createdAt) })),
-    total, page, perPage,
+    logs: logs.map((r) => ({ ...r, createdAt: safeISO(r.createdAt) })),
+    total,
+    totalExact: includeTotal || !hasMore,
+    hasMore,
+    page,
+    perPage,
   });
 });
 
@@ -1727,6 +1755,8 @@ app.get("/error-events", async (c) => {
   if (!(await ensureErrorEventsSchema(c.env.DB))) return c.json({ events: [], total: 0, page: 1, perPage: 50 });
   const page = Math.max(1, Number(c.req.query("page") ?? 1));
   const perPage = Math.min(200, Math.max(10, Number(c.req.query("perPage") ?? 50)));
+  const includeTotal = c.req.query("includeTotal") === "1";
+  const offset = (page - 1) * perPage;
   const level = (c.req.query("level") ?? "").trim().toLowerCase();
   const source = (c.req.query("source") ?? "").trim().toLowerCase();
   const q = (c.req.query("q") ?? "").trim().toLowerCase();
@@ -1753,11 +1783,18 @@ app.get("/error-events", async (c) => {
      WHERE ${where}
      ORDER BY created_at DESC
      LIMIT ? OFFSET ?`,
-  ).bind(...bindings, perPage, (page - 1) * perPage).all();
-  const total = await c.env.DB.prepare(`SELECT COUNT(*) AS total FROM error_events WHERE ${where}`).bind(...bindings).first<{ total: number }>();
+  ).bind(...bindings, perPage + 1, offset).all();
+  const pageRows = (rows.results ?? []).slice(0, perPage);
+  const hasMore = Number(rows.results?.length ?? 0) > perPage;
+  const computedTotal = offset + pageRows.length + (hasMore ? 1 : 0);
+  const total = includeTotal
+    ? await c.env.DB.prepare(`SELECT COUNT(*) AS total FROM error_events WHERE ${where}`).bind(...bindings).first<{ total: number }>()
+    : null;
   return c.json({
-    events: (rows.results ?? []).map((row: any) => ({ ...row, createdAt: safeISO(row.createdAt) })),
-    total: Number(total?.total ?? 0),
+    events: pageRows.map((row: any) => ({ ...row, createdAt: safeISO(row.createdAt) })),
+    total: Number(total?.total ?? computedTotal),
+    totalExact: includeTotal || !hasMore,
+    hasMore,
     page,
     perPage,
   });

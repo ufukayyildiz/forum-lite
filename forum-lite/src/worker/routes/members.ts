@@ -8,6 +8,7 @@ import { safeISO } from "../lib/auth";
 import { toPublicUser, type AppEnv } from "../types";
 import { isEmailSuppressed } from "../lib/email-suppression";
 import { ensureNotificationPreferences } from "../lib/notifications";
+import { assertReachableHttpsUrl, assertValidBioLinks } from "../lib/profile-links";
 
 const app = new Hono<AppEnv>();
 
@@ -236,8 +237,26 @@ app.patch("/:username", requireAuth, zValidator("json", updateBody), async (c) =
   const body = c.req.valid("json");
   const userUpdate: Record<string, unknown> = {};
   if (body.displayName !== undefined) userUpdate.displayName = body.displayName.trim();
-  if (body.bio !== undefined) userUpdate.bio = body.bio;
-  if (body.avatarUrl !== undefined) userUpdate.avatarUrl = body.avatarUrl === "" ? null : body.avatarUrl;
+  if (body.bio !== undefined) {
+    const bio = body.bio.trim();
+    try {
+      await assertValidBioLinks(bio);
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : "Invalid bio link" }, 400);
+    }
+    userUpdate.bio = bio;
+  }
+  if (body.avatarUrl !== undefined) {
+    const avatarUrl = body.avatarUrl.trim();
+    if (avatarUrl) {
+      try {
+        await assertReachableHttpsUrl(avatarUrl, "Avatar URL");
+      } catch (error) {
+        return c.json({ error: error instanceof Error ? error.message : "Invalid avatar URL" }, 400);
+      }
+    }
+    userUpdate.avatarUrl = avatarUrl === "" ? null : avatarUrl;
+  }
   if (body.email !== undefined) {
     const email = body.email.trim().toLowerCase();
     if (email !== target.email.toLowerCase()) {

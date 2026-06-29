@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { ThreadLink } from "../components/ThreadLink";
 import { ListAdRow, shouldShowLeadListAd, shouldShowListAd } from "../components/ListAdRow";
 import { bootstrapQueryOptions } from "../lib/bootstrap";
+import { MarkdownContent } from "../components/MarkdownContent";
 
 const ROLE_LABEL: Record<string, string> = { admin: "[admin]", moderator: "[mod]", member: "[member]" };
 const ROLE_COLOR: Record<string, string> = { admin: "var(--gb-red)", moderator: "var(--gb-blue)", member: "var(--gb-gray)" };
@@ -475,7 +476,11 @@ export default function MemberPage() {
                   <tr key={key}>
                     <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>{i + 1}</td>
                     <td style={{ color: "var(--gb-gray)", fontSize: 12, paddingRight: 16 }}>{key}</td>
-                    <td style={{ color, fontSize: 13 }}>{val}</td>
+                    <td style={{ color, fontSize: 13 }}>
+                      {key === "bio" && u.bio ? (
+                        <MarkdownContent content={u.bio} className="gb-member-bio" />
+                      ) : val}
+                    </td>
                   </tr>
                 ))}
                 {Array.from({ length: 4 }).map((_, i) => (

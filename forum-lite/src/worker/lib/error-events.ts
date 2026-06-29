@@ -104,6 +104,9 @@ async function createOrRepairErrorEventsSchema(db: D1Database): Promise<boolean>
     await db.prepare("CREATE INDEX IF NOT EXISTS error_events_source_idx ON error_events(source)").run();
     await db.prepare("CREATE INDEX IF NOT EXISTS error_events_path_idx ON error_events(path)").run();
     await db.prepare("CREATE INDEX IF NOT EXISTS error_events_status_idx ON error_events(status)").run();
+    await db.prepare("CREATE INDEX IF NOT EXISTS error_events_level_created_at_idx ON error_events(level, created_at)").run();
+    await db.prepare("CREATE INDEX IF NOT EXISTS error_events_source_created_at_idx ON error_events(source, created_at)").run();
+    await db.prepare("CREATE INDEX IF NOT EXISTS error_events_level_source_created_at_idx ON error_events(level, source, created_at)").run();
     return true;
   } catch (error) {
     errorEventsSchemaRetryAfter = Date.now() + 60_000;

@@ -1,6 +1,7 @@
 let coreSchemaReady = false;
 let coreSchemaPromise: Promise<boolean> | null = null;
 let coreSchemaRetryAfter = 0;
+let corePerformanceIndexesReady = false;
 const CORE_SCHEMA_RETRY_MS = 30_000;
 const CORE_TABLES = [
   "users",
@@ -207,6 +208,9 @@ async function createCoreTables(db: D1Database) {
     summary text NOT NULL,
     created_at integer NOT NULL
   )`);
+  await run(db, "CREATE INDEX IF NOT EXISTS activity_log_created_at_idx ON activity_log(created_at)");
+  await run(db, "CREATE INDEX IF NOT EXISTS activity_log_type_created_at_idx ON activity_log(type, created_at)");
+  await run(db, "CREATE INDEX IF NOT EXISTS activity_log_user_created_at_idx ON activity_log(user_id, created_at)");
 
   await run(db, `CREATE TABLE IF NOT EXISTS settings (
     key text PRIMARY KEY NOT NULL,
@@ -347,10 +351,13 @@ async function createFeatureTables(db: D1Database) {
     created_at integer NOT NULL
   )`);
   await run(db, "CREATE INDEX IF NOT EXISTS error_events_created_at_idx ON error_events(created_at)");
-  await run(db, "CREATE INDEX IF NOT EXISTS error_events_level_idx ON error_events(level)");
-  await run(db, "CREATE INDEX IF NOT EXISTS error_events_source_idx ON error_events(source)");
-  await run(db, "CREATE INDEX IF NOT EXISTS error_events_path_idx ON error_events(path)");
-  await run(db, "CREATE INDEX IF NOT EXISTS error_events_status_idx ON error_events(status)");
+    await run(db, "CREATE INDEX IF NOT EXISTS error_events_level_idx ON error_events(level)");
+    await run(db, "CREATE INDEX IF NOT EXISTS error_events_source_idx ON error_events(source)");
+    await run(db, "CREATE INDEX IF NOT EXISTS error_events_path_idx ON error_events(path)");
+    await run(db, "CREATE INDEX IF NOT EXISTS error_events_status_idx ON error_events(status)");
+    await run(db, "CREATE INDEX IF NOT EXISTS error_events_level_created_at_idx ON error_events(level, created_at)");
+    await run(db, "CREATE INDEX IF NOT EXISTS error_events_source_created_at_idx ON error_events(source, created_at)");
+    await run(db, "CREATE INDEX IF NOT EXISTS error_events_level_source_created_at_idx ON error_events(level, source, created_at)");
 
   await run(db, `CREATE TABLE IF NOT EXISTS anchor_links (
     id integer PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -419,6 +426,17 @@ async function repairColumns(db: D1Database) {
   await addColumnIfMissing(db, "anchor_links", "updated_at", "updated_at INTEGER");
 }
 
+async function ensureCorePerformanceIndexes(db: D1Database) {
+  if (corePerformanceIndexesReady) return;
+  await run(db, "CREATE INDEX IF NOT EXISTS activity_log_created_at_idx ON activity_log(created_at)");
+  await run(db, "CREATE INDEX IF NOT EXISTS activity_log_type_created_at_idx ON activity_log(type, created_at)");
+  await run(db, "CREATE INDEX IF NOT EXISTS activity_log_user_created_at_idx ON activity_log(user_id, created_at)");
+  await run(db, "CREATE INDEX IF NOT EXISTS error_events_level_created_at_idx ON error_events(level, created_at)");
+  await run(db, "CREATE INDEX IF NOT EXISTS error_events_source_created_at_idx ON error_events(source, created_at)");
+  await run(db, "CREATE INDEX IF NOT EXISTS error_events_level_source_created_at_idx ON error_events(level, source, created_at)");
+  corePerformanceIndexesReady = true;
+}
+
 export async function backfillCoreData(db: D1Database) {
   const now = nowSeconds();
   await run(db, "UPDATE users SET public_id = lower(username) WHERE public_id IS NULL OR public_id = ''");
@@ -436,6 +454,7 @@ async function createOrRepairCoreSchema(db: D1Database): Promise<boolean> {
     await createCoreTables(db);
     await createFeatureTables(db);
     await repairColumns(db);
+    await ensureCorePerformanceIndexes(db);
     return true;
   } catch (error) {
     console.error("core_schema_unavailable", error);
@@ -448,6 +467,7 @@ export async function ensureCoreSchema(db: D1Database) {
   if (Date.now() < coreSchemaRetryAfter) return false;
   const readyEnough = await coreSchemaLooksReady(db);
   if (readyEnough === true) {
+    await ensureCorePerformanceIndexes(db);
     coreSchemaReady = true;
     return true;
   }

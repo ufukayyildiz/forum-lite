@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { api, type AdminErrorEvent } from "../../lib/api";
 import { PaginationControls } from "../../components/PaginationControls";
 
@@ -25,6 +25,15 @@ function prettyJson(value: string | null) {
   } catch {
     return value;
   }
+}
+
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(value), delayMs);
+    return () => window.clearTimeout(timer);
+  }, [value, delayMs]);
+  return debounced;
 }
 
 const TYPE_COLOR: Record<string, string> = {
@@ -110,19 +119,24 @@ export default function AdminLogs() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [clearing, setClearing] = useState<"errors" | "activity" | null>(null);
   const [clearMessage, setClearMessage] = useState("");
+  const debouncedQ = useDebouncedValue(q, 300);
 
-  const errorParams = useMemo(() => ({ page: errorPage, level, source, q, perPage: 50 }), [errorPage, level, source, q]);
+  const errorParams = useMemo(() => ({ page: errorPage, level, source, q: debouncedQ, perPage: 50 }), [errorPage, level, source, debouncedQ]);
   const errors = useQuery({
     queryKey: ["admin-error-events", errorParams],
     queryFn: () => api.adminErrorEvents(errorParams),
-    refetchInterval: 15000,
+    placeholderData: keepPreviousData,
+    staleTime: 10_000,
+    refetchInterval: tab === "errors" ? 30_000 : false,
     enabled: tab === "errors",
   });
 
   const activity = useQuery({
     queryKey: ["admin-logs", activityPage],
     queryFn: () => api.adminLogs({ page: activityPage, perPage: 50 }),
-    refetchInterval: 15000,
+    placeholderData: keepPreviousData,
+    staleTime: 10_000,
+    refetchInterval: tab === "activity" ? 30_000 : false,
     enabled: tab === "activity",
   });
 
@@ -130,6 +144,8 @@ export default function AdminLogs() {
   const selectedEvent = errorEvents.find((event) => event.id === selectedId) ?? null;
   const errorTotalPages = errors.data ? Math.ceil(errors.data.total / errors.data.perPage) : 1;
   const activityTotalPages = activity.data ? Math.ceil(activity.data.total / activity.data.perPage) : 1;
+  const errorTotalLabel = errors.data ? `${errors.data.total}${errors.data.totalExact === false ? "+" : ""}` : "0";
+  const activityTotalLabel = activity.data ? `${activity.data.total}${activity.data.totalExact === false ? "+" : ""}` : "0";
 
   const setFilter = (setter: (value: string) => void, value: string) => {
     setter(value);
@@ -215,7 +231,7 @@ export default function AdminLogs() {
       {tab === "errors" ? (
         <>
           <div style={{ fontSize: 11, color: "var(--gb-gray)", letterSpacing: ".06em" }}>
-            " {errors.data?.total ?? 0} error events — auto-refresh 15s
+            " {errorTotalLabel} error events — auto-refresh 30s
           </div>
           <table className="gb-table">
             <thead>
@@ -259,7 +275,7 @@ export default function AdminLogs() {
       ) : (
         <>
           <div style={{ fontSize: 11, color: "var(--gb-gray)", letterSpacing: ".06em" }}>
-            " {activity.data?.total ?? 0} activity log entries — auto-refresh 15s
+            " {activityTotalLabel} activity log entries — auto-refresh 30s
           </div>
           <table className="gb-table">
             <thead>

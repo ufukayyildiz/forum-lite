@@ -197,15 +197,23 @@ export const attachments = sqliteTable(
   }),
 );
 
-export const activityLog = sqliteTable("activity_log", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
-  type: text("type").notNull(),
-  summary: text("summary").notNull(),
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-});
+export const activityLog = sqliteTable(
+  "activity_log",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
+    type: text("type").notNull(),
+    summary: text("summary").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (t) => ({
+    createdAtIdx: index("activity_log_created_at_idx").on(t.createdAt),
+    typeCreatedAtIdx: index("activity_log_type_created_at_idx").on(t.type, t.createdAt),
+    userCreatedAtIdx: index("activity_log_user_created_at_idx").on(t.userId, t.createdAt),
+  }),
+);
 
 export const errorEvents = sqliteTable(
   "error_events",
@@ -239,6 +247,9 @@ export const errorEvents = sqliteTable(
     sourceIdx: index("error_events_source_idx").on(t.source),
     pathIdx: index("error_events_path_idx").on(t.path),
     statusIdx: index("error_events_status_idx").on(t.status),
+    levelCreatedAtIdx: index("error_events_level_created_at_idx").on(t.level, t.createdAt),
+    sourceCreatedAtIdx: index("error_events_source_created_at_idx").on(t.source, t.createdAt),
+    levelSourceCreatedAtIdx: index("error_events_level_source_created_at_idx").on(t.level, t.source, t.createdAt),
   }),
 );
 
