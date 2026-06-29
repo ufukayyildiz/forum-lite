@@ -6,6 +6,7 @@ const legacyEntryFiles = [
   "index-BSxC7cKI.js",
   "index-8d-KUl01.js",
   "index-jtkaNP9d.js",
+  "index-CsRveqls.js",
 ];
 
 if (!existsSync(assetsDir)) {

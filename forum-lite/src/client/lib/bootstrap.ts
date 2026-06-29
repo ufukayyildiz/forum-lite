@@ -18,9 +18,6 @@ let bootstrapPrimedAt = 0;
 declare global {
   interface Window {
     __FSTDESK_BOOTSTRAP__?: BootstrapPayload;
-    __FSTDESK_BOOTSTRAP_DEBUG__?: {
-      events: Array<Record<string, unknown>>;
-    };
   }
 }
 
@@ -30,12 +27,6 @@ function queryKeyId(key: unknown[]) {
 
 function isBootstrapPayload(value: unknown): value is BootstrapPayload {
   return Boolean(value && typeof value === "object" && Array.isArray((value as BootstrapPayload).queries));
-}
-
-function debugBootstrap(event: string, data: Record<string, unknown> = {}) {
-  if (typeof window === "undefined" || !window.location.search.includes("debugBootstrap=1")) return;
-  window.__FSTDESK_BOOTSTRAP_DEBUG__ ??= { events: [] };
-  window.__FSTDESK_BOOTSTRAP_DEBUG__.events.push({ event, at: Math.round(performance.now()), ...data });
 }
 
 export function getBootstrappedQueryData<T = unknown>(key: unknown[]): T | undefined {
@@ -58,12 +49,8 @@ export function readFreshBootstrappedQueryData<T = unknown>(
   maxAgeMs = BOOTSTRAP_API_SHORT_CIRCUIT_MS,
 ): { hit: true; data: T } | { hit: false } {
   ensureBootstrappedQueriesPrimed();
-  if (!bootstrapPrimedAt || Date.now() - bootstrapPrimedAt > maxAgeMs) {
-    debugBootstrap("readFresh:miss-age", { key, primed: Boolean(bootstrapPrimedAt), size: bootstrappedQueries.size });
-    return { hit: false };
-  }
+  if (!bootstrapPrimedAt || Date.now() - bootstrapPrimedAt > maxAgeMs) return { hit: false };
   const value = bootstrappedQueries.get(queryKeyId(key));
-  debugBootstrap(value ? "readFresh:hit" : "readFresh:miss-key", { key, size: bootstrappedQueries.size });
   return value ? { hit: true, data: value.data as T } : { hit: false };
 }
 
@@ -73,7 +60,6 @@ export function bootstrapQueryOptions<T = unknown>(
 ) {
   const bootstrapped = hasBootstrappedQueryData(key);
   const enabled = (options.enabled ?? true) && !bootstrapped;
-  debugBootstrap("queryOptions", { key, bootstrapped, enabled, size: bootstrappedQueries.size });
   return {
     initialData: () => getBootstrappedQueryData<T>(key),
     initialDataUpdatedAt: () => getBootstrappedQueryUpdatedAt(key),
@@ -89,23 +75,16 @@ function readBootstrapPayload(): BootstrapPayload | null {
   if (typeof window === "undefined") return null;
   const windowPayload = window.__FSTDESK_BOOTSTRAP__ as unknown;
   if (isBootstrapPayload(windowPayload)) {
-    debugBootstrap("readPayload:window", { count: windowPayload.queries?.length ?? 0 });
     return windowPayload;
   }
 
   const el = document.getElementById("__FSTDESK_BOOTSTRAP__");
   const text = el?.textContent?.trim();
-  if (!text) {
-    debugBootstrap("readPayload:empty");
-    return null;
-  }
+  if (!text) return null;
 
   try {
-    const payload = JSON.parse(text) as BootstrapPayload;
-    debugBootstrap("readPayload:dom", { count: payload.queries?.length ?? 0, textLength: text.length });
-    return payload;
+    return JSON.parse(text) as BootstrapPayload;
   } catch {
-    debugBootstrap("readPayload:parse-failed", { textLength: text.length });
     return null;
   }
 }
@@ -115,13 +94,11 @@ function primeBootstrappedQueries(payload: BootstrapPayload, queryClient?: Query
 
   const now = Date.now();
   if (!bootstrapPrimedAt) bootstrapPrimedAt = now;
-  const keys: unknown[] = [];
 
   for (const query of payload.queries) {
     if (!Array.isArray(query.key)) continue;
     try {
       const updatedAt = query.updatedAt ?? now;
-      keys.push(query.key);
       bootstrappedQueries.set(queryKeyId(query.key), { data: query.data, updatedAt });
       queryClient?.setQueryData(query.key, query.data, { updatedAt });
     } catch (error) {
@@ -129,7 +106,6 @@ function primeBootstrappedQueries(payload: BootstrapPayload, queryClient?: Query
     }
   }
 
-  debugBootstrap("prime", { count: bootstrappedQueries.size, keys });
   return true;
 }
 
@@ -153,7 +129,6 @@ export function primeQueryClientFromBootstrap(queryClient: QueryClient) {
     console.warn("FSTDESK bootstrap read failed", error);
   }
   if (!payload?.queries?.length) {
-    debugBootstrap("prime:empty");
     document.getElementById("__FSTDESK_BOOTSTRAP__")?.remove();
     delete window.__FSTDESK_BOOTSTRAP__;
     return;

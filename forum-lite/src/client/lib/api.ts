@@ -629,7 +629,7 @@ export const api = {
   adminUsers: (params: number | { page?: number; q?: string } = 1) => {
     const page = typeof params === "number" ? params : params.page ?? 1;
     const q = typeof params === "number" ? "" : params.q?.trim() ?? "";
-    return get<{ users: AdminUser[]; total: number; page: number; perPage: number; q: string }>(
+    return get<{ users: AdminUser[]; total: number; verifiedTotal: number; page: number; perPage: number; q: string }>(
       `/admin/users?${new URLSearchParams({ page: String(page), q }).toString()}`,
     );
   },

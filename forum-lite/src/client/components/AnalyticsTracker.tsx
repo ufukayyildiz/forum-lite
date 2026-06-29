@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
+import { useMe } from "../lib/useAuth";
 
 function sendDuration(id: number, durationMs: number) {
   const body = JSON.stringify({ id, durationMs });
@@ -16,8 +17,12 @@ function sendDuration(id: number, durationMs: number) {
 
 export function AnalyticsTracker() {
   const location = useLocation();
+  const { data: me, isLoading: meLoading } = useMe();
 
   useEffect(() => {
+    if (meLoading) return;
+    if (location.pathname.startsWith("/admin") || me?.role === "admin") return;
+
     const path = `${location.pathname}${location.search}`;
     const start = performance.now();
     let viewId = 0;
@@ -60,7 +65,7 @@ export function AnalyticsTracker() {
       window.removeEventListener("pagehide", closeView);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [location.pathname, location.search]);
+  }, [location.pathname, location.search, me?.role, meLoading]);
 
   return null;
 }

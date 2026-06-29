@@ -175,14 +175,18 @@ function requestCf(c: AppContext) {
 }
 
 export async function createAnalyticsPageview(c: AppContext, body: Record<string, unknown>) {
-  const visitorId = ensureAnalyticsVisitor(c);
   const path = normalizePath(body.path, c.req.url);
+  const type = routeType(path);
   const referrer = clampText(body.referrer || c.req.header("referer"), 1000);
   const source = sourceFrom(path, referrer, c.req.url);
   const userAgent = c.req.header("user-agent") ?? "";
   const device = deviceFromUserAgent(userAgent);
   const cf = requestCf(c);
   const user = c.get("user");
+  if (type === "admin" || device.isBot || user?.role === "admin") {
+    return { id: 0, visitorId: null, repeat: false, skipped: true };
+  }
+  const visitorId = ensureAnalyticsVisitor(c);
   const now = Math.floor(Date.now() / 1000);
   const previous = await c.env.DB.prepare(
     "SELECT id FROM analytics_pageviews WHERE visitor_id = ? LIMIT 1",
@@ -193,7 +197,7 @@ export async function createAnalyticsPageview(c: AppContext, body: Record<string
     visitorId,
     user?.id ?? null,
     path,
-    routeType(path),
+    type,
     referrer,
     source.referrerHost,
     source.source,
@@ -250,6 +254,7 @@ export async function updateAnalyticsDuration(c: AppContext, body: Record<string
   const visitorId = cleanVisitorId(getCookie(c, VISITOR_COOKIE));
   const id = Number(body.id);
   const durationMs = Math.max(0, Math.min(1000 * 60 * 60 * 6, Math.round(Number(body.durationMs ?? 0))));
+  if (c.get("user")?.role === "admin") return { ok: false, skipped: true };
   if (!visitorId || !Number.isInteger(id) || id <= 0) return { ok: false };
   const now = Math.floor(Date.now() / 1000);
   await c.env.DB.prepare(
@@ -257,7 +262,10 @@ export async function updateAnalyticsDuration(c: AppContext, body: Record<string
      SET duration_ms = MAX(COALESCE(duration_ms, 0), ?),
        last_seen_at = ?,
        user_id = COALESCE(user_id, ?)
-     WHERE id = ? AND visitor_id = ?`,
+     WHERE id = ? AND visitor_id = ?
+       AND COALESCE(is_bot, 0) = 0
+       AND COALESCE(route_type, '') != 'admin'
+       AND path NOT LIKE '/admin%'`,
   ).bind(durationMs, now, c.get("user")?.id ?? null, id, visitorId).run();
   return { ok: true };
 }

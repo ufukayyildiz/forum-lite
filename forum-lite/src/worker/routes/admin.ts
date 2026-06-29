@@ -945,7 +945,12 @@ app.get("/users", async (c) => {
     : "";
   const bindings = q ? [like, like, like] : [];
   const [totalRow, usersResult] = await Promise.all([
-    c.env.DB.prepare(`SELECT COUNT(*) AS total FROM users u ${searchWhere}`).bind(...bindings).first<{ total: number }>(),
+    c.env.DB.prepare(
+      `SELECT
+        COUNT(*) AS total,
+        SUM(CASE WHEN u.email_verified_at IS NOT NULL THEN 1 ELSE 0 END) AS verifiedTotal
+       FROM users u ${searchWhere}`,
+    ).bind(...bindings).first<{ total: number; verifiedTotal: number }>(),
     c.env.DB.prepare(
       `SELECT
          u.id,
@@ -983,6 +988,7 @@ app.get("/users", async (c) => {
   return c.json({
     users: rows.map((row) => toAdminUser(userFromAdminSql(row), row.analyticsLastSeenAt)),
     total: Number(totalRow?.total ?? 0),
+    verifiedTotal: Number(totalRow?.verifiedTotal ?? 0),
     page,
     perPage,
     q,
@@ -1866,6 +1872,11 @@ app.get("/analytics", async (c) => {
   const since = Math.floor(Date.now() / 1000) - days * 86400;
   const onlineSince = Math.floor(Date.now() / 1000) - onlineWindowSeconds;
   const bindSince = (sqlText: string) => c.env.DB.prepare(sqlText).bind(since);
+  const cleanAnalyticsFrom = "FROM analytics_pageviews ap LEFT JOIN users u ON u.id = ap.user_id";
+  const cleanAnalyticsWhere = `COALESCE(ap.is_bot, 0) = 0
+        AND COALESCE(ap.route_type, '') != 'admin'
+        AND ap.path NOT LIKE '/admin%'
+        AND (u.id IS NULL OR COALESCE(u.role, 'member') != 'admin')`;
 
   const [
     summary,
@@ -1892,11 +1903,9 @@ app.get("/analytics", async (c) => {
         0 AS botViews,
         AVG(NULLIF(ap.duration_ms, 0)) AS avgDurationMs,
         MAX(ap.created_at) AS lastSeenAt
-       FROM analytics_pageviews ap
-       LEFT JOIN users u ON u.id = ap.user_id
+       ${cleanAnalyticsFrom}
        WHERE ap.created_at >= ?
-        AND COALESCE(ap.is_bot, 0) = 0
-        AND (u.id IS NULL OR COALESCE(u.role, 'member') != 'admin')`,
+        AND ${cleanAnalyticsWhere}`,
     ).first<Record<string, unknown>>(),
     c.env.DB.prepare(
       `SELECT
@@ -1906,65 +1915,71 @@ app.get("/analytics", async (c) => {
         COUNT(DISTINCT CASE WHEN ap.is_repeat = 1 THEN ap.visitor_id END) AS onlineRepeat,
         0 AS onlineBots,
         MAX(ap.last_seen_at) AS lastSeenAt
-       FROM analytics_pageviews ap
-       LEFT JOIN users u ON u.id = ap.user_id
+       ${cleanAnalyticsFrom}
        WHERE ap.last_seen_at >= ?
-        AND COALESCE(ap.is_bot, 0) = 0
-        AND (u.id IS NULL OR COALESCE(u.role, 'member') != 'admin')`,
+        AND ${cleanAnalyticsWhere}`,
     ).bind(onlineSince).first<Record<string, unknown>>(),
     bindSince(
-      `SELECT source, medium, COUNT(*) AS views, COUNT(DISTINCT visitor_id) AS visitors, AVG(NULLIF(duration_ms, 0)) AS avgDurationMs
-       FROM analytics_pageviews
-       WHERE created_at >= ?
-       GROUP BY source, medium
+      `SELECT ap.source AS source, ap.medium AS medium,
+        COUNT(*) AS views, COUNT(DISTINCT ap.visitor_id) AS visitors, AVG(NULLIF(ap.duration_ms, 0)) AS avgDurationMs
+       ${cleanAnalyticsFrom}
+       WHERE ap.created_at >= ?
+        AND ${cleanAnalyticsWhere}
+       GROUP BY ap.source, ap.medium
        ORDER BY views DESC
        LIMIT 12`,
     ).all<Record<string, unknown>>(),
     bindSince(
-      `SELECT source, medium, campaign,
-        utm_source AS utmSource, utm_medium AS utmMedium, utm_campaign AS utmCampaign,
-        utm_term AS utmTerm, utm_content AS utmContent,
-        COUNT(*) AS views, COUNT(DISTINCT visitor_id) AS visitors, AVG(NULLIF(duration_ms, 0)) AS avgDurationMs
-       FROM analytics_pageviews
-       WHERE created_at >= ?
+      `SELECT ap.source AS source, ap.medium AS medium, ap.campaign AS campaign,
+        ap.utm_source AS utmSource, ap.utm_medium AS utmMedium, ap.utm_campaign AS utmCampaign,
+        ap.utm_term AS utmTerm, ap.utm_content AS utmContent,
+        COUNT(*) AS views, COUNT(DISTINCT ap.visitor_id) AS visitors, AVG(NULLIF(ap.duration_ms, 0)) AS avgDurationMs
+       ${cleanAnalyticsFrom}
+       WHERE ap.created_at >= ?
+        AND ${cleanAnalyticsWhere}
         AND (
-          utm_source IS NOT NULL OR utm_medium IS NOT NULL OR utm_campaign IS NOT NULL
-          OR utm_term IS NOT NULL OR utm_content IS NOT NULL OR campaign IS NOT NULL
+          ap.utm_source IS NOT NULL OR ap.utm_medium IS NOT NULL OR ap.utm_campaign IS NOT NULL
+          OR ap.utm_term IS NOT NULL OR ap.utm_content IS NOT NULL OR ap.campaign IS NOT NULL
         )
-       GROUP BY source, medium, campaign, utm_source, utm_medium, utm_campaign, utm_term, utm_content
+       GROUP BY ap.source, ap.medium, ap.campaign, ap.utm_source, ap.utm_medium, ap.utm_campaign, ap.utm_term, ap.utm_content
        ORDER BY views DESC
        LIMIT 20`,
     ).all<Record<string, unknown>>(),
     bindSince(
-      `SELECT COALESCE(NULLIF(country, ''), 'unknown') AS country, COUNT(*) AS views, COUNT(DISTINCT visitor_id) AS visitors
-       FROM analytics_pageviews
-       WHERE created_at >= ?
-       GROUP BY COALESCE(NULLIF(country, ''), 'unknown')
+      `SELECT COALESCE(NULLIF(ap.country, ''), 'unknown') AS country, COUNT(*) AS views, COUNT(DISTINCT ap.visitor_id) AS visitors
+       ${cleanAnalyticsFrom}
+       WHERE ap.created_at >= ?
+        AND ${cleanAnalyticsWhere}
+       GROUP BY COALESCE(NULLIF(ap.country, ''), 'unknown')
        ORDER BY views DESC
        LIMIT 16`,
     ).all<Record<string, unknown>>(),
     bindSince(
-      `SELECT route_type AS routeType, COUNT(*) AS views, COUNT(DISTINCT visitor_id) AS visitors, AVG(NULLIF(duration_ms, 0)) AS avgDurationMs
-       FROM analytics_pageviews
-       WHERE created_at >= ?
-       GROUP BY route_type
+      `SELECT ap.route_type AS routeType, COUNT(*) AS views, COUNT(DISTINCT ap.visitor_id) AS visitors, AVG(NULLIF(ap.duration_ms, 0)) AS avgDurationMs
+       ${cleanAnalyticsFrom}
+       WHERE ap.created_at >= ?
+        AND ${cleanAnalyticsWhere}
+       GROUP BY ap.route_type
        ORDER BY views DESC`,
     ).all<Record<string, unknown>>(),
     bindSince(
-      `SELECT device_type AS deviceType, browser, os, COUNT(*) AS views, COUNT(DISTINCT visitor_id) AS visitors
-       FROM analytics_pageviews
-       WHERE created_at >= ?
-       GROUP BY device_type, browser, os
+      `SELECT ap.device_type AS deviceType, ap.browser AS browser, ap.os AS os,
+        COUNT(*) AS views, COUNT(DISTINCT ap.visitor_id) AS visitors
+       ${cleanAnalyticsFrom}
+       WHERE ap.created_at >= ?
+        AND ${cleanAnalyticsWhere}
+       GROUP BY ap.device_type, ap.browser, ap.os
        ORDER BY views DESC
        LIMIT 16`,
     ).all<Record<string, unknown>>(),
     bindSince(
-      `SELECT path, route_type AS routeType, COUNT(*) AS views, COUNT(DISTINCT visitor_id) AS visitors,
-        SUM(CASE WHEN user_id IS NOT NULL THEN 1 ELSE 0 END) AS userViews,
-        AVG(NULLIF(duration_ms, 0)) AS avgDurationMs
-       FROM analytics_pageviews
-       WHERE created_at >= ?
-       GROUP BY path, route_type
+      `SELECT ap.path AS path, ap.route_type AS routeType, COUNT(*) AS views, COUNT(DISTINCT ap.visitor_id) AS visitors,
+        SUM(CASE WHEN ap.user_id IS NOT NULL THEN 1 ELSE 0 END) AS userViews,
+        AVG(NULLIF(ap.duration_ms, 0)) AS avgDurationMs
+       ${cleanAnalyticsFrom}
+       WHERE ap.created_at >= ?
+        AND ${cleanAnalyticsWhere}
+       GROUP BY ap.path, ap.route_type
        ORDER BY views DESC
        LIMIT 30`,
     ).all<Record<string, unknown>>(),
@@ -1974,44 +1989,57 @@ app.get("/analytics", async (c) => {
        FROM analytics_pageviews ap
        INNER JOIN users u ON u.id = ap.user_id
        WHERE ap.created_at >= ?
+        AND COALESCE(ap.is_bot, 0) = 0
+        AND COALESCE(ap.route_type, '') != 'admin'
+        AND ap.path NOT LIKE '/admin%'
+        AND COALESCE(u.role, 'member') != 'admin'
        GROUP BY ap.user_id
        ORDER BY views DESC
        LIMIT 20`,
     ).all<Record<string, unknown>>(),
     bindSince(
-      `SELECT COALESCE(NULLIF(referrer_host, ''), 'direct') AS referrerHost,
-        MIN(NULLIF(referrer, '')) AS sampleReferrer,
-        COUNT(*) AS views, COUNT(DISTINCT visitor_id) AS visitors
-       FROM analytics_pageviews
-       WHERE created_at >= ?
-       GROUP BY COALESCE(NULLIF(referrer_host, ''), 'direct')
+      `SELECT COALESCE(NULLIF(ap.referrer_host, ''), 'direct') AS referrerHost,
+        MIN(NULLIF(ap.referrer, '')) AS sampleReferrer,
+        COUNT(*) AS views, COUNT(DISTINCT ap.visitor_id) AS visitors
+       ${cleanAnalyticsFrom}
+       WHERE ap.created_at >= ?
+        AND ${cleanAnalyticsWhere}
+       GROUP BY COALESCE(NULLIF(ap.referrer_host, ''), 'direct')
        ORDER BY views DESC
        LIMIT 16`,
     ).all<Record<string, unknown>>(),
     bindSince(
-      `SELECT strftime('%Y-%m-%d %H:00', created_at, 'unixepoch') AS bucket, COUNT(*) AS views, COUNT(DISTINCT visitor_id) AS visitors
-       FROM analytics_pageviews
-       WHERE created_at >= ?
+      `SELECT strftime('%Y-%m-%d %H:00', ap.created_at, 'unixepoch') AS bucket,
+        COUNT(*) AS views, COUNT(DISTINCT ap.visitor_id) AS visitors
+       ${cleanAnalyticsFrom}
+       WHERE ap.created_at >= ?
+        AND ${cleanAnalyticsWhere}
        GROUP BY bucket
        ORDER BY bucket ASC`,
     ).all<Record<string, unknown>>(),
     c.env.DB.prepare(
-      `WITH latest_seen AS (
+      `WITH filtered AS (
+        SELECT ap.*
+        ${cleanAnalyticsFrom}
+        WHERE ap.last_seen_at >= ?
+          AND ${cleanAnalyticsWhere}
+      ),
+      latest_seen AS (
         SELECT visitor_id, MAX(last_seen_at) AS lastSeenAt
-        FROM analytics_pageviews
-        WHERE last_seen_at >= ?
+        FROM filtered
         GROUP BY visitor_id
       ),
       latest AS (
         SELECT MAX(ap.id) AS id
-        FROM analytics_pageviews ap
+        FROM filtered ap
         INNER JOIN latest_seen ls ON ls.visitor_id = ap.visitor_id AND ls.lastSeenAt = ap.last_seen_at
         GROUP BY ap.visitor_id
       ),
       visitor_entry AS (
-        SELECT visitor_id, MIN(id) AS entryId
-        FROM analytics_pageviews
-        GROUP BY visitor_id
+        SELECT ap.visitor_id, MIN(ap.id) AS entryId
+        ${cleanAnalyticsFrom}
+        WHERE ${cleanAnalyticsWhere}
+        GROUP BY ap.visitor_id
       )
       SELECT ap.id, ap.path, ap.route_type AS routeType, ap.source, ap.medium, ap.campaign,
         ap.referrer, ap.referrer_host AS referrerHost,
@@ -2026,7 +2054,7 @@ app.get("/analytics", async (c) => {
         ap.duration_ms AS durationMs, ap.created_at AS createdAt, ap.last_seen_at AS lastSeenAt,
         u.username, u.display_name AS displayName
        FROM latest
-       INNER JOIN analytics_pageviews ap ON ap.id = latest.id
+       INNER JOIN filtered ap ON ap.id = latest.id
        LEFT JOIN visitor_entry ve ON ve.visitor_id = ap.visitor_id
        LEFT JOIN analytics_pageviews entry ON entry.id = ve.entryId
        LEFT JOIN users u ON u.id = ap.user_id
@@ -2034,10 +2062,17 @@ app.get("/analytics", async (c) => {
        LIMIT 80`,
     ).bind(onlineSince).all<Record<string, unknown>>(),
     bindSince(
-      `WITH visitor_entry AS (
-        SELECT visitor_id, MIN(id) AS entryId
-        FROM analytics_pageviews
-        GROUP BY visitor_id
+      `WITH filtered AS (
+        SELECT ap.*
+        ${cleanAnalyticsFrom}
+        WHERE ap.created_at >= ?
+          AND ${cleanAnalyticsWhere}
+      ),
+      visitor_entry AS (
+        SELECT ap.visitor_id, MIN(ap.id) AS entryId
+        ${cleanAnalyticsFrom}
+        WHERE ${cleanAnalyticsWhere}
+        GROUP BY ap.visitor_id
       )
       SELECT ap.id, ap.path, ap.route_type AS routeType, ap.source, ap.medium, ap.campaign,
         ap.referrer, ap.referrer_host AS referrerHost,
@@ -2051,11 +2086,10 @@ app.get("/analytics", async (c) => {
         ap.device_type AS deviceType, ap.browser, ap.os, ap.is_repeat AS isRepeat, ap.is_bot AS isBot,
         ap.duration_ms AS durationMs, ap.created_at AS createdAt, ap.last_seen_at AS lastSeenAt,
         u.username, u.display_name AS displayName
-       FROM analytics_pageviews ap
+       FROM filtered ap
        LEFT JOIN visitor_entry ve ON ve.visitor_id = ap.visitor_id
        LEFT JOIN analytics_pageviews entry ON entry.id = ve.entryId
        LEFT JOIN users u ON u.id = ap.user_id
-       WHERE ap.created_at >= ?
        ORDER BY ap.created_at DESC
        LIMIT 60`,
     ).all<Record<string, unknown>>(),

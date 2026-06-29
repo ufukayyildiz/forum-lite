@@ -98,6 +98,8 @@ export default function AdminUsers() {
   const totalPages = data ? Math.ceil(data.total / perPage) : 1;
   const list = data?.users ?? [];
   const errorMessage = error instanceof Error ? error.message : error ? "Could not load users" : "";
+  const verifiedTotal = data?.verifiedTotal ?? 0;
+  const verifiedPct = data?.total ? `${Math.round((verifiedTotal / data.total) * 1000) / 10}%` : "0%";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -113,7 +115,7 @@ export default function AdminUsers() {
 
       {data && (
         <div style={{ fontSize: 11, color: "var(--gb-gray)", letterSpacing: ".06em" }}>
-          " {data.total} total users
+          " {data.total} total users · <span style={{ color: "var(--gb-green)" }}>{verifiedTotal}</span> verified ({verifiedPct})
         </div>
       )}
 

@@ -9,9 +9,9 @@ declare global {
   }
 }
 
-const FALLBACK_DELAY_MS = 3000;
+const FALLBACK_DELAY_MS = 4000;
 const ADSENSE_STABLE_VISIBLE_MS = 1000;
-const VIEWABLE_THRESHOLD = 1;
+const VIEWABLE_THRESHOLD = 0.01;
 const VIEWPORT_TOLERANCE_PX = 1;
 const DEFAULT_AD_HEIGHT = 160;
 const MAX_AD_HEIGHT = 600;
@@ -113,17 +113,17 @@ export function AdSlot({
       slot?.style.setProperty("max-height", `${reservedHeight}px`, "important");
     };
 
-    const slotFullyVisible = () => {
+    const slotVisible = () => {
       if (!slot) return false;
       const rect = slot.getBoundingClientRect();
       const width = window.innerWidth || document.documentElement.clientWidth;
       const height = window.innerHeight || document.documentElement.clientHeight;
       if (rect.width <= 1 || rect.height <= 1) return false;
       return (
-        rect.top >= -VIEWPORT_TOLERANCE_PX &&
-        rect.left >= -VIEWPORT_TOLERANCE_PX &&
-        rect.bottom <= height + VIEWPORT_TOLERANCE_PX &&
-        rect.right <= width + VIEWPORT_TOLERANCE_PX
+        rect.bottom >= -VIEWPORT_TOLERANCE_PX &&
+        rect.right >= -VIEWPORT_TOLERANCE_PX &&
+        rect.top <= height + VIEWPORT_TOLERANCE_PX &&
+        rect.left <= width + VIEWPORT_TOLERANCE_PX
       );
     };
 
@@ -187,7 +187,11 @@ export function AdSlot({
 
     const adaptToCreative = () => {
       normalizeAdMarkup();
-      if (mount.querySelector("iframe")) {
+      if (adsenseState() === "filled") {
+        if (fallbackTimer !== null) {
+          window.clearTimeout(fallbackTimer);
+          fallbackTimer = null;
+        }
         setSlotHeight();
         slot?.setAttribute("data-ad-state", "filled");
       }
@@ -214,15 +218,15 @@ export function AdSlot({
     };
 
     const scheduleFallback = (reason: string) => {
-      if (fallbackApplied || adsenseState() === "filled" || !slotFullyVisible()) return;
+      if (fallbackApplied || adsenseState() === "filled" || !slotVisible()) return;
       if (!fallbackVisibleStartedAt) fallbackVisibleStartedAt = Date.now();
       if (fallbackTimer !== null) return;
       const remainingMs = Math.max(FALLBACK_DELAY_MS - (Date.now() - fallbackVisibleStartedAt), 0);
       fallbackTimer = window.setTimeout(() => {
         fallbackTimer = null;
-        if (!slotFullyVisible()) {
+        if (!slotVisible()) {
           fallbackVisibleStartedAt = 0;
-          waitUntilFullyVisible(() => scheduleFallback(reason));
+          waitUntilVisible(() => scheduleFallback(reason));
           return;
         }
         const state = adsenseState();
@@ -235,9 +239,9 @@ export function AdSlot({
       timers.push(fallbackTimer);
     };
 
-    const waitUntilFullyVisibleFor = (durationMs: number, onVisible: () => void, visibleSince = 0) => {
-      if (!slotFullyVisible()) {
-        timers.push(window.setTimeout(() => waitUntilFullyVisibleFor(durationMs, onVisible, 0), 250));
+    const waitUntilVisibleFor = (durationMs: number, onVisible: () => void, visibleSince = 0) => {
+      if (!slotVisible()) {
+        timers.push(window.setTimeout(() => waitUntilVisibleFor(durationMs, onVisible, 0), 250));
         return;
       }
       const since = visibleSince || Date.now();
@@ -247,14 +251,14 @@ export function AdSlot({
         return;
       }
       timers.push(window.setTimeout(
-        () => waitUntilFullyVisibleFor(durationMs, onVisible, since),
+        () => waitUntilVisibleFor(durationMs, onVisible, since),
         Math.min(250, durationMs - elapsed),
       ));
     };
-    const waitUntilFullyVisible = (onVisible: () => void) => waitUntilFullyVisibleFor(0, onVisible);
+    const waitUntilVisible = (onVisible: () => void) => waitUntilVisibleFor(0, onVisible);
 
     const requestAdsense = () => {
-      if (adRequested || fallbackApplied || !slotFullyVisible()) return;
+      if (adRequested || fallbackApplied || !slotVisible()) return;
       adRequested = true;
       fallbackVisibleStartedAt = Date.now();
       slot?.setAttribute("data-ad-state", "loading");
@@ -300,7 +304,7 @@ export function AdSlot({
     mount.removeAttribute("data-ad-requested");
 
     if (!html) {
-      waitUntilFullyVisible(() => scheduleFallback("missing-code"));
+      waitUntilVisible(() => scheduleFallback("missing-code"));
       return () => {
         for (const timer of timers) window.clearTimeout(timer);
         mount.innerHTML = "";
@@ -358,20 +362,20 @@ export function AdSlot({
       viewObserver = new IntersectionObserver(
         (entries) => {
           const entry = entries[0];
-          if (entry?.isIntersecting && entry.intersectionRatio >= VIEWABLE_THRESHOLD && slotFullyVisible()) {
+          if (entry?.isIntersecting && entry.intersectionRatio >= VIEWABLE_THRESHOLD && slotVisible()) {
             viewObserver?.disconnect();
-            waitUntilFullyVisibleFor(ADSENSE_STABLE_VISIBLE_MS, requestAdsense);
+            waitUntilVisibleFor(ADSENSE_STABLE_VISIBLE_MS, requestAdsense);
           }
         },
         { threshold: [VIEWABLE_THRESHOLD] },
       );
       viewObserver.observe(slot);
     } else {
-      waitUntilFullyVisible(requestAdsense);
+      waitUntilVisible(requestAdsense);
     }
 
     timers.push(window.setTimeout(() => {
-      if (!adRequested && slotFullyVisible()) waitUntilFullyVisibleFor(ADSENSE_STABLE_VISIBLE_MS, requestAdsense);
+      if (!adRequested && slotVisible()) waitUntilVisibleFor(ADSENSE_STABLE_VISIBLE_MS, requestAdsense);
     }, 1500));
 
     return () => {
