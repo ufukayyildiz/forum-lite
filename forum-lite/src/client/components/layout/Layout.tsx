@@ -6,6 +6,7 @@ import { api } from "../../lib/api";
 import { useMe } from "../../lib/useAuth";
 import { AlignLeft } from "lucide-react";
 import { bootstrapQueryOptions } from "../../lib/bootstrap";
+import { ExternalLinkDialog } from "../ExternalLinkDialog";
 
 function Tabline({ onMenu }: { onMenu: () => void }) {
   const { pathname } = useLocation();
@@ -167,6 +168,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <div className="gb-main">{children}</div>
       </div>
       <Statusbar />
+      <ExternalLinkDialog />
     </div>
   );
 }

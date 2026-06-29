@@ -75,7 +75,7 @@ export function MarkdownContent({
           <div className="gb-pdf-dialog" onClick={(event) => event.stopPropagation()}>
             <div className="gb-pdf-titlebar">
               <span className="gb-pdf-title">{pdf.title}</span>
-              <a className="gb-btn gb-pdf-open" href={pdf.url} target="_blank" rel="noopener noreferrer">
+              <a className="gb-btn gb-pdf-open" href={pdf.url} target="_blank" rel="noopener noreferrer" data-external-dialog-skip="true">
                 <ExternalLink size={13} /> open
               </a>
               <button className="gb-btn-icon" onClick={() => setPdf(null)} title="Close PDF">
@@ -91,7 +91,7 @@ export function MarkdownContent({
           <div className="gb-anchor-dialog" onClick={(event) => event.stopPropagation()}>
             <div className="gb-anchor-titlebar">
               <span className="gb-anchor-title">{anchorDialog.title}</span>
-              <a className="gb-btn gb-anchor-open" href={anchorDialog.url} target="_blank" rel="noopener noreferrer">
+              <a className="gb-btn gb-anchor-open" href={anchorDialog.url} target="_blank" rel="noopener noreferrer" data-external-dialog-skip="true">
                 <ExternalLink size={13} /> new tab
               </a>
               <button className="gb-btn-icon" onClick={() => setAnchorDialog(null)} title="Close link preview">
