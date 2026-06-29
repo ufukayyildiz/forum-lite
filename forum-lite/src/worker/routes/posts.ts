@@ -222,12 +222,22 @@ app.post("/:id/like", requireAuth, async (c) => {
   const post = await db.query.posts.findFirst({ where: eq(schema.posts.id, id) });
   if (!post) return c.json({ error: "Post not found" }, 404);
 
+  const latestLikeCount = async () => {
+    const latest = await db.query.posts.findFirst({ where: eq(schema.posts.id, id) });
+    return Number(latest?.likeCount ?? 0);
+  };
+
   const existing = await db.query.likes.findFirst({
     where: and(eq(schema.likes.postId, id), eq(schema.likes.userId, user.id)),
   });
 
   if (existing) {
-    await db.delete(schema.likes).where(and(eq(schema.likes.postId, id), eq(schema.likes.userId, user.id)));
+    const deleted = await c.env.DB
+      .prepare("DELETE FROM likes WHERE post_id = ? AND user_id = ?")
+      .bind(id, user.id)
+      .run();
+    const changed = Number(deleted.meta?.changes ?? 0);
+    if (!changed) return c.json({ liked: false, likeCount: await latestLikeCount() });
     const [updated] = await db
       .update(schema.posts)
       .set({ likeCount: sql`max(0,${schema.posts.likeCount} - 1)` })
@@ -235,7 +245,12 @@ app.post("/:id/like", requireAuth, async (c) => {
       .returning();
     return c.json({ liked: false, likeCount: updated.likeCount });
   } else {
-    await db.insert(schema.likes).values({ postId: id, userId: user.id });
+    const inserted = await c.env.DB
+      .prepare("INSERT OR IGNORE INTO likes (post_id, user_id, created_at) VALUES (?, ?, ?)")
+      .bind(id, user.id, Math.floor(Date.now() / 1000))
+      .run();
+    const changed = Number(inserted.meta?.changes ?? 0);
+    if (!changed) return c.json({ liked: true, likeCount: await latestLikeCount() });
     const [updated] = await db
       .update(schema.posts)
       .set({ likeCount: sql`${schema.posts.likeCount} + 1` })

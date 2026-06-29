@@ -56,6 +56,10 @@ function isLightApiPath(path: string) {
   return API_LIGHT_PATHS.has(path);
 }
 
+function shouldRecordApiResponseStatus(status: number) {
+  return status >= 500 || status === 429;
+}
+
 function publicApiCachePolicy(request: Request): PublicApiCachePolicy | null {
   if (request.method !== "GET") return null;
   const url = new URL(request.url);
@@ -202,7 +206,7 @@ app.use("/api/*", async (c, next) => {
   await next();
   const status = c.res.status;
   const path = requestPath(c.req.url);
-  if (status >= 400 && path !== "/api/client-errors") {
+  if (shouldRecordApiResponseStatus(status) && path !== "/api/client-errors") {
     c.executionCtx.waitUntil(recordErrorEvent(c.env.DB, {
       ...requestErrorMeta(c),
       source: "api",
@@ -253,6 +257,10 @@ function isBenignBrowserBridgeError(text: string) {
   return /Object Not Found Matching Id:\d+,\s*MethodName:[a-zA-Z0-9_]+,\s*ParamCount:\d+/i.test(text);
 }
 
+function isBenignNetworkMessage(message: string) {
+  return /^(Load failed|Failed to fetch|Network request failed|cancelled)$/i.test(message.trim());
+}
+
 function ignoredClientErrorEvent(body: Record<string, unknown>, userAgent?: string | null) {
   const kind = typeof body.kind === "string" ? body.kind : "";
   const message = typeof body.message === "string" ? body.message : "";
@@ -263,6 +271,9 @@ function ignoredClientErrorEvent(body: Record<string, unknown>, userAgent?: stri
   const path = metadataString(metadata, "path");
 
   if (isBenignBrowserBridgeError(`${message}\n${reason}\n${stack}`)) {
+    return true;
+  }
+  if ((kind === "unhandled_rejection" || kind === "window_error") && isBenignNetworkMessage(message)) {
     return true;
   }
   if (kind === "api_network_error" && /failed to fetch|load failed|network request failed|cancelled/i.test(message)) {

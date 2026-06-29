@@ -15,6 +15,7 @@ const sentKeys = new Map<string, number>();
 function ignoredClientError(message: string, stack?: string | null, reason?: string | null) {
   const text = `${message}\n${stack ?? ""}\n${reason ?? ""}`;
   return [
+    /^(Load failed|Failed to fetch|Network request failed|cancelled)$/i,
     /ResizeObserver loop completed with undelivered notifications/i,
     /ResizeObserver loop limit exceeded/i,
     /AbortError: The operation was aborted/i,

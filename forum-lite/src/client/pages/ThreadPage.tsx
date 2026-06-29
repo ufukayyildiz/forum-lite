@@ -71,6 +71,25 @@ function isoDate(value: string | number | null | undefined): string {
   return Number.isNaN(ms) ? new Date(0).toISOString() : new Date(ms).toISOString();
 }
 
+type PostsResponse = {
+  posts: Post[];
+  total: number;
+  page: number;
+  perPage: number;
+};
+
+function updateCachedPostLike(qc: QueryClient, threadId: number, postId: number, liked: boolean, likeCount: number) {
+  qc.setQueryData<PostsResponse>(["posts", threadId, "all"], (current) => {
+    if (!current) return current;
+    return {
+      ...current,
+      posts: current.posts.map((post) => (
+        post.id === postId ? { ...post, likedByMe: liked, likeCount } : post
+      )),
+    };
+  });
+}
+
 function isMeaningfullyEdited(createdAt: string, updatedAt?: string | null): boolean {
   const createdMs = dateMs(createdAt);
   const updatedMs = dateMs(updatedAt);
@@ -147,8 +166,22 @@ function PostItem({ post, threadId, onQuote, anchors, currentPath }: {
 
   const like = useMutation({
     mutationFn: () => api.likePost(post.id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["posts", threadId, "all"] }),
-    onError: (e: any) => toast.error(e.message ?? "Like failed"),
+    onMutate: async () => {
+      await qc.cancelQueries({ queryKey: ["posts", threadId, "all"] });
+      const previous = qc.getQueryData<PostsResponse>(["posts", threadId, "all"]);
+      const optimisticLiked = !post.likedByMe;
+      const optimisticCount = Math.max(0, post.likeCount + (optimisticLiked ? 1 : -1));
+      updateCachedPostLike(qc, threadId, post.id, optimisticLiked, optimisticCount);
+      return { previous };
+    },
+    onSuccess: (result) => {
+      updateCachedPostLike(qc, threadId, post.id, result.liked, result.likeCount);
+    },
+    onError: (e: any, _variables, context) => {
+      if (context?.previous) qc.setQueryData(["posts", threadId, "all"], context.previous);
+      toast.error(e.message ?? "Like failed");
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["posts", threadId, "all"], refetchType: "inactive" }),
   });
   const update = useMutation({
     mutationFn: () => api.updatePost(post.id, normalizeQuoteFirstMarkdown(content)),
