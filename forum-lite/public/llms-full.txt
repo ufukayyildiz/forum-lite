@@ -19,6 +19,10 @@ FSTDESK means Food Science and Technology Desk. The site is a public forum archi
 - https://fstdesk.com/sitemap-tags.xml - public tag archive pages.
 - https://fstdesk.com/sitemap-users.xml - public user profile pages.
 
+## Top topic cluster links
+
+The live worker enriches this section with up to 100 high-signal public topic URLs when database access is available.
+
 ## Content areas
 
 - Food safety: microbial growth, pathogens, chilled storage, poultry, hygiene, HPP, testing labs and validation.

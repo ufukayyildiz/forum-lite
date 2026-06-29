@@ -568,7 +568,91 @@ function llmsTxt(base: string): string {
   ].join("\n");
 }
 
-function llmsFullTxt(base: string): string {
+type LlmTopicCluster = {
+  publicId: string;
+  title: string;
+  categoryName: string;
+  categoryPublicId: string;
+  tags: string[];
+  views: number;
+  replyCount: number;
+  updatedAt: string;
+  summary: string;
+};
+
+function crawlerText(input: unknown, max = 180): string {
+  const text = String(input ?? "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/!\[[^\]]*]\([^)]*\)/g, " ")
+    .replace(/\[([^\]]+)]\([^)]*\)/g, "$1")
+    .replace(/[`*_>#|~=]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text.length > max ? `${text.slice(0, Math.max(0, max - 3)).trim()}...` : text;
+}
+
+function markdownText(input: unknown, max = 140): string {
+  return crawlerText(input, max).replace(/\[/g, "(").replace(/\]/g, ")");
+}
+
+async function loadTopLlmTopicClusters(env: Bindings, limit = 100): Promise<LlmTopicCluster[]> {
+  const rows = await env.DB.prepare(
+    `SELECT t.public_id AS publicId, t.title, t.content, t.views, t.reply_count AS replyCount,
+      t.created_at AS createdAt, t.updated_at AS updatedAt, t.last_post_at AS lastPostAt,
+      c.name AS categoryName, c.public_id AS categoryPublicId,
+      GROUP_CONCAT(DISTINCT tags.name) AS tags,
+      (COALESCE(t.views, 0) + COALESCE(t.reply_count, 0) * 80 + CASE WHEN t.featured THEN 500 ELSE 0 END) AS score
+     FROM threads t
+     INNER JOIN categories c ON c.id = t.category_id
+     LEFT JOIN thread_tags tt ON tt.thread_id = t.id
+     LEFT JOIN tags ON tags.id = tt.tag_id
+     WHERE length(trim(t.title)) > 0
+     GROUP BY t.id
+     ORDER BY score DESC, COALESCE(t.last_post_at, t.updated_at, t.created_at) DESC
+     LIMIT ?`,
+  )
+    .bind(limit)
+    .all<Record<string, unknown>>();
+
+  return (rows.results ?? []).map((row) => ({
+    publicId: String(row.publicId ?? ""),
+    title: String(row.title ?? ""),
+    categoryName: String(row.categoryName ?? "Forum"),
+    categoryPublicId: String(row.categoryPublicId ?? ""),
+    tags: String(row.tags ?? "")
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean)
+      .slice(0, 8),
+    views: Number(row.views ?? 0),
+    replyCount: Number(row.replyCount ?? 0),
+    updatedAt: safeDate(newestDate(row.updatedAt, row.lastPostAt, row.createdAt)),
+    summary: crawlerText(row.content, 180),
+  }));
+}
+
+function llmTopicClusterSection(base: string, topics: LlmTopicCluster[]): string[] {
+  if (!topics.length) {
+    return [
+      "## Top topic cluster links",
+      "",
+      "The live worker enriches this section with up to 100 high-signal public topic URLs when database access is available.",
+      "",
+    ];
+  }
+  return [
+    "## Top 100 topic cluster links",
+    "",
+    ...topics.map((topic, index) => {
+      const tags = topic.tags.length ? `; tags: ${topic.tags.map((tag) => `#${markdownText(tag, 40)}`).join(", ")}` : "";
+      const summary = topic.summary ? `; summary: ${markdownText(topic.summary, 180)}` : "";
+      return `${index + 1}. [${markdownText(topic.title, 120)}](${base}/t/${topic.publicId}) - category: ${markdownText(topic.categoryName, 80)}; replies: ${topic.replyCount}; views: ${topic.views}; updated: ${topic.updatedAt}${tags}${summary}`;
+    }),
+    "",
+  ];
+}
+
+function llmsFullTxt(base: string, topics: LlmTopicCluster[] = []): string {
   return [
     "# FSTDESK AI Crawler Guide",
     "",
@@ -591,6 +675,7 @@ function llmsFullTxt(base: string): string {
     `- ${base}/sitemap-tags.xml - public tag archive pages.`,
     `- ${base}/sitemap-users.xml - public user profile pages.`,
     "",
+    ...llmTopicClusterSection(base, topics),
     "## Content areas",
     "",
     "- Food safety: microbial growth, pathogens, chilled storage, poultry, hygiene, HPP, testing labs and validation.",
@@ -716,9 +801,13 @@ app.get("/llms.txt", (c) => {
   return c.text(llmsTxt(base), 200, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=3600" });
 });
 
-app.get("/llms-full.txt", (c) => {
+app.get("/llms-full.txt", async (c) => {
   const base = originFromRequest(c.req.url);
-  return c.text(llmsFullTxt(base), 200, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=3600" });
+  const topics = await loadTopLlmTopicClusters(c.env).catch((error) => {
+    if (!isD1Backpressure(error)) console.warn("llms_full_topics_failed", errorToRecord(error).message);
+    return [];
+  });
+  return c.text(llmsFullTxt(base, topics), 200, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=3600" });
 });
 
 app.get("/sitemap.xml", async (c) => {

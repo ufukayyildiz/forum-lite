@@ -184,7 +184,7 @@ export type Category = {
 export type Thread = {
   id: number; publicId: string; title: string; slug: string; pinned: boolean; locked: boolean;
   featured: boolean; views: number; replyCount: number; createdAt: string;
-  updatedAt: string; lastPostAt: string; content?: string;
+  updatedAt: string; lastPostAt: string; reviewedAt?: string | null; content?: string;
   category: { id: number; publicId: string; name: string; slug: string; color: string };
   author: { id: number; publicId?: string; username: string; displayName: string; avatarUrl: string | null; bio?: string | null; role?: string };
   tags?: { id: number; name: string; slug: string }[];

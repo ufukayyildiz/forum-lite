@@ -401,6 +401,7 @@ export default function ThreadPage() {
   const threadUrl = `${origin}${currentThreadPath}`;
   const threadDesc = (thread.content ?? "").replace(/[#*`>_]/g, "").slice(0, 160).trim();
   const threadEdited = isMeaningfullyEdited(thread.createdAt, thread.updatedAt) ? thread.updatedAt : null;
+  const threadReviewed = thread.reviewedAt && thread.reviewedAt !== threadEdited ? thread.reviewedAt : null;
   const articlePublishedTime = new Date(typeof thread.createdAt === "number" ? thread.createdAt * 1000 : thread.createdAt).toISOString();
   const articleModifiedTime = newestIso(thread.updatedAt, thread.lastPostAt, thread.createdAt);
   const articleTags = thread.tags?.map((t) => t.name).filter(Boolean) ?? [];
@@ -531,6 +532,7 @@ export default function ThreadPage() {
           <span>by <Link to={`/u/${thread.author.username}`} style={{ color: "var(--gb-green)" }}>{thread.author.displayName}</Link></span>
           <span>{formatDate(thread.createdAt)}</span>
           {threadEdited && <span title={formatDate(threadEdited)}>edited {relativeTime(threadEdited)}</span>}
+          {threadReviewed && <span title={formatDate(threadReviewed)}>last reviewed {relativeTime(threadReviewed)}</span>}
           <span style={{ color: "var(--gb-aqua)" }}>{thread.replyCount} replies</span>
           <span>{thread.views} views</span>
           {thread.locked && <span style={{ color: "var(--gb-orange)", fontWeight: 700 }}>[LOCKED]</span>}
@@ -569,6 +571,11 @@ export default function ThreadPage() {
                   {threadEdited && (
                     <span style={{ color: "var(--gb-gray)", marginLeft: 4 }} title={`edited ${formatDate(threadEdited)}`}>
                       (edited {relativeTime(threadEdited)})
+                    </span>
+                  )}
+                  {threadReviewed && (
+                    <span style={{ color: "var(--gb-gray)", marginLeft: 4 }} title={`last reviewed ${formatDate(threadReviewed)}`}>
+                      (reviewed {relativeTime(threadReviewed)})
                     </span>
                   )}
                 </span>

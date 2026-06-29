@@ -11,6 +11,9 @@ import { notifyAdminNewThread } from "../lib/admin-alerts";
 
 const app = new Hono<AppEnv>();
 const PUBLIC_ID_ATTEMPTS = 20;
+const VALUABLE_THREAD_MIN_AGE_DAYS = 180;
+const VALUABLE_THREAD_MIN_VIEWS = 500;
+const VALUABLE_THREAD_MIN_REPLIES = 3;
 
 const threadAuthorSelect = {
   id: schema.threads.id,
@@ -37,6 +40,39 @@ const threadAuthorSelect = {
   authorAvatar: schema.users.avatarUrl,
 };
 
+function dateMs(value: unknown): number {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "number") return value > 1e10 ? value : value * 1000;
+  if (typeof value === "string") {
+    const n = Number(value);
+    if (Number.isFinite(n) && value.trim() !== "") return dateMs(n);
+    return Date.parse(value);
+  }
+  return NaN;
+}
+
+function newestDateValue(...values: unknown[]): Date | null {
+  let newest: { time: number } | null = null;
+  for (const value of values) {
+    if (value == null) continue;
+    const time = dateMs(value);
+    if (Number.isNaN(time)) continue;
+    if (!newest || time > newest.time) newest = { time };
+  }
+  return newest ? new Date(newest.time) : null;
+}
+
+function reviewedAtForThread(t: any): string | null {
+  const createdMs = dateMs(t.createdAt);
+  if (Number.isNaN(createdMs)) return null;
+  const ageDays = (Date.now() - createdMs) / 86_400_000;
+  const views = Number(t.views ?? 0);
+  const replies = Number(t.replyCount ?? 0);
+  if (ageDays < VALUABLE_THREAD_MIN_AGE_DAYS) return null;
+  if (!t.featured && views < VALUABLE_THREAD_MIN_VIEWS && replies < VALUABLE_THREAD_MIN_REPLIES) return null;
+  return safeISO(newestDateValue(t.updatedAt, t.lastPostAt, t.createdAt));
+}
+
 function mapThread(t: any) {
   return {
     id: t.id,
@@ -51,6 +87,7 @@ function mapThread(t: any) {
     createdAt: safeISO(t.createdAt),
     updatedAt: safeISO(t.updatedAt),
     lastPostAt: safeISO(t.lastPostAt),
+    reviewedAt: reviewedAtForThread(t),
     category: { id: t.categoryId, name: t.categoryName, slug: t.categorySlug, publicId: t.categoryPublicId, color: t.categoryColor },
     author: {
       id: t.authorId,

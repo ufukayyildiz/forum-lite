@@ -94,6 +94,10 @@ const MAX_SEO_ANCHOR_TARGETS_PER_TERM = 20;
 const MAX_SEO_ANCHORS_PER_BLOCK = 16;
 const MEMBERS_SEO_LIMIT = 120;
 const MEMBERS_BOOTSTRAP_PAGE_SIZE = 200;
+const VALUABLE_THREAD_MIN_AGE_DAYS = 180;
+const VALUABLE_THREAD_MIN_VIEWS = 500;
+const VALUABLE_THREAD_MIN_REPLIES = 3;
+const BEST_DISCUSSIONS_LIMIT = 8;
 
 function cleanText(input: unknown, max = 160): string {
   const text = String(input ?? "")
@@ -411,6 +415,18 @@ function apiThreadPath(thread: { publicId?: unknown; slug?: unknown; id?: unknow
   return `/t/${thread.publicId || thread.slug || thread.id}`;
 }
 
+function reviewedAtForThreadRow(row: Record<string, unknown>): string | null {
+  const createdMs = dateMs(row.createdAt);
+  if (Number.isNaN(createdMs)) return null;
+  const ageDays = (Date.now() - createdMs) / 86_400_000;
+  const views = Number(row.views ?? 0);
+  const replies = Number(row.replyCount ?? 0);
+  const featured = Boolean(row.featured);
+  if (ageDays < VALUABLE_THREAD_MIN_AGE_DAYS) return null;
+  if (!featured && views < VALUABLE_THREAD_MIN_VIEWS && replies < VALUABLE_THREAD_MIN_REPLIES) return null;
+  return newestIsoDate(row.updatedAt, row.lastPostAt, row.createdAt);
+}
+
 async function loadStatsApi(c: AppContext) {
   const stats = await c.env.DB.prepare(
     "SELECT (SELECT COUNT(*) FROM users) AS users, (SELECT COUNT(*) FROM threads) AS threads, (SELECT COUNT(*) FROM posts) AS posts",
@@ -560,6 +576,7 @@ function mapThreadApi(row: Record<string, unknown>) {
     createdAt: apiDate(row.createdAt),
     updatedAt: apiDate(row.updatedAt),
     lastPostAt: apiDate(row.lastPostAt),
+    reviewedAt: reviewedAtForThreadRow(row),
     category: {
       id: Number(row.categoryId),
       publicId: String(row.categoryPublicId ?? ""),
@@ -616,6 +633,49 @@ async function loadRelatedThreadApi(c: AppContext, threadId: number, categoryId:
     .first<Record<string, unknown>>();
 
   return categoryFallback ? mapThreadApi(categoryFallback) : null;
+}
+
+async function loadBestCategoryDiscussions(c: AppContext, categoryId: number, limit = BEST_DISCUSSIONS_LIMIT) {
+  const rows = await c.env.DB.prepare(
+    `SELECT t.id, t.public_id AS publicId, t.title, t.slug, t.content, t.pinned, t.locked, t.featured,
+      t.views, t.reply_count AS replyCount, t.created_at AS createdAt, t.updated_at AS updatedAt, t.last_post_at AS lastPostAt,
+      c.id AS categoryId, c.public_id AS categoryPublicId, c.name AS categoryName, c.slug AS categorySlug, c.color AS categoryColor,
+      u.id AS authorId, u.public_id AS authorPublicId, u.username AS authorUsername, u.display_name AS authorDisplayName,
+      u.avatar_url AS authorAvatar, u.role AS authorRole,
+      (COALESCE(t.views, 0) + COALESCE(t.reply_count, 0) * 80 + CASE WHEN t.featured THEN 500 ELSE 0 END) AS score
+     FROM threads t
+     INNER JOIN categories c ON c.id = t.category_id
+     INNER JOIN users u ON u.id = t.user_id
+     WHERE t.category_id = ?
+     ORDER BY score DESC, t.last_post_at DESC
+     LIMIT ?`,
+  )
+    .bind(categoryId, limit)
+    .all<Record<string, unknown>>();
+
+  return (rows.results ?? []).map((row) => ({ ...mapThreadApi(row), content: String(row.content ?? "") }));
+}
+
+async function loadBestTagDiscussions(c: AppContext, tagId: number, limit = BEST_DISCUSSIONS_LIMIT) {
+  const rows = await c.env.DB.prepare(
+    `SELECT t.id, t.public_id AS publicId, t.title, t.slug, t.content, t.pinned, t.locked, t.featured,
+      t.views, t.reply_count AS replyCount, t.created_at AS createdAt, t.updated_at AS updatedAt, t.last_post_at AS lastPostAt,
+      c.id AS categoryId, c.public_id AS categoryPublicId, c.name AS categoryName, c.slug AS categorySlug, c.color AS categoryColor,
+      u.id AS authorId, u.public_id AS authorPublicId, u.username AS authorUsername, u.display_name AS authorDisplayName,
+      u.avatar_url AS authorAvatar, u.role AS authorRole,
+      (COALESCE(t.views, 0) + COALESCE(t.reply_count, 0) * 80 + CASE WHEN t.featured THEN 500 ELSE 0 END) AS score
+     FROM thread_tags tt
+     INNER JOIN threads t ON t.id = tt.thread_id
+     INNER JOIN categories c ON c.id = t.category_id
+     INNER JOIN users u ON u.id = t.user_id
+     WHERE tt.tag_id = ?
+     ORDER BY score DESC, t.last_post_at DESC
+     LIMIT ?`,
+  )
+    .bind(tagId, limit)
+    .all<Record<string, unknown>>();
+
+  return (rows.results ?? []).map((row) => ({ ...mapThreadApi(row), content: String(row.content ?? "") }));
 }
 
 async function loadThreadsApi(c: AppContext, opts: { categoryId?: number; sort?: string; page?: number; all?: boolean } = {}) {
@@ -1066,6 +1126,60 @@ function seoBlock(
     .join("\n");
 }
 
+function appendSeoSection(mainHtml: string, sectionHtml: string): string {
+  const section = sectionHtml.trim();
+  if (!section) return mainHtml;
+  return mainHtml.includes("</main>") ? mainHtml.replace("</main>", `${section}\n</main>`) : `${mainHtml}\n${section}`;
+}
+
+function seoBestDiscussionsSection(
+  title: string,
+  body: string,
+  threads: Array<ReturnType<typeof mapThreadApi> & { content?: string }>,
+  options: { anchors?: SeoAnchorLink[]; currentPath?: string } = {},
+): string {
+  if (!threads.length) return "";
+  const anchorGroups = prepareSeoAnchorGroups(options.anchors ?? [], options.currentPath ?? "");
+  const usedAnchorTerms = new Set<string>();
+  const items = threads
+    .map((thread, index) => {
+      const updatedAt = thread.reviewedAt || newestIsoDate(thread.updatedAt, thread.lastPostAt, thread.createdAt);
+      const meta = [
+        thread.category?.name ? String(thread.category.name) : "",
+        `${Number(thread.replyCount ?? 0)} replies`,
+        `${Number(thread.views ?? 0)} views`,
+        `updated ${isoDate(updatedAt).slice(0, 10)}`,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      const text = cleanText(thread.content, 180);
+      return [
+        `      <li class="seo-content__row seo-content__row--best" value="${index + 1}">`,
+        '        <article class="seo-content__item">',
+        `          <h3><a href="${escapeHtml(apiThreadPath(thread))}">${escapeHtml(thread.title)}</a></h3>`,
+        `          <p class="seo-content__meta-line">${escapeHtml(meta)}</p>`,
+        text ? `          <p>${seoTextHtml(text, anchorGroups, usedAnchorTerms)}</p>` : "",
+        "        </article>",
+        "      </li>",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    })
+    .join("\n");
+
+  return [
+    '  <section class="seo-content__list seo-content__best" aria-label="Best discussions">',
+    `    <h2>${escapeHtml(title)}</h2>`,
+    body ? `    <p>${escapeHtml(body)}</p>` : "",
+    "    <ol>",
+    items,
+    "    </ol>",
+    "  </section>",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 function seoDateHtml(value: unknown): string {
   const iso = isoDate(value);
   return `<time datetime="${escapeHtml(iso)}">${escapeHtml(iso.slice(0, 10))}</time>`;
@@ -1102,6 +1216,7 @@ function seoThreadBlock(
     authorUsername: unknown;
     createdAt: unknown;
     updatedAt: unknown;
+    reviewedAt?: unknown;
     views: unknown;
     replyCount: unknown;
     content: unknown;
@@ -1140,6 +1255,7 @@ function seoThreadBlock(
     .filter(Boolean)
     .join("\n");
   const relatedThread = thread.relatedThread;
+  const reviewedAt = thread.reviewedAt ? isoDate(thread.reviewedAt) : "";
   const relatedHtml = relatedThread
     ? [
         '    <aside class="seo-content__related" aria-label="Related topic">',
@@ -1160,6 +1276,7 @@ function seoThreadBlock(
     `        <span>by <a href="${escapeHtml(authorPath)}">${escapeHtml(authorName)}</a></span>`,
     `        <span>published ${seoDateHtml(thread.createdAt)}</span>`,
     `        <span>updated ${seoDateHtml(thread.updatedAt)}</span>`,
+    reviewedAt ? `        <span>last reviewed ${seoDateHtml(reviewedAt)}</span>` : "",
     `        <span>${escapeHtml(Number(thread.replyCount ?? 0))} replies</span>`,
     `        <span>${escapeHtml(Number(thread.views ?? 0))} views</span>`,
     "      </div>",
@@ -1285,6 +1402,7 @@ async function threadPayload(c: AppContext, base: string, id: string, anchors: S
     .bind(id, numericId(id), id)
     .first<Record<string, unknown>>();
   if (!thread) return null;
+  const reviewedAt = reviewedAtForThreadRow(thread);
 
   const [tagRows, replyRows, relatedThread] = await Promise.all([
     c.env.DB.prepare(
@@ -1408,6 +1526,7 @@ async function threadPayload(c: AppContext, base: string, id: string, anchors: S
         authorUsername: thread.authorUsername,
         createdAt: thread.createdAt,
         updatedAt: newestIsoDate(thread.updatedAt, thread.lastPostAt, thread.createdAt),
+        reviewedAt,
         views: thread.views,
         replyCount: thread.replyCount,
         content: thread.content,
@@ -1439,11 +1558,30 @@ async function categoryPayload(c: AppContext, base: string, id: string, anchors:
   const total = await c.env.DB.prepare("SELECT COUNT(*) AS total FROM threads WHERE category_id = ?")
     .bind(Number(category.id))
     .first<{ total: number }>();
+  const bestThreads = await loadBestCategoryDiscussions(c, Number(category.id));
   const threads = rows.results ?? [];
   const name = String(category.name);
   const description = cleanText(category.description, 160) || `${name} discussions and threads on ${SITE_NAME}.`;
   const path = `/c/${category.publicId}`;
   const items = threads.map((thread) => ({ name: String(thread.title), path: `/t/${thread.publicId}` }));
+  const contentHtml = appendSeoSection(
+    seoBlock(
+      name,
+      description,
+      threads.map((thread) => ({
+        title: String(thread.title),
+        path: `/t/${thread.publicId}`,
+        text: cleanText(thread.content, 140),
+      })),
+      { anchors, currentPath: path },
+    ),
+    seoBestDiscussionsSection(
+      `Best discussions in ${name}`,
+      `High-signal ${name} discussions selected from replies, views and recent activity.`,
+      bestThreads,
+      { anchors, currentPath: path },
+    ),
+  );
   return {
     title: `${name} — ${SITE_NAME}`,
     description,
@@ -1465,16 +1603,7 @@ async function categoryPayload(c: AppContext, base: string, id: string, anchors:
       },
       itemListSchema(base, items),
     ],
-    contentHtml: seoBlock(
-      name,
-      description,
-      threads.map((thread) => ({
-        title: String(thread.title),
-        path: `/t/${thread.publicId}`,
-        text: cleanText(thread.content, 140),
-      })),
-      { anchors, currentPath: path },
-    ),
+    contentHtml,
   };
 }
 
@@ -1680,10 +1809,29 @@ async function tagPayload(c: AppContext, base: string, slug: string, anchors: Se
   const total = await c.env.DB.prepare("SELECT COUNT(*) AS total FROM thread_tags WHERE tag_id = ?")
     .bind(Number(tag.id))
     .first<{ total: number }>();
+  const bestThreads = await loadBestTagDiscussions(c, Number(tag.id));
   const threads = rows.results ?? [];
   const name = String(tag.name);
   const path = `/tag/${encodeURIComponent(String(tag.slug))}`;
   const description = `Discussions tagged ${name} on ${SITE_NAME}. Browse ${Number(total?.total ?? threads.length)} related threads.`;
+  const contentHtml = appendSeoSection(
+    seoBlock(
+      `#${name}`,
+      description,
+      threads.map((thread) => ({
+        title: String(thread.title),
+        path: `/t/${thread.publicId}`,
+        text: cleanText(thread.content, 140),
+      })),
+      { anchors, currentPath: path },
+    ),
+    seoBestDiscussionsSection(
+      `Best discussions tagged ${name}`,
+      `High-signal #${name} discussions selected from replies, views and recent activity.`,
+      bestThreads,
+      { anchors, currentPath: path },
+    ),
+  );
   return {
     title: `#${name} — ${SITE_NAME}`,
     description,
@@ -1708,16 +1856,7 @@ async function tagPayload(c: AppContext, base: string, slug: string, anchors: Se
         threads.map((thread) => ({ name: String(thread.title), path: `/t/${thread.publicId}` })),
       ),
     ],
-    contentHtml: seoBlock(
-      `#${name}`,
-      description,
-      threads.map((thread) => ({
-        title: String(thread.title),
-        path: `/t/${thread.publicId}`,
-        text: cleanText(thread.content, 140),
-      })),
-      { anchors, currentPath: path },
-    ),
+    contentHtml,
   };
 }
 
