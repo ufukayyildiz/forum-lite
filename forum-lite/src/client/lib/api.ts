@@ -206,6 +206,8 @@ export type Post = {
 export type Tag = { id: number; name: string; slug: string; threadCount: number };
 export type AdsConfig = {
   enabled: boolean;
+  disableAdsenseForAdmins?: boolean;
+  adsenseSuppressedForAdmin?: boolean;
   postInterval: number;
   adsenseClient: string;
   adsenseSlot: string;

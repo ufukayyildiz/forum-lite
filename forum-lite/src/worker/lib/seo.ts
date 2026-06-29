@@ -434,6 +434,7 @@ async function loadAdsConfigApi(c: AppContext) {
   const desktopHtml = settings["ad_desktop_html"] || settings["ad_thread_html"] || "";
   const mobileHtml = settings["ad_mobile_html"] || desktopHtml;
   const sidebarHtml = settings["ad_sidebar_html"] || "";
+  const disableAdsenseForAdmins = settings["ads_disable_adsense_for_admins"] !== "false";
   const postInterval = interval("ads_post_interval", 3);
   const desktopIntervals = {
     post: postInterval,
@@ -450,6 +451,8 @@ async function loadAdsConfigApi(c: AppContext) {
 
   return {
     enabled: settings["ads_enabled"] === "true",
+    disableAdsenseForAdmins,
+    adsenseSuppressedForAdmin: false,
     postInterval,
     adsenseClient: "",
     adsenseSlot: "",

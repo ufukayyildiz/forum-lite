@@ -5,6 +5,7 @@ import { api } from "../../lib/api";
 
 const DEFAULTS: Record<string, string> = {
   ads_enabled: "false",
+  ads_disable_adsense_for_admins: "true",
   ads_post_interval: "3",
   ads_topic_interval: "7",
   ads_user_interval: "7",
@@ -23,6 +24,13 @@ const AD_SETTING_KEYS = Object.keys(DEFAULTS);
 
 const ROWS = [
   { key: "ads_enabled", label: "--ads-enabled", placeholder: "true" },
+  {
+    key: "ads_disable_adsense_for_admins",
+    label: "--disable-adsense-for-admins",
+    placeholder: "true",
+    type: "boolean",
+    hint: "true = admin sees only in-house fallback ads",
+  },
 ];
 
 const INTERVAL_ROWS = [
@@ -80,13 +88,25 @@ export default function AdminAds() {
                   <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>{i + 1}</td>
                   <td style={{ fontSize: 12, color: "var(--gb-gray)", whiteSpace: "nowrap", paddingRight: 16 }}>{row.label}</td>
                   <td>
-                    <input
-                      className="gb-input"
-                      value={form[row.key] ?? ""}
-                      onChange={(e) => setForm((f) => ({ ...f, [row.key]: e.target.value }))}
-                      placeholder={row.placeholder}
-                      style={{ width: "100%", maxWidth: 320 }}
-                    />
+                    {row.type === "boolean" ? (
+                      <label style={{ display: "inline-flex", alignItems: "center", gap: 8, color: "var(--gb-fg)", fontSize: 12 }}>
+                        <input
+                          type="checkbox"
+                          checked={(form[row.key] ?? "false") === "true"}
+                          onChange={(e) => setForm((f) => ({ ...f, [row.key]: e.target.checked ? "true" : "false" }))}
+                        />
+                        <span>{(form[row.key] ?? "false") === "true" ? "on" : "off"}</span>
+                        {row.hint && <span style={{ color: "var(--gb-gray)" }}>{row.hint}</span>}
+                      </label>
+                    ) : (
+                      <input
+                        className="gb-input"
+                        value={form[row.key] ?? ""}
+                        onChange={(e) => setForm((f) => ({ ...f, [row.key]: e.target.value }))}
+                        placeholder={row.placeholder}
+                        style={{ width: "100%", maxWidth: 320 }}
+                      />
+                    )}
                   </td>
                 </tr>
               ))}

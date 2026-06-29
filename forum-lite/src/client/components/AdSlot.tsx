@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import type { CSSProperties } from "react";
 import type { AdsConfig } from "../lib/api";
 import { activeAdHtml } from "../lib/ads";
+import { useMe } from "../lib/useAuth";
 
 declare global {
   interface Window {
@@ -81,7 +82,14 @@ export function AdSlot({
 }) {
   const htmlRef = useRef<HTMLDivElement>(null);
   const houseVariantRef = useRef<number | null>(null);
-  const html = activeAdHtml(config);
+  const { data: me } = useMe();
+  const adminRoute = typeof window !== "undefined" && window.location.pathname.startsWith("/admin");
+  const holdForAdminCheck = Boolean(config?.disableAdsenseForAdmins && !adminRoute && me === undefined);
+  const suppressAdsenseForAdmin = Boolean(
+    config?.disableAdsenseForAdmins &&
+    (adminRoute || me?.role === "admin" || config?.adsenseSuppressedForAdmin || holdForAdminCheck),
+  );
+  const html = suppressAdsenseForAdmin ? "" : activeAdHtml(config);
   const reservedHeight = Math.max(60, Math.min(MAX_AD_HEIGHT, Math.round(Number(height) || DEFAULT_AD_HEIGHT)));
 
   useEffect(() => {

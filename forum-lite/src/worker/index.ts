@@ -60,7 +60,7 @@ function publicApiCachePolicy(request: Request): PublicApiCachePolicy | null {
   if (request.method !== "GET") return null;
   const url = new URL(request.url);
   const path = url.pathname;
-  if (path === "/api/ads" || path === "/api/stats" || path === "/api/categories" || path === "/api/tags" || path === "/api/anchors") {
+  if (path === "/api/stats" || path === "/api/categories" || path === "/api/tags" || path === "/api/anchors") {
     return PUBLIC_API_STABLE_CACHE;
   }
   if (path === "/api/threads" || path === "/api/threads/recent" || path === "/api/threads/featured") {
@@ -185,7 +185,12 @@ app.use("/api/*", async (c, next) => {
   await next();
 });
 app.use("/api/*", async (c, next) => {
-  if (isLightApiPath(requestPath(c.req.url)) || isPublicReadApiRequest(c.req.raw)) {
+  const path = requestPath(c.req.url);
+  if (path === "/api/ads") {
+    await loadUser(c, next);
+    return;
+  }
+  if (isLightApiPath(path) || isPublicReadApiRequest(c.req.raw)) {
     c.set("user", null);
     await next();
     return;
@@ -434,7 +439,7 @@ async function loadSettings(env: Bindings): Promise<Record<string, string>> {
   return result;
 }
 
-function adsConfigFromSettings(settings: Record<string, string>) {
+function adsConfigFromSettings(settings: Record<string, string>, user?: { role?: string | null } | null) {
   const interval = (key: string, fallback: number) => {
     const value = Number(settings[key] || fallback);
     return Math.max(1, Math.min(50, Number.isFinite(value) ? value : fallback));
@@ -442,6 +447,11 @@ function adsConfigFromSettings(settings: Record<string, string>) {
   const desktopHtml = settings["ad_desktop_html"] || settings["ad_thread_html"] || "";
   const mobileHtml = settings["ad_mobile_html"] || desktopHtml;
   const sidebarHtml = settings["ad_sidebar_html"] || "";
+  const disableAdsenseForAdmins = settings["ads_disable_adsense_for_admins"] !== "false";
+  const adsenseSuppressedForAdmin = Boolean(disableAdsenseForAdmins && user?.role === "admin");
+  const effectiveDesktopHtml = adsenseSuppressedForAdmin ? "" : desktopHtml;
+  const effectiveMobileHtml = adsenseSuppressedForAdmin ? "" : mobileHtml;
+  const effectiveSidebarHtml = adsenseSuppressedForAdmin ? "" : sidebarHtml;
   const postInterval = interval("ads_post_interval", 3);
   const desktopIntervals = {
     post: postInterval,
@@ -457,22 +467,24 @@ function adsConfigFromSettings(settings: Record<string, string>) {
   };
   return {
     enabled: settings["ads_enabled"] === "true",
+    disableAdsenseForAdmins,
+    adsenseSuppressedForAdmin,
     postInterval,
     adsenseClient: "",
     adsenseSlot: "",
     adsenseFormat: "",
     fullWidthResponsive: true,
-    html: desktopHtml,
+    html: effectiveDesktopHtml,
     desktop: {
-      html: desktopHtml,
+      html: effectiveDesktopHtml,
       intervals: desktopIntervals,
     },
     mobile: {
-      html: mobileHtml,
+      html: effectiveMobileHtml,
       intervals: mobileIntervals,
     },
     sidebar: {
-      html: sidebarHtml,
+      html: effectiveSidebarHtml,
       width: 200,
       height: 200,
     },
@@ -480,10 +492,10 @@ function adsConfigFromSettings(settings: Record<string, string>) {
 }
 
 app.get("/api/ads", async (c) => {
-  c.header("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+  c.header("Cache-Control", "private, no-store");
   try {
     const settings = await withTimeout(loadSettings(c.env), ADS_SETTINGS_TIMEOUT_MS, {});
-    return c.json(adsConfigFromSettings(settings));
+    return c.json(adsConfigFromSettings(settings, c.get("user")));
   } catch (error) {
     const record = errorToRecord(error);
     c.executionCtx.waitUntil(recordErrorEvent(c.env.DB, {
@@ -496,7 +508,7 @@ app.get("/api/ads", async (c) => {
       stack: record.stack,
       metadata: { name: record.name },
     }));
-    return c.json(adsConfigFromSettings({}));
+    return c.json(adsConfigFromSettings({}, c.get("user")));
   }
 });
 
