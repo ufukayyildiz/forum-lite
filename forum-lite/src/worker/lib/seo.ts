@@ -579,6 +579,45 @@ function mapThreadApi(row: Record<string, unknown>) {
   };
 }
 
+async function loadRelatedThreadApi(c: AppContext, threadId: number, categoryId: number) {
+  const selectSql = `SELECT t.id, t.public_id AS publicId, t.title, t.slug, t.pinned, t.locked, t.featured,
+      t.views, t.reply_count AS replyCount, t.created_at AS createdAt, t.updated_at AS updatedAt, t.last_post_at AS lastPostAt,
+      c.id AS categoryId, c.public_id AS categoryPublicId, c.name AS categoryName, c.slug AS categorySlug, c.color AS categoryColor,
+      u.id AS authorId, u.public_id AS authorPublicId, u.username AS authorUsername, u.display_name AS authorDisplayName,
+      u.avatar_url AS authorAvatar, u.role AS authorRole`;
+
+  const tagged = await c.env.DB.prepare(
+    `${selectSql}, COUNT(tt.tag_id) AS matchCount
+     FROM thread_tags current_tags
+     INNER JOIN thread_tags tt ON tt.tag_id = current_tags.tag_id
+     INNER JOIN threads t ON t.id = tt.thread_id
+     INNER JOIN categories c ON c.id = t.category_id
+     INNER JOIN users u ON u.id = t.user_id
+     WHERE current_tags.thread_id = ? AND t.id <> ?
+     GROUP BY t.id
+     ORDER BY matchCount DESC, t.last_post_at DESC
+     LIMIT 1`,
+  )
+    .bind(threadId, threadId)
+    .first<Record<string, unknown>>();
+
+  if (tagged) return mapThreadApi(tagged);
+
+  const categoryFallback = await c.env.DB.prepare(
+    `${selectSql}
+     FROM threads t
+     INNER JOIN categories c ON c.id = t.category_id
+     INNER JOIN users u ON u.id = t.user_id
+     WHERE t.category_id = ? AND t.id <> ?
+     ORDER BY t.last_post_at DESC
+     LIMIT 1`,
+  )
+    .bind(categoryId, threadId)
+    .first<Record<string, unknown>>();
+
+  return categoryFallback ? mapThreadApi(categoryFallback) : null;
+}
+
 async function loadThreadsApi(c: AppContext, opts: { categoryId?: number; sort?: string; page?: number; all?: boolean } = {}) {
   const sort = opts.sort ?? "recent";
   const page = positivePage(opts.page);
@@ -636,15 +675,18 @@ async function loadThreadApi(c: AppContext, id: string) {
     .first<Record<string, unknown>>();
   if (!thread) return null;
 
-  const tagRows = await c.env.DB.prepare(
-    `SELECT tags.id, tags.name, tags.slug
-     FROM tags
-     INNER JOIN thread_tags tt ON tt.tag_id = tags.id
-     WHERE tt.thread_id = ?
-     ORDER BY tags.name`,
-  )
-    .bind(Number(thread.id))
-    .all<Record<string, unknown>>();
+  const [tagRows, relatedThread] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT tags.id, tags.name, tags.slug
+       FROM tags
+       INNER JOIN thread_tags tt ON tt.tag_id = tags.id
+       WHERE tt.thread_id = ?
+       ORDER BY tags.name`,
+    )
+      .bind(Number(thread.id))
+      .all<Record<string, unknown>>(),
+    loadRelatedThreadApi(c, Number(thread.id), Number(thread.categoryId)),
+  ]);
 
   const tags = (tagRows.results ?? []).map((tag) => ({
     id: Number(tag.id),
@@ -655,6 +697,7 @@ async function loadThreadApi(c: AppContext, id: string) {
     ...mapThreadApi(thread),
     content: String(thread.content ?? ""),
     tags,
+    relatedThread,
   };
 }
 
@@ -1064,6 +1107,7 @@ function seoThreadBlock(
     content: unknown;
     tags: Record<string, unknown>[];
     replies: Record<string, unknown>[];
+    relatedThread?: ReturnType<typeof mapThreadApi> | null;
   },
   options: { anchors?: SeoAnchorLink[]; currentPath?: string } = {},
 ): string {
@@ -1095,6 +1139,15 @@ function seoThreadBlock(
     })
     .filter(Boolean)
     .join("\n");
+  const relatedThread = thread.relatedThread;
+  const relatedHtml = relatedThread
+    ? [
+        '    <aside class="seo-content__related" aria-label="Related topic">',
+        "      <h2>Related topic</h2>",
+        `      <p><a href="${escapeHtml(apiThreadPath(relatedThread))}">${escapeHtml(relatedThread.title)}</a> <span>${escapeHtml(relatedThread.category.name)} · ${escapeHtml(relatedThread.replyCount)} replies · ${escapeHtml(relatedThread.views)} views</span></p>`,
+        "    </aside>",
+      ].join("\n")
+    : "";
 
   return [
     `<main id="seo-content" class="seo-content seo-content--thread" data-server-rendered="seo" data-count="${thread.replies.length + 1}" aria-labelledby="seo-content-title"${descriptionAttr}>`,
@@ -1122,6 +1175,7 @@ function seoThreadBlock(
           "    </section>",
         ].join("\n")
       : "",
+    relatedHtml,
     "  </article>",
     "</main>",
   ]
@@ -1232,7 +1286,7 @@ async function threadPayload(c: AppContext, base: string, id: string, anchors: S
     .first<Record<string, unknown>>();
   if (!thread) return null;
 
-  const [tagRows, replyRows] = await Promise.all([
+  const [tagRows, replyRows, relatedThread] = await Promise.all([
     c.env.DB.prepare(
       `SELECT tags.name, tags.slug
        FROM tags
@@ -1251,6 +1305,7 @@ async function threadPayload(c: AppContext, base: string, id: string, anchors: S
     )
       .bind(Number(thread.id))
       .all<Record<string, unknown>>(),
+    loadRelatedThreadApi(c, Number(thread.id), Number(thread.categoryId)),
   ]);
 
   const tags = tagRows.results ?? [];
@@ -1322,6 +1377,14 @@ async function threadPayload(c: AppContext, base: string, id: string, anchors: S
       comment: comments.length ? comments : undefined,
     },
   ];
+  const discussionPosting = schemas[1];
+  if (relatedThread) {
+    discussionPosting.isRelatedTo = {
+      "@type": "DiscussionForumPosting",
+      headline: relatedThread.title,
+      url: absoluteUrl(base, apiThreadPath(relatedThread)),
+    };
+  }
   return {
     title: `${title} — ${SITE_NAME}`,
     description,
@@ -1350,6 +1413,7 @@ async function threadPayload(c: AppContext, base: string, id: string, anchors: S
         content: thread.content,
         tags,
         replies,
+        relatedThread,
       },
       { anchors, currentPath: path },
     ),

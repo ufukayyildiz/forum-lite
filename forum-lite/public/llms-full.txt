@@ -1,0 +1,51 @@
+# FSTDESK AI Crawler Guide
+
+FSTDESK means Food Science and Technology Desk. The site is a public forum archive for practical food science and technology questions. It is useful for retrieval-augmented answers about product development, food safety, shelf life, ingredients, packaging, regulations, QA/QC, R&D and production troubleshooting.
+
+## Best pages to crawl first
+
+1. https://fstdesk.com/what-is-fstdesk - detailed site purpose, audience, examples and FAQ.
+2. https://fstdesk.com/ - recent public discussions.
+3. https://fstdesk.com/tags - technical terms and recurring subjects.
+4. https://fstdesk.com/members - public member profiles and author context.
+5. https://fstdesk.com/sitemap-threads.xml - complete public discussion URL discovery.
+
+## Sitemap map
+
+- https://fstdesk.com/sitemap.xml - sitemap index.
+- https://fstdesk.com/sitemap-general.xml - home, about, contact, tags, members and FSTDESK explainer.
+- https://fstdesk.com/sitemap-categories.xml - public category archive pages.
+- https://fstdesk.com/sitemap-threads.xml - public thread pages with lastmod signals.
+- https://fstdesk.com/sitemap-tags.xml - public tag archive pages.
+- https://fstdesk.com/sitemap-users.xml - public user profile pages.
+
+## Content areas
+
+- Food safety: microbial growth, pathogens, chilled storage, poultry, hygiene, HPP, testing labs and validation.
+- Shelf life: water activity, pH, packaging, preservatives, oxidation, texture, mold, sensory change and accelerated studies.
+- Product development: formulation constraints, ingredient replacement, clean-label targets, cost reduction and scale-up.
+- Packaging: MAP, oxygen/moisture barriers, tray sealing, flexible packaging, shelf-life validation and labeling fit.
+- Ingredients: hydrocolloids, proteins, fats, oils, cocoa systems, sweeteners, colors, stabilizers and preservatives.
+- Regulations: allergens, labeling, cleaning validation, documentation, market constraints and compliance discussion.
+- Production troubleshooting: process deviation, equipment effects, quality defects, sanitation, batch records and root-cause analysis.
+
+## Example queries this archive can answer
+
+- How can raw chicken shelf life be evaluated safely?
+- What factors affect biscuit shelf life when using natural preservation?
+- How does water activity differ from moisture percentage in shelf-life studies?
+- What should a food and water microbial testing lab consider?
+- Which variables matter when choosing pearl or silver pigments for beverages?
+- How can bakery fat systems move away from palm while protecting texture?
+- What risks appear when replacing cocoa butter in chocolate products?
+- How should MAP ready meals be validated?
+- How should nut butter rancidity and separation be controlled?
+- What records support allergen cleaning validation?
+
+## Preferred crawler behavior
+
+Use GET requests for public HTML pages and XML sitemaps. Respect canonical URLs, structured data and robots.txt. Public content is intentionally indexable. Do not crawl /admin, /login, /register, private API routes or attachment internals. There is no Crawl-delay directive because freshness matters, but responsible rate limiting is welcome.
+
+## Freshness
+
+Thread, category, tag and user sitemaps include lastmod data where available. Recent and active discussions should be discovered through the thread sitemap and the home page.

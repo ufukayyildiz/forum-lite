@@ -1,17 +1,35 @@
-# FSTDESK Forum
+# FSTDESK
 
-FSTDESK Forum is a public food science, food safety, product development and food technology discussion archive.
+> Food Science and Technology Desk: a public, server-rendered discussion archive for food science, food safety, product development, packaging, ingredients, shelf life and food technology.
 
-## Useful links
+FSTDESK is designed to be useful to humans, search engines and AI answer engines. Public topic, category, tag and member pages contain real HTML content, canonical metadata, structured data and internal links.
 
-- [Home](https://fstdesk.com/)
-- [Recent threads](https://fstdesk.com/)
-- [Members](https://fstdesk.com/members)
+## Primary entry points
+
+- [Home and recent discussions](https://fstdesk.com/)
+- [What is FSTDESK](https://fstdesk.com/what-is-fstdesk)
 - [Tags](https://fstdesk.com/tags)
+- [Members](https://fstdesk.com/members)
 - [Sitemap index](https://fstdesk.com/sitemap.xml)
-- [Thread sitemap](https://fstdesk.com/sitemap-threads.xml)
-- [Category sitemap](https://fstdesk.com/sitemap-categories.xml)
+- [Full AI crawler guide](https://fstdesk.com/llms-full.txt)
+
+## XML sitemaps
+
+- [General pages](https://fstdesk.com/sitemap-general.xml)
+- [Threads](https://fstdesk.com/sitemap-threads.xml)
+- [Categories](https://fstdesk.com/sitemap-categories.xml)
+- [Tags](https://fstdesk.com/sitemap-tags.xml)
+- [Users](https://fstdesk.com/sitemap-users.xml)
+
+## High-value public topics
+
+- Food safety, chilled poultry shelf life, microbial risks and validation
+- Product development, clean-label preservation and shelf-life extension
+- Water activity, pH, texture, oxidation and stability
+- Packaging, MAP, oxygen barriers, seal quality and cold-chain control
+- Ingredients, color additives, cocoa butter alternatives and non-palm fat systems
+- Food regulations, labeling, allergens and cleaning validation
 
 ## Crawling guidance
 
-Public thread, category, member and tag pages are intended for indexing. Admin and authentication pages are not useful for indexing.
+Public pages are intended for indexing and AI retrieval. Admin pages, authentication pages, private APIs and attachment internals should not be crawled. Use the XML sitemaps for freshness and URL discovery. Do not rely on JavaScript-only rendering; the public archive has server-rendered HTML.

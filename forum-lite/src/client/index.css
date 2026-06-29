@@ -989,6 +989,47 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
   margin: 0;
 }
 
+.gb-related-topic-strip {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 7px 10px;
+  border: 1px solid var(--gb-bg2);
+  background: color-mix(in srgb, var(--gb-bg1) 78%, transparent);
+  font-size: 12px;
+  min-width: 0;
+}
+.gb-related-topic-strip:hover {
+  border-color: color-mix(in srgb, var(--gb-yellow) 58%, var(--gb-bg2));
+  background: color-mix(in srgb, var(--gb-bg1) 86%, var(--gb-yellow) 4%);
+}
+.gb-related-topic-label {
+  color: var(--gb-yellow);
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.gb-related-topic-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--gb-fg);
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gb-related-topic-title:hover {
+  color: var(--gb-green);
+}
+.gb-related-topic-meta {
+  color: var(--gb-gray);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Column helpers */
 .gb-col-name {
   display: inline-flex;
@@ -2521,6 +2562,16 @@ textarea.gb-input {
   }
   .gb-post-content {
     padding-left: 0;
+  }
+  .gb-related-topic-strip {
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 5px 8px;
+    margin-top: 8px;
+    padding: 8px;
+  }
+  .gb-related-topic-meta {
+    grid-column: 2;
+    max-width: 100%;
   }
   .gb-thread-meta-bar {
     display: none !important;

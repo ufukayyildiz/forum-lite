@@ -63,6 +63,45 @@ function mapThread(t: any) {
   };
 }
 
+async function loadRelatedThread(env: AppEnv["Bindings"], threadId: number, categoryId: number) {
+  const selectSql = `SELECT t.id, t.public_id AS publicId, t.title, t.slug, t.pinned, t.locked, t.featured,
+      t.views, t.reply_count AS replyCount, t.created_at AS createdAt, t.updated_at AS updatedAt, t.last_post_at AS lastPostAt,
+      c.id AS categoryId, c.name AS categoryName, c.slug AS categorySlug, c.public_id AS categoryPublicId, c.color AS categoryColor,
+      u.id AS authorId, u.public_id AS authorPublicId, u.username AS authorUsername, u.display_name AS authorDisplayName,
+      u.avatar_url AS authorAvatar`;
+
+  const tagged = await env.DB.prepare(
+    `${selectSql}, COUNT(tt.tag_id) AS matchCount
+     FROM thread_tags current_tags
+     INNER JOIN thread_tags tt ON tt.tag_id = current_tags.tag_id
+     INNER JOIN threads t ON t.id = tt.thread_id
+     INNER JOIN categories c ON c.id = t.category_id
+     INNER JOIN users u ON u.id = t.user_id
+     WHERE current_tags.thread_id = ? AND t.id <> ?
+     GROUP BY t.id
+     ORDER BY matchCount DESC, t.last_post_at DESC
+     LIMIT 1`,
+  )
+    .bind(threadId, threadId)
+    .first<Record<string, unknown>>();
+
+  if (tagged) return mapThread(tagged);
+
+  const categoryFallback = await env.DB.prepare(
+    `${selectSql}
+     FROM threads t
+     INNER JOIN categories c ON c.id = t.category_id
+     INNER JOIN users u ON u.id = t.user_id
+     WHERE t.category_id = ? AND t.id <> ?
+     ORDER BY t.last_post_at DESC
+     LIMIT 1`,
+  )
+    .bind(categoryId, threadId)
+    .first<Record<string, unknown>>();
+
+  return categoryFallback ? mapThread(categoryFallback) : null;
+}
+
 function numericId(value: string): number | null {
   const n = Number(value);
   return Number.isInteger(n) && n > 0 ? n : null;
@@ -246,16 +285,20 @@ app.get("/:id", async (c) => {
 
   const thread = await db.query.threads.findFirst({ where: eq(schema.threads.id, t.id) });
 
-  const tagRows = await db
-    .select({ id: schema.tags.id, name: schema.tags.name, slug: schema.tags.slug })
-    .from(schema.tags)
-    .innerJoin(schema.threadTags, eq(schema.threadTags.tagId, schema.tags.id))
-    .where(eq(schema.threadTags.threadId, t.id));
+  const [tagRows, relatedThread] = await Promise.all([
+    db
+      .select({ id: schema.tags.id, name: schema.tags.name, slug: schema.tags.slug })
+      .from(schema.tags)
+      .innerJoin(schema.threadTags, eq(schema.threadTags.tagId, schema.tags.id))
+      .where(eq(schema.threadTags.threadId, t.id)),
+    loadRelatedThread(c.env, Number(t.id), Number(t.categoryId)),
+  ]);
 
   return c.json({
     ...mapThread(t),
     content: thread?.content ?? "",
     tags: tagRows,
+    relatedThread,
     author: {
       id: t.authorId,
       publicId: t.authorPublicId,

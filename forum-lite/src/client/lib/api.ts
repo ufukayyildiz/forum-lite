@@ -188,6 +188,7 @@ export type Thread = {
   category: { id: number; publicId: string; name: string; slug: string; color: string };
   author: { id: number; publicId?: string; username: string; displayName: string; avatarUrl: string | null; bio?: string | null; role?: string };
   tags?: { id: number; name: string; slug: string }[];
+  relatedThread?: Thread | null;
   internalLinks?: Array<{
     term: string;
     title: string;

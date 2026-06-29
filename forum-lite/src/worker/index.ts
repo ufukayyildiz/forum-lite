@@ -357,7 +357,17 @@ app.post("/api/analytics/duration", async (c) => {
 function shouldEnsureCoreSchema(path: string) {
   if (path.startsWith("/api/")) return false;
   if (path.startsWith("/assets/") || path.startsWith("/cdn-cgi/")) return false;
-  if (path === "/favicon.ico" || path === "/og-default.svg" || path === "/robots.txt") return false;
+  if (
+    path === "/favicon.ico" ||
+    path === "/og-default.svg" ||
+    path === "/robots.txt" ||
+    path === "/llms.txt" ||
+    path === "/llms-full.txt" ||
+    path === "/ads.txt" ||
+    path === "/sitemap.xml" ||
+    path === "/sitemap-index.xml" ||
+    path.startsWith("/sitemap-")
+  ) return false;
   if (/\.(?:css|js|map|png|jpg|jpeg|gif|svg|webp|ico)$/i.test(path)) return false;
   return true;
 }
@@ -429,6 +439,190 @@ function sitemapIndex(base: string): string {
     `<sitemap><loc>${xmlEscape(base + path)}</loc><lastmod>${today}</lastmod></sitemap>`,
   );
   return `<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${rows.join("\n")}\n</sitemapindex>`;
+}
+
+const PUBLIC_CRAWLER_ALLOW = [
+  "Allow: /",
+  "Allow: /llms.txt",
+  "Allow: /llms-full.txt",
+  "Allow: /sitemap.xml",
+  "Allow: /sitemap-general.xml",
+  "Allow: /sitemap-categories.xml",
+  "Allow: /sitemap-threads.xml",
+  "Allow: /sitemap-tags.xml",
+  "Allow: /sitemap-users.xml",
+  "Allow: /api/ads",
+  "Allow: /api/categories",
+  "Allow: /api/members",
+  "Allow: /api/stats",
+  "Allow: /api/tags",
+  "Allow: /api/threads",
+];
+
+const PRIVATE_CRAWLER_DISALLOW = [
+  "Disallow: /api/admin",
+  "Disallow: /api/attachments",
+  "Disallow: /api/auth",
+  "Disallow: /admin",
+  "Disallow: /admin/",
+  "Disallow: /login",
+  "Disallow: /register",
+  "Disallow: /new-thread",
+  "Disallow: /search",
+];
+
+const AI_CRAWLER_USER_AGENTS = [
+  "GPTBot",
+  "OAI-SearchBot",
+  "ChatGPT-User",
+  "ClaudeBot",
+  "Claude-SearchBot",
+  "Claude-User",
+  "Google-Extended",
+  "GoogleOther",
+  "Googlebot",
+  "Applebot",
+  "Applebot-Extended",
+  "Meta-ExternalAgent",
+  "Meta-ExternalFetcher",
+  "Amazonbot",
+  "PerplexityBot",
+  "Perplexity-User",
+  "YouBot",
+  "DuckAssistBot",
+  "MistralAI-User",
+  "cohere-ai",
+  "CCBot",
+];
+
+function robotGroup(userAgents: string[]): string[] {
+  return [
+    ...userAgents.map((agent) => `User-agent: ${agent}`),
+    ...PUBLIC_CRAWLER_ALLOW,
+    ...PRIVATE_CRAWLER_DISALLOW,
+  ];
+}
+
+function robotsTxt(base: string): string {
+  return [
+    "# FSTDESK public crawler policy",
+    "# Public forum pages are open for search and AI answer engines.",
+    "# Admin, auth and private API surfaces are intentionally blocked.",
+    "",
+    ...robotGroup(["*"]),
+    "",
+    "# Explicit AI crawler policy: OpenAI, Anthropic, Google/Gemini, Apple, Meta, Amazon, Perplexity, You.com, DuckDuckGo, Mistral, Cohere and Common Crawl may index public content.",
+    ...robotGroup(AI_CRAWLER_USER_AGENTS),
+    "",
+    `Sitemap: ${base}/sitemap.xml`,
+    `Sitemap: ${base}/sitemap-general.xml`,
+    `Sitemap: ${base}/sitemap-categories.xml`,
+    `Sitemap: ${base}/sitemap-threads.xml`,
+    `Sitemap: ${base}/sitemap-tags.xml`,
+    `Sitemap: ${base}/sitemap-users.xml`,
+    "",
+    `# LLM content guide: ${base}/llms.txt`,
+    `# Full LLM content guide: ${base}/llms-full.txt`,
+    "",
+  ].join("\n");
+}
+
+function llmsTxt(base: string): string {
+  return [
+    "# FSTDESK",
+    "",
+    "> Food Science and Technology Desk: a public, server-rendered discussion archive for food science, food safety, product development, packaging, ingredients, shelf life and food technology.",
+    "",
+    "FSTDESK is designed to be useful to humans, search engines and AI answer engines. Public topic, category, tag and member pages contain real HTML content, canonical metadata, structured data and internal links.",
+    "",
+    "## Primary entry points",
+    "",
+    `- [Home and recent discussions](${base}/)`,
+    `- [What is FSTDESK](${base}/what-is-fstdesk)`,
+    `- [Tags](${base}/tags)`,
+    `- [Members](${base}/members)`,
+    `- [Sitemap index](${base}/sitemap.xml)`,
+    `- [Full AI crawler guide](${base}/llms-full.txt)`,
+    "",
+    "## XML sitemaps",
+    "",
+    `- [General pages](${base}/sitemap-general.xml)`,
+    `- [Threads](${base}/sitemap-threads.xml)`,
+    `- [Categories](${base}/sitemap-categories.xml)`,
+    `- [Tags](${base}/sitemap-tags.xml)`,
+    `- [Users](${base}/sitemap-users.xml)`,
+    "",
+    "## High-value public topics",
+    "",
+    "- Food safety, chilled poultry shelf life, microbial risks and validation",
+    "- Product development, clean-label preservation and shelf-life extension",
+    "- Water activity, pH, texture, oxidation and stability",
+    "- Packaging, MAP, oxygen barriers, seal quality and cold-chain control",
+    "- Ingredients, color additives, cocoa butter alternatives and non-palm fat systems",
+    "- Food regulations, labeling, allergens and cleaning validation",
+    "",
+    "## Crawling guidance",
+    "",
+    "Public pages are intended for indexing and AI retrieval. Admin pages, authentication pages, private APIs and attachment internals should not be crawled. Use the XML sitemaps for freshness and URL discovery. Do not rely on JavaScript-only rendering; the public archive has server-rendered HTML.",
+    "",
+  ].join("\n");
+}
+
+function llmsFullTxt(base: string): string {
+  return [
+    "# FSTDESK AI Crawler Guide",
+    "",
+    "FSTDESK means Food Science and Technology Desk. The site is a public forum archive for practical food science and technology questions. It is useful for retrieval-augmented answers about product development, food safety, shelf life, ingredients, packaging, regulations, QA/QC, R&D and production troubleshooting.",
+    "",
+    "## Best pages to crawl first",
+    "",
+    `1. ${base}/what-is-fstdesk - detailed site purpose, audience, examples and FAQ.`,
+    `2. ${base}/ - recent public discussions.`,
+    `3. ${base}/tags - technical terms and recurring subjects.`,
+    `4. ${base}/members - public member profiles and author context.`,
+    `5. ${base}/sitemap-threads.xml - complete public discussion URL discovery.`,
+    "",
+    "## Sitemap map",
+    "",
+    `- ${base}/sitemap.xml - sitemap index.`,
+    `- ${base}/sitemap-general.xml - home, about, contact, tags, members and FSTDESK explainer.`,
+    `- ${base}/sitemap-categories.xml - public category archive pages.`,
+    `- ${base}/sitemap-threads.xml - public thread pages with lastmod signals.`,
+    `- ${base}/sitemap-tags.xml - public tag archive pages.`,
+    `- ${base}/sitemap-users.xml - public user profile pages.`,
+    "",
+    "## Content areas",
+    "",
+    "- Food safety: microbial growth, pathogens, chilled storage, poultry, hygiene, HPP, testing labs and validation.",
+    "- Shelf life: water activity, pH, packaging, preservatives, oxidation, texture, mold, sensory change and accelerated studies.",
+    "- Product development: formulation constraints, ingredient replacement, clean-label targets, cost reduction and scale-up.",
+    "- Packaging: MAP, oxygen/moisture barriers, tray sealing, flexible packaging, shelf-life validation and labeling fit.",
+    "- Ingredients: hydrocolloids, proteins, fats, oils, cocoa systems, sweeteners, colors, stabilizers and preservatives.",
+    "- Regulations: allergens, labeling, cleaning validation, documentation, market constraints and compliance discussion.",
+    "- Production troubleshooting: process deviation, equipment effects, quality defects, sanitation, batch records and root-cause analysis.",
+    "",
+    "## Example queries this archive can answer",
+    "",
+    "- How can raw chicken shelf life be evaluated safely?",
+    "- What factors affect biscuit shelf life when using natural preservation?",
+    "- How does water activity differ from moisture percentage in shelf-life studies?",
+    "- What should a food and water microbial testing lab consider?",
+    "- Which variables matter when choosing pearl or silver pigments for beverages?",
+    "- How can bakery fat systems move away from palm while protecting texture?",
+    "- What risks appear when replacing cocoa butter in chocolate products?",
+    "- How should MAP ready meals be validated?",
+    "- How should nut butter rancidity and separation be controlled?",
+    "- What records support allergen cleaning validation?",
+    "",
+    "## Preferred crawler behavior",
+    "",
+    "Use GET requests for public HTML pages and XML sitemaps. Respect canonical URLs, structured data and robots.txt. Public content is intentionally indexable. Do not crawl /admin, /login, /register, private API routes or attachment internals. There is no Crawl-delay directive because freshness matters, but responsible rate limiting is welcome.",
+    "",
+    "## Freshness",
+    "",
+    "Thread, category, tag and user sitemaps include lastmod data where available. Recent and active discussions should be discovered through the thread sitemap and the home page.",
+    "",
+  ].join("\n");
 }
 
 async function loadSettings(env: Bindings): Promise<Record<string, string>> {
@@ -514,28 +708,17 @@ app.get("/api/ads", async (c) => {
 
 app.get("/robots.txt", (c) => {
   const base = originFromRequest(c.req.url);
-  return c.text(
-    [
-      "User-agent: *",
-      "Allow: /",
-      "Allow: /api/ads",
-      "Allow: /api/categories",
-      "Allow: /api/members",
-      "Allow: /api/stats",
-      "Allow: /api/tags",
-      "Allow: /api/threads",
-      "Disallow: /api/admin",
-      "Disallow: /api/attachments",
-      "Disallow: /api/auth",
-      "Disallow: /admin",
-      "Disallow: /admin/",
-      "",
-      `Sitemap: ${base}/sitemap.xml`,
-      "",
-    ].join("\n"),
-    200,
-    { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=3600" },
-  );
+  return c.text(robotsTxt(base), 200, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=3600" });
+});
+
+app.get("/llms.txt", (c) => {
+  const base = originFromRequest(c.req.url);
+  return c.text(llmsTxt(base), 200, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=3600" });
+});
+
+app.get("/llms-full.txt", (c) => {
+  const base = originFromRequest(c.req.url);
+  return c.text(llmsFullTxt(base), 200, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "public, max-age=3600" });
 });
 
 app.get("/sitemap.xml", async (c) => {

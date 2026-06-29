@@ -10,6 +10,7 @@ import { GbToolbar } from "../components/layout/Header";
 import { SEOHead } from "../components/SEOHead";
 import { AdSlot } from "../components/AdSlot";
 import { MarkdownContent } from "../components/MarkdownContent";
+import { ThreadLink } from "../components/ThreadLink";
 import { categoryPath, threadPath } from "../lib/routes";
 import { activeAdInterval } from "../lib/ads";
 import { normalizeQuoteFirstMarkdown } from "../lib/sanitize";
@@ -255,6 +256,20 @@ function PostItem({ post, threadId, onQuote, anchors, currentPath }: {
   );
 }
 
+function RelatedTopicStrip({ thread }: { thread: Thread }) {
+  return (
+    <section className="gb-related-topic-strip" aria-label="Related topic">
+      <span className="gb-related-topic-label">related topic</span>
+      <ThreadLink thread={thread} className="gb-related-topic-title">
+        {thread.title}
+      </ThreadLink>
+      <span className="gb-related-topic-meta">
+        {thread.category.name} · {thread.replyCount} replies · {thread.views} views
+      </span>
+    </section>
+  );
+}
+
 export default function ThreadPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -382,6 +397,7 @@ export default function ThreadPage() {
 
   const currentThreadPath = threadPath(thread);
   const currentCategoryPath = categoryPath(thread.category);
+  const relatedThreadPath = thread.relatedThread ? threadPath(thread.relatedThread) : "";
   const threadUrl = `${origin}${currentThreadPath}`;
   const threadDesc = (thread.content ?? "").replace(/[#*`>_]/g, "").slice(0, 160).trim();
   const threadEdited = isMeaningfullyEdited(thread.createdAt, thread.updatedAt) ? thread.updatedAt : null;
@@ -434,6 +450,13 @@ export default function ThreadPage() {
             name: thread.author.displayName,
             url: `${origin}/u/${thread.author.username}`,
           },
+          ...(thread.relatedThread ? {
+            isRelatedTo: {
+              "@type": "DiscussionForumPosting",
+              headline: thread.relatedThread.title,
+              url: `${origin}${relatedThreadPath}`,
+            },
+          } : {}),
           isPartOf: {
             "@type": "WebPage",
             "@id": `${origin}${currentCategoryPath}`,
@@ -668,6 +691,8 @@ export default function ThreadPage() {
             <Link to="/login" style={{ color: "var(--gb-yellow)" }}>$ login</Link> or <Link to="/register" style={{ color: "var(--gb-yellow)" }}>$ register</Link> to reply
           </div>
         )}
+
+        {thread.relatedThread && <RelatedTopicStrip thread={thread.relatedThread} />}
       </div>
     </>
   );
