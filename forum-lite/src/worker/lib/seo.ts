@@ -92,6 +92,8 @@ const CAT_COLORS = ["#b8bb26", "#83a598", "#fabd2f", "#d3869b", "#8ec07c", "#fe8
 const MAX_SEO_ANCHOR_TERMS = 80;
 const MAX_SEO_ANCHOR_TARGETS_PER_TERM = 20;
 const MAX_SEO_ANCHORS_PER_BLOCK = 16;
+const MEMBERS_SEO_LIMIT = 120;
+const MEMBERS_BOOTSTRAP_PAGE_SIZE = 200;
 
 function cleanText(input: unknown, max = 160): string {
   const text = String(input ?? "")
@@ -661,7 +663,9 @@ async function loadPostsApi(c: AppContext, threadId: number, opts: { page?: numb
   };
 }
 
-async function loadMembersApi(c: AppContext, sort = "posts") {
+async function loadMembersApi(c: AppContext, sort = "posts", page = 1, perPage = MEMBERS_BOOTSTRAP_PAGE_SIZE) {
+  const safePage = Math.max(1, Math.floor(page));
+  const safePerPage = Math.max(1, Math.min(200, Math.floor(perPage)));
   const orderBy =
     sort === "newest"
       ? "ORDER BY created_at DESC"
@@ -673,8 +677,9 @@ async function loadMembersApi(c: AppContext, sort = "posts") {
     `SELECT id, public_id AS publicId, username, display_name AS displayName, avatar_url AS avatarUrl, bio, role,
       banned, post_count AS postCount, thread_count AS threadCount, created_at AS createdAt
      FROM users
-     ${orderBy}`,
-  ).all<Record<string, unknown>>();
+     ${orderBy}
+     LIMIT ? OFFSET ?`,
+  ).bind(safePerPage, (safePage - 1) * safePerPage).all<Record<string, unknown>>();
 
   return {
     members: (rows.results ?? []).map((user) => ({
@@ -691,8 +696,8 @@ async function loadMembersApi(c: AppContext, sort = "posts") {
       createdAt: apiDate(user.createdAt),
     })),
     total: Number(total?.total ?? 0),
-    page: 1,
-    perPage: Math.max(Number(total?.total ?? 0), 1),
+    page: safePage,
+    perPage: safePerPage,
   };
 }
 
@@ -1370,12 +1375,18 @@ async function membersPayload(c: AppContext, base: string, anchors: SeoAnchorLin
   const rows = await c.env.DB.prepare(
     `SELECT username, display_name AS displayName, bio, post_count AS postCount, thread_count AS threadCount
      FROM users
-     ORDER BY post_count DESC, id DESC`,
-  ).all<Record<string, unknown>>();
+     ORDER BY post_count DESC, id DESC
+     LIMIT ?`,
+  ).bind(MEMBERS_SEO_LIMIT).all<Record<string, unknown>>();
   const total = await c.env.DB.prepare("SELECT COUNT(*) AS total FROM users").first<{ total: number }>();
   const users = rows.results ?? [];
   const description = `Browse ${SITE_NAME} members, authors, moderators and food technology contributors on the ${SITE_TAGLINE}.`;
   const items = users.map((user) => ({ name: String(user.displayName), path: `/u/${user.username}` }));
+  const totalUsers = Number(total?.total ?? users.length);
+  const listDescription =
+    totalUsers > users.length
+      ? `${description} Showing the top ${users.length} active public profiles from ${totalUsers.toLocaleString("en-US")} members.`
+      : description;
   return {
     title: `Members — ${SITE_NAME}`,
     description,
@@ -1392,13 +1403,13 @@ async function membersPayload(c: AppContext, base: string, anchors: SeoAnchorLin
         url: `${base}/members`,
         description,
         inLanguage: CONTENT_LANGUAGE,
-        numberOfItems: Number(total?.total ?? users.length),
+        numberOfItems: totalUsers,
       },
       itemListSchema(base, items),
     ],
     contentHtml: seoBlock(
       `${SITE_NAME} Members`,
-      description,
+      listDescription,
       users.map((user) => ({
         title: `${user.displayName} (@${user.username})`,
         path: `/u/${user.username}`,
@@ -1874,8 +1885,11 @@ async function bootstrapForUrl(c: AppContext, url: URL): Promise<BootstrapBuild>
     }
   } else if (parts[0] === "members" && parts.length === 1) {
     const sort = url.searchParams.get("sort") ?? "posts";
-    const members = await loadMembersApi(c, sort);
-    queries.push({ key: ["members", sort, "all"], data: members });
+    const members = await loadMembersApi(c, sort, 1, MEMBERS_BOOTSTRAP_PAGE_SIZE);
+    queries.push({
+      key: ["members", sort, "pages"],
+      data: { pages: [members], pageParams: [1] },
+    });
   } else if (parts[0] === "tags" && parts.length === 1) {
     const tags = await loadTagsApi(c);
     queries.push({ key: ["tags"], data: tags });

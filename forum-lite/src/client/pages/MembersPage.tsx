@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useState } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
@@ -6,6 +6,7 @@ import { DAvatar } from "../components/DAvatar";
 import { GbToolbar } from "../components/layout/Header";
 import { SEOHead } from "../components/SEOHead";
 import { ListAdRow, shouldShowLeadListAd, shouldShowListAd } from "../components/ListAdRow";
+import { bootstrapQueryOptions, hasBootstrappedQueryData } from "../lib/bootstrap";
 
 const ROLE_LABEL: Record<string, string> = { admin: "[admin]", moderator: "[mod]" };
 const ROLE_COLOR: Record<string, string> = { admin: "var(--gb-red)", moderator: "var(--gb-blue)" };
@@ -14,6 +15,7 @@ const MEMBERS_PAGE_SIZE = 200;
 
 export default function MembersPage() {
   const [sort, setSort] = useState("posts");
+  const membersKey = ["members", sort, "pages"];
 
   const {
     data,
@@ -22,21 +24,16 @@ export default function MembersPage() {
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery({
-    queryKey: ["members", sort, "pages"],
+    queryKey: membersKey,
     queryFn: ({ pageParam }) => api.members({ sort, page: pageParam, perPage: MEMBERS_PAGE_SIZE }),
     initialPageParam: 1,
     getNextPageParam: (last) => (last.page * last.perPage < last.total ? last.page + 1 : undefined),
     staleTime: 60_000,
+    refetchOnMount: false,
+    enabled: !hasBootstrappedQueryData(membersKey),
+    ...bootstrapQueryOptions<any>(membersKey),
   });
   const { data: adsConfig } = useQuery({ queryKey: ["ads-config"], queryFn: api.adsConfig });
-
-  useEffect(() => {
-    if (!hasNextPage || isFetchingNextPage) return;
-    const id = window.setTimeout(() => {
-      void fetchNextPage();
-    }, 120);
-    return () => window.clearTimeout(id);
-  }, [fetchNextPage, hasNextPage, isFetchingNextPage, data?.pages.length]);
 
   const pages = data?.pages ?? [];
   const list = pages.flatMap((page) => page.members);
@@ -143,6 +140,16 @@ export default function MembersPage() {
                 <tr>
                   <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16 }}>~</td>
                   <td colSpan={5} style={{ color: "var(--gb-gray)" }}>loading more...</td>
+                </tr>
+              )}
+              {hasNextPage && !isFetchingNextPage && (
+                <tr>
+                  <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16 }}>+</td>
+                  <td colSpan={5}>
+                    <button className="gb-btn" type="button" onClick={() => void fetchNextPage()}>
+                      $ load more members
+                    </button>
+                  </td>
                 </tr>
               )}
             </tbody>

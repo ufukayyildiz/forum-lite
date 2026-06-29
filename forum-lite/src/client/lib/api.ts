@@ -604,7 +604,7 @@ export const api = {
     );
   },
   adminAddEmailSuppression: (email: string, reason = "manual_admin_suppression") =>
-    post<{ ok: boolean; email: string }>("/admin/email-suppressions", { email, reason }),
+    post<{ ok: boolean; email: string; status?: "already_added" }>("/admin/email-suppressions", { email, reason }),
   adminImportEmailSuppressions: (text: string, reason = "csv_import_suppression") =>
     post<AdminEmailSuppressionImportResult>("/admin/email-suppressions/import", { text, reason }),
   adminRemoveEmailSuppression: (email: string) =>

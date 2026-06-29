@@ -9,6 +9,7 @@ import { SEOHead } from "../components/SEOHead";
 import { threadPath } from "../lib/routes";
 import { ListAdRow, shouldShowLeadListAd, shouldShowListAd } from "../components/ListAdRow";
 import { PaginationControls } from "../components/PaginationControls";
+import { bootstrapQueryOptions, hasBootstrappedQueryData } from "../lib/bootstrap";
 
 const THREAD_ROWS = 15;
 
@@ -17,10 +18,14 @@ export default function HomePage() {
   const [page, setPage] = useState(1);
   const { data: me } = useMe();
 
+  const threadsKey = ["threads", "all", sort, "page", page];
   const { data: threads, isLoading: tLoading } = useQuery({
-    queryKey: ["threads", "all", sort, "page", page],
+    queryKey: threadsKey,
     queryFn: () => api.threads({ sort, page }),
     placeholderData: (previous) => previous,
+    refetchOnMount: false,
+    enabled: !hasBootstrappedQueryData(threadsKey),
+    ...bootstrapQueryOptions<any>(threadsKey),
   });
   const { data: adsConfig } = useQuery({ queryKey: ["ads-config"], queryFn: api.adsConfig });
 

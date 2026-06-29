@@ -282,11 +282,13 @@ export default function ThreadPage() {
     queryFn: () => api.thread(id!),
     enabled: !!id,
     placeholderData: () => cachedPreview,
+    refetchOnMount: false,
   });
   const { data: postsData, isLoading: pLoading } = useQuery({
     queryKey: ["posts", thread?.id, "all"],
     queryFn: () => api.posts(thread!.id, { all: 1 }),
     enabled: !!thread?.id,
+    refetchOnMount: false,
   });
   const { data: adsConfig } = useQuery({
     queryKey: ["ads-config"],

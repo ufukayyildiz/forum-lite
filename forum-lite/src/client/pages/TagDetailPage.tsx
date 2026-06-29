@@ -19,6 +19,7 @@ export default function TagDetailPage() {
     queryFn: () => api.tagThreads(slug!, { sort, all: 1 }),
     enabled: !!slug,
     placeholderData: (previous) => previous,
+    refetchOnMount: false,
   });
   const { data: adsConfig } = useQuery({ queryKey: ["ads-config"], queryFn: api.adsConfig });
 

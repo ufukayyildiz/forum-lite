@@ -29,6 +29,52 @@ function failureDetail(row: Awaited<ReturnType<typeof listCloudflareDeliveryFail
   ].filter(Boolean).join(" | ").slice(0, 2000);
 }
 
+async function importCloudflareSuppressionList(
+  db: DB,
+  env: Bindings,
+): Promise<{ seen: Set<string>; cfSuppressions: number; localUpdates: number }> {
+  const seen = new Set<string>();
+  let cfSuppressions = 0;
+  let localUpdates = 0;
+  const suppressions = await listCloudflareSuppressions(env);
+  for (const row of suppressions) {
+    const email = String(row.email ?? "").trim().toLowerCase();
+    if (!email || seen.has(email)) continue;
+    seen.add(email);
+    cfSuppressions += 1;
+
+    const existing = await env.DB.prepare(
+      `SELECT email, COALESCE(cf_suppression_status, '') AS cfSuppressionStatus
+       FROM email_suppressions
+       WHERE LOWER(email) = ?
+       LIMIT 1`,
+    ).bind(email).first<{ email: string; cfSuppressionStatus: string | null }>();
+
+    if (existing) {
+      if (existing.cfSuppressionStatus !== "synced") {
+        await env.DB.prepare(
+          `UPDATE email_suppressions
+           SET cf_suppression_status = 'synced',
+               cf_suppressed_at = COALESCE(cf_suppressed_at, ?),
+               cf_suppression_error = NULL
+           WHERE LOWER(email) = ?`,
+        ).bind(Math.floor(Date.now() / 1000), email).run();
+        localUpdates += 1;
+      }
+      continue;
+    }
+
+    const recorded = await recordEmailSuppression(db, env, email, {
+      reason: row.reason || "cloudflare_suppression",
+      source: "cf_suppression_sync",
+      details: JSON.stringify(row).slice(0, 2000),
+      skipCloudflareSync: true,
+    });
+    if (recorded.created || recorded.updated) localUpdates += 1;
+  }
+  return { seen, cfSuppressions, localUpdates };
+}
+
 async function retryCloudflareSuppressionWrites(
   env: Bindings,
   opts: { includeAuthErrors?: boolean; limit?: number } = {},
@@ -109,20 +155,10 @@ export async function syncCloudflareEmailSuppressions(
     errors.push("CF_ACCOUNT_ID / CF_EMAIL_API_TOKEN missing in Worker secrets");
   } else {
     try {
-      const suppressions = await listCloudflareSuppressions(env);
-      for (const row of suppressions) {
-        const email = String(row.email ?? "").trim().toLowerCase();
-        if (!email || seen.has(email)) continue;
-        seen.add(email);
-        cfSuppressions += 1;
-        const recorded = await recordEmailSuppression(db, env, email, {
-          reason: row.reason || "cloudflare_suppression",
-          source: "cf_suppression_sync",
-          details: JSON.stringify(row).slice(0, 2000),
-          skipCloudflareSync: true,
-        });
-        if (recorded.created || recorded.updated) localUpdates += 1;
-      }
+      const imported = await importCloudflareSuppressionList(db, env);
+      for (const email of imported.seen) seen.add(email);
+      cfSuppressions = imported.cfSuppressions;
+      localUpdates += imported.localUpdates;
     } catch (error) {
       errors.push(`suppression list: ${error instanceof Error ? error.message : "sync failed"}`);
     }

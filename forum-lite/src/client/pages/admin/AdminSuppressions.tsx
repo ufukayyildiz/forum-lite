@@ -75,7 +75,13 @@ export default function AdminSuppressions() {
       qc.invalidateQueries({ queryKey: ["admin-marketing-users"] });
       toast.success(`Suppressed ${result.email}`);
     },
-    onError: (error: any) => toast.error(error.message || "Suppression failed"),
+    onError: (error: any) => {
+      if (error?.status === 409) {
+        toast.warning(error.message || "This email is already suppressed");
+        return;
+      }
+      toast.error(error.message || "Suppression failed");
+    },
   });
 
   const remove = useMutation({
@@ -207,7 +213,14 @@ export default function AdminSuppressions() {
           className="gb-btn gb-btn-primary"
           type="button"
           disabled={!manualEmail.trim() || manualSuppress.isPending}
-          onClick={() => manualSuppress.mutate()}
+          onClick={() => {
+            const email = manualEmail.trim().toLowerCase();
+            if (rows.some((row) => row.email.toLowerCase() === email)) {
+              toast.warning(`${email} already added`);
+              return;
+            }
+            manualSuppress.mutate();
+          }}
         >
           $ suppress
         </button>

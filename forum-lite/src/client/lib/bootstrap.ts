@@ -10,10 +10,35 @@ type BootstrapPayload = {
   queries?: BootstrapQuery[];
 };
 
+const bootstrappedQueries = new Map<string, { data: unknown; updatedAt: number }>();
+
 declare global {
   interface Window {
     __FSTDESK_BOOTSTRAP__?: BootstrapPayload;
   }
+}
+
+function queryKeyId(key: unknown[]) {
+  return JSON.stringify(key);
+}
+
+export function getBootstrappedQueryData<T = unknown>(key: unknown[]): T | undefined {
+  return bootstrappedQueries.get(queryKeyId(key))?.data as T | undefined;
+}
+
+export function getBootstrappedQueryUpdatedAt(key: unknown[]): number | undefined {
+  return bootstrappedQueries.get(queryKeyId(key))?.updatedAt;
+}
+
+export function hasBootstrappedQueryData(key: unknown[]): boolean {
+  return bootstrappedQueries.has(queryKeyId(key));
+}
+
+export function bootstrapQueryOptions<T = unknown>(key: unknown[]) {
+  return {
+    initialData: () => getBootstrappedQueryData<T>(key),
+    initialDataUpdatedAt: () => getBootstrappedQueryUpdatedAt(key),
+  };
 }
 
 function readBootstrapPayload(): BootstrapPayload | null {
@@ -48,7 +73,9 @@ export function primeQueryClientFromBootstrap(queryClient: QueryClient) {
   for (const query of payload.queries) {
     if (!Array.isArray(query.key)) continue;
     try {
-      queryClient.setQueryData(query.key, query.data, { updatedAt: query.updatedAt ?? now });
+      const updatedAt = query.updatedAt ?? now;
+      bootstrappedQueries.set(queryKeyId(query.key), { data: query.data, updatedAt });
+      queryClient.setQueryData(query.key, query.data, { updatedAt });
     } catch (error) {
       console.warn("FSTDESK bootstrap query skipped", query.key, error);
     }

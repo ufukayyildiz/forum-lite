@@ -20,12 +20,13 @@ export default function CategoryPage() {
   const requestedPage = Number(sp.get("page") ?? 1);
   const page = Number.isFinite(requestedPage) && requestedPage > 0 ? Math.floor(requestedPage) : 1;
 
-  const { data: cat } = useQuery({ queryKey: ["category", catId], queryFn: () => api.category(catId!), enabled: !!catId });
+  const { data: cat } = useQuery({ queryKey: ["category", catId], queryFn: () => api.category(catId!), enabled: !!catId, refetchOnMount: false });
   const { data, isLoading } = useQuery({
     queryKey: ["threads", "cat", catId, sort, "page", page],
     queryFn: () => api.threads({ category: catId!, sort, page }),
     enabled: !!catId,
     placeholderData: (previous) => previous,
+    refetchOnMount: false,
   });
   const { data: adsConfig } = useQuery({ queryKey: ["ads-config"], queryFn: api.adsConfig });
 

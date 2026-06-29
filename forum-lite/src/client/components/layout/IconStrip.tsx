@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Home, Users, AlignLeft } from "lucide-react";
 import { api } from "../../lib/api";
 import { categoryPath } from "../../lib/routes";
+import { bootstrapQueryOptions, hasBootstrappedQueryData } from "../../lib/bootstrap";
 
 function catInitials(name: string) {
   return name.slice(0, 2).toUpperCase();
@@ -13,7 +14,13 @@ function colorFor(id: number) { return PALETTE[id % PALETTE.length]; }
 
 export function IconStrip({ onMobileMenu }: { onMobileMenu: () => void }) {
   const { pathname } = useLocation();
-  const { data: categories } = useQuery({ queryKey: ["categories"], queryFn: api.categories });
+  const { data: categories } = useQuery({
+    queryKey: ["categories"],
+    queryFn: api.categories,
+    refetchOnMount: false,
+    enabled: !hasBootstrappedQueryData(["categories"]),
+    ...bootstrapQueryOptions<any>(["categories"]),
+  });
 
   return (
     <div className="icon-strip">

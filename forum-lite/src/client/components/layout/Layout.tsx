@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../lib/api";
 import { useMe } from "../../lib/useAuth";
 import { AlignLeft } from "lucide-react";
+import { bootstrapQueryOptions, hasBootstrappedQueryData } from "../../lib/bootstrap";
 
 function Tabline({ onMenu }: { onMenu: () => void }) {
   const { pathname } = useLocation();
@@ -86,6 +87,9 @@ function Statusbar() {
     queryFn: api.stats,
     staleTime: 60_000,
     refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    enabled: !hasBootstrappedQueryData(["stats"]),
+    ...bootstrapQueryOptions<any>(["stats"]),
   });
   const page = pathname === "/" ? "threads" : pathname.replace("/", "").split("/")[0];
 

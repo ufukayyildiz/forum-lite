@@ -1091,6 +1091,28 @@ app.post("/email-suppressions", zValidator("json", z.object({
   const body = c.req.valid("json");
   const email = body.email.trim().toLowerCase();
   const reason = body.reason || "manual_admin_suppression";
+  const existing = await db.query.emailSuppressions.findFirst({
+    where: eq(schema.emailSuppressions.email, email),
+    columns: {
+      email: true,
+      reason: true,
+      source: true,
+      updatedAt: true,
+      cfSuppressionStatus: true,
+    },
+  });
+  if (existing) {
+    return c.json({
+      ok: false,
+      status: "already_added",
+      email,
+      reason: existing.reason,
+      source: existing.source,
+      updatedAt: safeISO(existing.updatedAt),
+      cfSuppressionStatus: existing.cfSuppressionStatus ?? null,
+      error: "This email is already in the suppression list",
+    }, 409);
+  }
   await recordEmailSuppression(db, c.env, email, {
     reason,
     source: "admin_manual",

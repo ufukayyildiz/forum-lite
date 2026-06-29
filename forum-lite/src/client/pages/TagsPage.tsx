@@ -5,11 +5,18 @@ import { api } from "../lib/api";
 import { GbToolbar } from "../components/layout/Header";
 import { SEOHead } from "../components/SEOHead";
 import { ListAdRow, shouldShowLeadListAd, shouldShowListAd } from "../components/ListAdRow";
+import { bootstrapQueryOptions, hasBootstrappedQueryData } from "../lib/bootstrap";
 
 const VISIBLE_ROWS = 18;
 
 export default function TagsPage() {
-  const { data: tags, isLoading } = useQuery({ queryKey: ["tags"], queryFn: api.tags });
+  const { data: tags, isLoading } = useQuery({
+    queryKey: ["tags"],
+    queryFn: api.tags,
+    refetchOnMount: false,
+    enabled: !hasBootstrappedQueryData(["tags"]),
+    ...bootstrapQueryOptions<any>(["tags"]),
+  });
   const { data: adsConfig } = useQuery({ queryKey: ["ads-config"], queryFn: api.adsConfig });
   const showLoading = isLoading && !tags;
 

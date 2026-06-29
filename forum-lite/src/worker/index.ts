@@ -34,6 +34,8 @@ function isD1Backpressure(error: unknown) {
 }
 
 const ADS_SETTINGS_TIMEOUT_MS = 200;
+const CF_SUPPRESSION_SYNC_LAST_SETTING_KEY = "cf_suppression_sync_last_at";
+const CF_SUPPRESSION_SYNC_INTERVAL_SECONDS = 12 * 60 * 60;
 const API_LIGHT_PATHS = new Set([
   "/api/ads",
   "/api/client-errors",
@@ -72,6 +74,23 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Pro
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+async function shouldRunScheduledCloudflareSuppressionSync(env: Bindings): Promise<boolean> {
+  const now = Math.floor(Date.now() / 1000);
+  const cutoff = now - CF_SUPPRESSION_SYNC_INTERVAL_SECONDS;
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`,
+  ).bind(CF_SUPPRESSION_SYNC_LAST_SETTING_KEY, "0").run();
+  const row = await env.DB.prepare(
+    `SELECT value FROM settings WHERE key = ? LIMIT 1`,
+  ).bind(CF_SUPPRESSION_SYNC_LAST_SETTING_KEY).first<{ value: string }>();
+  const last = Number(row?.value ?? "0");
+  if (Number.isFinite(last) && last > cutoff) return false;
+  await env.DB.prepare(
+    `UPDATE settings SET value = ? WHERE key = ?`,
+  ).bind(String(now), CF_SUPPRESSION_SYNC_LAST_SETTING_KEY).run();
+  return true;
 }
 
 app.get("/api/healthz", (c) => c.json({ ok: true, ts: Date.now() }));
@@ -687,12 +706,20 @@ async function handleInboundEmail(message: ForwardableEmailMessage, env: Binding
 
 async function handleScheduled(_controller: ScheduledController, env: Bindings, ctx: ExecutionContext): Promise<void> {
   const db = getDb(env);
-  ctx.waitUntil(syncCloudflareEmailSuppressions(db, env, {
-    requestUrl: "https://fstdesk.com/",
-    hours: 72,
-    userId: null,
-    logMissingConfig: false,
-  }));
+  const syncIfDue = shouldRunScheduledCloudflareSuppressionSync(env)
+    .then((due) => {
+      if (!due) return undefined;
+      return syncCloudflareEmailSuppressions(db, env, {
+        requestUrl: "https://fstdesk.com/",
+        hours: 72,
+        userId: null,
+        logMissingConfig: false,
+      });
+    })
+    .catch((error) => {
+      console.warn("scheduled_cf_suppression_sync_gate_failed", error instanceof Error ? error.message : String(error));
+    });
+  ctx.waitUntil(syncIfDue);
   ctx.waitUntil(processMarketingJobs(env, ctx));
 }
 

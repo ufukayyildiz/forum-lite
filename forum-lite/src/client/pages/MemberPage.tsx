@@ -53,6 +53,7 @@ export default function MemberPage() {
     queryFn: () => api.member(username!, { tab: activityTab, all: 1 }),
     enabled: !!username,
     placeholderData: (previous) => previous,
+    refetchOnMount: false,
   });
   const { data: adsConfig } = useQuery({ queryKey: ["ads-config"], queryFn: api.adsConfig });
 

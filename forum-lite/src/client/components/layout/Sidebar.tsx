@@ -6,6 +6,7 @@ import { api } from "../../lib/api";
 import { categoryPath } from "../../lib/routes";
 import { useState } from "react";
 import { AdSlot } from "../AdSlot";
+import { bootstrapQueryOptions, hasBootstrappedQueryData } from "../../lib/bootstrap";
 
 const CAT_COLORS = ["#b8bb26","#83a598","#fabd2f","#d3869b","#8ec07c","#fe8019","#fb4934","#a89984"];
 const MOBILE_NAV_ITEMS = [
@@ -51,7 +52,13 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
   const { pathname } = location;
   const adRouteKey = `${location.pathname}${location.search}${location.hash}`;
   const qc = useQueryClient();
-  const { data: categories } = useQuery({ queryKey: ["categories"], queryFn: api.categories });
+  const { data: categories } = useQuery({
+    queryKey: ["categories"],
+    queryFn: api.categories,
+    refetchOnMount: false,
+    enabled: !hasBootstrappedQueryData(["categories"]),
+    ...bootstrapQueryOptions<any>(["categories"]),
+  });
   const [catsOpen, setCatsOpen] = useState(true);
 
   const warmCategory = (id: string | number) => {
