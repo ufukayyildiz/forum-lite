@@ -15,6 +15,7 @@ import { activeAdInterval } from "../lib/ads";
 import { normalizeQuoteFirstMarkdown } from "../lib/sanitize";
 import { toast } from "sonner";
 import { useConfirm } from "../components/ConfirmDialog";
+import { bootstrapQueryOptions } from "../lib/bootstrap";
 
 const TOOLS: [string, string, string][] = [
   ["**", "**", "bold"], ["_", "_", "italic"], ["`", "`", "code"],
@@ -277,22 +278,23 @@ export default function ThreadPage() {
       : undefined;
   const cachedPreview = matchingPreview ?? findCachedThreadPreview(qc, id);
 
+  const threadKey = ["thread", id];
   const { data: thread, isLoading, isPlaceholderData } = useQuery({
-    queryKey: ["thread", id],
+    queryKey: threadKey,
     queryFn: () => api.thread(id!),
-    enabled: !!id,
     placeholderData: () => cachedPreview,
-    refetchOnMount: false,
+    ...bootstrapQueryOptions<any>(threadKey, { enabled: !!id }),
   });
+  const postsKey = ["posts", thread?.id, "all"];
   const { data: postsData, isLoading: pLoading } = useQuery({
-    queryKey: ["posts", thread?.id, "all"],
+    queryKey: postsKey,
     queryFn: () => api.posts(thread!.id, { all: 1 }),
-    enabled: !!thread?.id,
-    refetchOnMount: false,
+    ...bootstrapQueryOptions<any>(postsKey, { enabled: !!thread?.id }),
   });
   const { data: adsConfig } = useQuery({
     queryKey: ["ads-config"],
     queryFn: api.adsConfig,
+    ...bootstrapQueryOptions<any>(["ads-config"]),
   });
   const { data: anchors = [] } = useQuery({
     queryKey: ["anchors"],

@@ -1,4 +1,5 @@
 import { reportClientError } from "./error-reporting";
+import { readFreshBootstrappedQueryData } from "./bootstrap";
 
 const BASE = "/api";
 const API_TIMEOUT_MS = 8_000;
@@ -71,7 +72,78 @@ async function req<T>(path: string, init?: ApiRequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-const get = <T>(path: string) => req<T>(path);
+function positiveApiPage(value: string | null) {
+  const page = Number(value ?? 1);
+  return Number.isFinite(page) && page > 0 ? Math.floor(page) : 1;
+}
+
+function bootstrappedGet<T>(path: string): { hit: true; data: T } | { hit: false } {
+  const url = new URL(path, "https://fstdesk.local");
+  const page = positiveApiPage(url.searchParams.get("page"));
+
+  if (url.pathname === "/categories") return readFreshBootstrappedQueryData<T>(["categories"]);
+  if (url.pathname === "/stats") return readFreshBootstrappedQueryData<T>(["stats"]);
+  if (url.pathname === "/ads") return readFreshBootstrappedQueryData<T>(["ads-config"]);
+  if (url.pathname === "/tags") return readFreshBootstrappedQueryData<T>(["tags"]);
+
+  const categoryMatch = /^\/categories\/([^/]+)$/.exec(url.pathname);
+  if (categoryMatch) {
+    return readFreshBootstrappedQueryData<T>(["category", decodeURIComponent(categoryMatch[1])]);
+  }
+
+  if (url.pathname === "/threads") {
+    const sort = url.searchParams.get("sort") ?? "recent";
+    const category = url.searchParams.get("category");
+    const key = category
+      ? ["threads", "cat", category, sort, "page", page]
+      : ["threads", "all", sort, "page", page];
+    return readFreshBootstrappedQueryData<T>(key);
+  }
+
+  const threadMatch = /^\/threads\/([^/]+)$/.exec(url.pathname);
+  if (threadMatch) {
+    return readFreshBootstrappedQueryData<T>(["thread", decodeURIComponent(threadMatch[1])]);
+  }
+
+  if (url.pathname === "/posts") {
+    const threadId = Number(url.searchParams.get("threadId"));
+    if (Number.isInteger(threadId) && url.searchParams.get("all") === "1") {
+      return readFreshBootstrappedQueryData<T>(["posts", threadId, "all"]);
+    }
+  }
+
+  if (url.pathname === "/members") {
+    const sort = url.searchParams.get("sort") ?? "posts";
+    if (page === 1) {
+      const bootstrapped = readFreshBootstrappedQueryData<{ pages?: T[] }>(["members", sort, "pages"]);
+      if (bootstrapped.hit && bootstrapped.data.pages?.[0]) return { hit: true, data: bootstrapped.data.pages[0] };
+    }
+  }
+
+  const memberMatch = /^\/members\/([^/]+)$/.exec(url.pathname);
+  if (memberMatch) {
+    const tab = url.searchParams.get("tab") === "replies" ? "replies" : "threads";
+    if (url.searchParams.get("all") === "1") {
+      return readFreshBootstrappedQueryData<T>(["member", decodeURIComponent(memberMatch[1]), tab, "all"]);
+    }
+  }
+
+  const tagMatch = /^\/tags\/([^/]+)$/.exec(url.pathname);
+  if (tagMatch) {
+    const sort = url.searchParams.get("sort") ?? "recent";
+    if (url.searchParams.get("all") === "1") {
+      return readFreshBootstrappedQueryData<T>(["tag-threads", decodeURIComponent(tagMatch[1]), sort, "all"]);
+    }
+  }
+
+  return { hit: false };
+}
+
+const get = async <T>(path: string) => {
+  const bootstrapped = bootstrappedGet<T>(path);
+  if (bootstrapped.hit) return bootstrapped.data;
+  return req<T>(path);
+};
 const post = <T>(path: string, body?: unknown) =>
   req<T>(path, { method: "POST", body: body !== undefined ? JSON.stringify(body) : undefined });
 const patch = <T>(path: string, body: unknown) =>

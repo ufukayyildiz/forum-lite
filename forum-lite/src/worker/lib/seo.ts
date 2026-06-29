@@ -422,6 +422,46 @@ async function loadStatsApi(c: AppContext) {
   };
 }
 
+async function loadAdsConfigApi(c: AppContext) {
+  const rows = await c.env.DB.prepare("SELECT key, value FROM settings").all<Record<string, unknown>>();
+  const settings: Record<string, string> = {};
+  for (const row of rows.results ?? []) settings[String(row.key ?? "")] = String(row.value ?? "");
+
+  const interval = (key: string, fallback: number) => {
+    const value = Number(settings[key] || fallback);
+    return Math.max(1, Math.min(50, Number.isFinite(value) ? value : fallback));
+  };
+  const desktopHtml = settings["ad_desktop_html"] || settings["ad_thread_html"] || "";
+  const mobileHtml = settings["ad_mobile_html"] || desktopHtml;
+  const sidebarHtml = settings["ad_sidebar_html"] || "";
+  const postInterval = interval("ads_post_interval", 3);
+  const desktopIntervals = {
+    post: postInterval,
+    topic: interval("ads_topic_interval", 7),
+    user: interval("ads_user_interval", 7),
+    tag: interval("ads_tag_interval", 7),
+  };
+  const mobileIntervals = {
+    post: interval("ads_mobile_post_interval", desktopIntervals.post),
+    topic: interval("ads_mobile_topic_interval", desktopIntervals.topic),
+    user: interval("ads_mobile_user_interval", desktopIntervals.user),
+    tag: interval("ads_mobile_tag_interval", desktopIntervals.tag),
+  };
+
+  return {
+    enabled: settings["ads_enabled"] === "true",
+    postInterval,
+    adsenseClient: "",
+    adsenseSlot: "",
+    adsenseFormat: "",
+    fullWidthResponsive: true,
+    html: desktopHtml,
+    desktop: { html: desktopHtml, intervals: desktopIntervals },
+    mobile: { html: mobileHtml, intervals: mobileIntervals },
+    sidebar: { html: sidebarHtml, width: 200, height: 200 },
+  };
+}
+
 async function loadCategoriesApi(c: AppContext): Promise<ApiCategory[]> {
   const [rows, counts] = await Promise.all([
     c.env.DB.prepare("SELECT id, public_id AS publicId, name, slug, description, color, icon, position, created_at AS createdAt FROM categories ORDER BY position, id")
@@ -1860,9 +1900,10 @@ async function bootstrapForUrl(c: AppContext, url: URL): Promise<BootstrapBuild>
   const parts = pathname.split("/").filter(Boolean).map((part) => decodeURIComponent(part));
   const queries: BootstrapQuery[] = [];
 
-  const [categories, stats] = await Promise.all([loadCategoriesApi(c), loadStatsApi(c)]);
+  const [categories, stats, adsConfig] = await Promise.all([loadCategoriesApi(c), loadStatsApi(c), loadAdsConfigApi(c)]);
   queries.push({ key: ["categories"], data: categories });
   queries.push({ key: ["stats"], data: stats });
+  queries.push({ key: ["ads-config"], data: adsConfig });
 
   if (pathname === "/") {
     const threads = await loadThreadsApi(c, { sort: "recent", page: 1 });
@@ -2043,10 +2084,13 @@ function injectHtml(indexHtml: string, payload: SeoPayload, base: string, url: U
   const withMeta = /<meta\s+name="theme-color"[^>]*>\s*/i.test(withCleanHead)
     ? withCleanHead.replace(/(<meta\s+name="theme-color"[^>]*>\s*)/i, `$1\n    ${seoMeta}\n`)
     : withCleanHead.replace("<head>", `<head>\n    ${seoMeta}`);
+  const withBootstrap = /<script\s+type="module"[^>]*src="[^"]+"[^>]*><\/script>/i.test(withMeta)
+    ? withMeta.replace(/(<script\s+type="module"[^>]*src="[^"]+"[^>]*><\/script>)/i, `${bootstrapScript}\n    $1`)
+    : withMeta.replace("</head>", `    ${bootstrapScript}\n  </head>`);
   const content = payload.contentHtml ?? seoBlock(SITE_NAME, payload.description);
-  return withMeta.replace(
+  return withBootstrap.replace(
     /<div id="root"><\/div>/,
-    `<div id="root">${staticShellHtml(content, url.pathname, bootstrap.categories, url.searchParams.get("embed") === "1")}</div>\n    ${bootstrapScript}`,
+    `<div id="root">${staticShellHtml(content, url.pathname, bootstrap.categories, url.searchParams.get("embed") === "1")}</div>`,
   );
 }
 

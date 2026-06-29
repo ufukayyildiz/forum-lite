@@ -4,10 +4,15 @@ import { SEOHead } from "../components/SEOHead";
 import { GbToolbar } from "../components/layout/Header";
 import { AdSlot } from "../components/AdSlot";
 import { api } from "../lib/api";
+import { bootstrapQueryOptions } from "../lib/bootstrap";
 
 export default function NotFoundPage() {
   const location = useLocation();
-  const { data: adsConfig } = useQuery({ queryKey: ["ads-config"], queryFn: api.adsConfig });
+  const { data: adsConfig } = useQuery({
+    queryKey: ["ads-config"],
+    queryFn: api.adsConfig,
+    ...bootstrapQueryOptions<any>(["ads-config"]),
+  });
 
   return (
     <>

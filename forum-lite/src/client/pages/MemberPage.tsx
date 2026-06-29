@@ -12,6 +12,7 @@ import { categoryPathFromRow } from "../lib/routes";
 import { toast } from "sonner";
 import { ThreadLink } from "../components/ThreadLink";
 import { ListAdRow, shouldShowLeadListAd, shouldShowListAd } from "../components/ListAdRow";
+import { bootstrapQueryOptions } from "../lib/bootstrap";
 
 const ROLE_LABEL: Record<string, string> = { admin: "[admin]", moderator: "[mod]", member: "[member]" };
 const ROLE_COLOR: Record<string, string> = { admin: "var(--gb-red)", moderator: "var(--gb-blue)", member: "var(--gb-gray)" };
@@ -48,14 +49,18 @@ export default function MemberPage() {
   const [emailPreferences, setEmailPreferences] = useState<EmailPreferences>(DEFAULT_EMAIL_PREFERENCES);
 
   const activityTab = tab === "replies" ? "replies" : "threads";
+  const memberKey = ["member", username, activityTab, "all"];
   const { data, isLoading } = useQuery({
-    queryKey: ["member", username, activityTab, "all"],
+    queryKey: memberKey,
     queryFn: () => api.member(username!, { tab: activityTab, all: 1 }),
-    enabled: !!username,
     placeholderData: (previous) => previous,
-    refetchOnMount: false,
+    ...bootstrapQueryOptions<any>(memberKey, { enabled: !!username }),
   });
-  const { data: adsConfig } = useQuery({ queryKey: ["ads-config"], queryFn: api.adsConfig });
+  const { data: adsConfig } = useQuery({
+    queryKey: ["ads-config"],
+    queryFn: api.adsConfig,
+    ...bootstrapQueryOptions<any>(["ads-config"]),
+  });
 
   const update = useMutation({
     mutationFn: () => {

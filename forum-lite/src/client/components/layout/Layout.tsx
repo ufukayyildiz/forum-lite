@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../lib/api";
 import { useMe } from "../../lib/useAuth";
 import { AlignLeft } from "lucide-react";
-import { bootstrapQueryOptions, hasBootstrappedQueryData } from "../../lib/bootstrap";
+import { bootstrapQueryOptions } from "../../lib/bootstrap";
 
 function Tabline({ onMenu }: { onMenu: () => void }) {
   const { pathname } = useLocation();
@@ -29,9 +29,10 @@ function Tabline({ onMenu }: { onMenu: () => void }) {
         queryFn: () => api.threads({ sort: "recent", page: 1 }),
       }).catch(() => undefined);
     } else if (to === "/members") {
-      qc.prefetchQuery({
-        queryKey: ["members", "posts", "page", 1],
-        queryFn: () => api.members({ sort: "posts", page: 1, perPage: 200 }),
+      qc.prefetchInfiniteQuery({
+        queryKey: ["members", "posts", "pages"],
+        queryFn: ({ pageParam }) => api.members({ sort: "posts", page: pageParam as number, perPage: 200 }),
+        initialPageParam: 1,
       }).catch(() => undefined);
     } else if (to === "/tags") {
       qc.prefetchQuery({ queryKey: ["tags"], queryFn: api.tags }).catch(() => undefined);
@@ -85,11 +86,7 @@ function Statusbar() {
   const { data: stats } = useQuery({
     queryKey: ["stats"],
     queryFn: api.stats,
-    staleTime: 60_000,
-    refetchOnWindowFocus: false,
-    refetchOnMount: false,
-    enabled: !hasBootstrappedQueryData(["stats"]),
-    ...bootstrapQueryOptions<any>(["stats"]),
+    ...bootstrapQueryOptions<any>(["stats"], { staleTime: 60_000 }),
   });
   const page = pathname === "/" ? "threads" : pathname.replace("/", "").split("/")[0];
 

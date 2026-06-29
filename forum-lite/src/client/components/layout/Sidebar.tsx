@@ -6,7 +6,7 @@ import { api } from "../../lib/api";
 import { categoryPath } from "../../lib/routes";
 import { useState } from "react";
 import { AdSlot } from "../AdSlot";
-import { bootstrapQueryOptions, hasBootstrappedQueryData } from "../../lib/bootstrap";
+import { bootstrapQueryOptions } from "../../lib/bootstrap";
 
 const CAT_COLORS = ["#b8bb26","#83a598","#fabd2f","#d3869b","#8ec07c","#fe8019","#fb4934","#a89984"];
 const MOBILE_NAV_ITEMS = [
@@ -20,8 +20,7 @@ function SidebarStickyAd({ routeKey }: { routeKey: string }) {
   const { data: config } = useQuery({
     queryKey: ["ads-config"],
     queryFn: api.adsConfig,
-    staleTime: 60_000,
-    refetchOnWindowFocus: false,
+    ...bootstrapQueryOptions<any>(["ads-config"], { staleTime: 60_000 }),
   });
 
   if (!config?.enabled) return null;
@@ -55,8 +54,6 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
   const { data: categories } = useQuery({
     queryKey: ["categories"],
     queryFn: api.categories,
-    refetchOnMount: false,
-    enabled: !hasBootstrappedQueryData(["categories"]),
     ...bootstrapQueryOptions<any>(["categories"]),
   });
   const [catsOpen, setCatsOpen] = useState(true);

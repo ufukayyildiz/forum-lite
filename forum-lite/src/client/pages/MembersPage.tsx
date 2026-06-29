@@ -6,7 +6,7 @@ import { DAvatar } from "../components/DAvatar";
 import { GbToolbar } from "../components/layout/Header";
 import { SEOHead } from "../components/SEOHead";
 import { ListAdRow, shouldShowLeadListAd, shouldShowListAd } from "../components/ListAdRow";
-import { bootstrapQueryOptions, hasBootstrappedQueryData } from "../lib/bootstrap";
+import { bootstrapQueryOptions } from "../lib/bootstrap";
 
 const ROLE_LABEL: Record<string, string> = { admin: "[admin]", moderator: "[mod]" };
 const ROLE_COLOR: Record<string, string> = { admin: "var(--gb-red)", moderator: "var(--gb-blue)" };
@@ -28,12 +28,13 @@ export default function MembersPage() {
     queryFn: ({ pageParam }) => api.members({ sort, page: pageParam, perPage: MEMBERS_PAGE_SIZE }),
     initialPageParam: 1,
     getNextPageParam: (last) => (last.page * last.perPage < last.total ? last.page + 1 : undefined),
-    staleTime: 60_000,
-    refetchOnMount: false,
-    enabled: !hasBootstrappedQueryData(membersKey),
-    ...bootstrapQueryOptions<any>(membersKey),
+    ...bootstrapQueryOptions<any>(membersKey, { staleTime: 60_000 }),
   });
-  const { data: adsConfig } = useQuery({ queryKey: ["ads-config"], queryFn: api.adsConfig });
+  const { data: adsConfig } = useQuery({
+    queryKey: ["ads-config"],
+    queryFn: api.adsConfig,
+    ...bootstrapQueryOptions<any>(["ads-config"]),
+  });
 
   const pages = data?.pages ?? [];
   const list = pages.flatMap((page) => page.members);

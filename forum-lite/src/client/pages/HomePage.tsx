@@ -9,7 +9,7 @@ import { SEOHead } from "../components/SEOHead";
 import { threadPath } from "../lib/routes";
 import { ListAdRow, shouldShowLeadListAd, shouldShowListAd } from "../components/ListAdRow";
 import { PaginationControls } from "../components/PaginationControls";
-import { bootstrapQueryOptions, hasBootstrappedQueryData } from "../lib/bootstrap";
+import { bootstrapQueryOptions } from "../lib/bootstrap";
 
 const THREAD_ROWS = 15;
 
@@ -23,11 +23,13 @@ export default function HomePage() {
     queryKey: threadsKey,
     queryFn: () => api.threads({ sort, page }),
     placeholderData: (previous) => previous,
-    refetchOnMount: false,
-    enabled: !hasBootstrappedQueryData(threadsKey),
     ...bootstrapQueryOptions<any>(threadsKey),
   });
-  const { data: adsConfig } = useQuery({ queryKey: ["ads-config"], queryFn: api.adsConfig });
+  const { data: adsConfig } = useQuery({
+    queryKey: ["ads-config"],
+    queryFn: api.adsConfig,
+    ...bootstrapQueryOptions<any>(["ads-config"]),
+  });
 
   const list = threads?.threads ?? [];
   const emptyCount = Math.max(0, THREAD_ROWS - list.length);

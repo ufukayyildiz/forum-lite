@@ -7,6 +7,7 @@ import { SEOHead } from "../components/SEOHead";
 import { TopicRow, EmptyRows } from "../components/TopicRow";
 import { threadPath } from "../lib/routes";
 import { ListAdRow, shouldShowLeadListAd, shouldShowListAd } from "../components/ListAdRow";
+import { bootstrapQueryOptions } from "../lib/bootstrap";
 
 const VISIBLE_ROWS = 20;
 
@@ -17,11 +18,14 @@ export default function TagDetailPage() {
   const { data, isLoading } = useQuery({
     queryKey: ["tag-threads", slug, sort, "all"],
     queryFn: () => api.tagThreads(slug!, { sort, all: 1 }),
-    enabled: !!slug,
     placeholderData: (previous) => previous,
-    refetchOnMount: false,
+    ...bootstrapQueryOptions<any>(["tag-threads", slug, sort, "all"], { enabled: !!slug }),
   });
-  const { data: adsConfig } = useQuery({ queryKey: ["ads-config"], queryFn: api.adsConfig });
+  const { data: adsConfig } = useQuery({
+    queryKey: ["ads-config"],
+    queryFn: api.adsConfig,
+    ...bootstrapQueryOptions<any>(["ads-config"]),
+  });
 
   const threads = data?.threads ?? [];
   const tag = data?.tag;

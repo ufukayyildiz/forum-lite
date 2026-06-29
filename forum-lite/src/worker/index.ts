@@ -43,6 +43,10 @@ const API_LIGHT_PATHS = new Set([
   "/api/analytics/duration",
   "/api/healthz",
 ]);
+type PublicApiCachePolicy = { browserTtl: number; edgeTtl: number };
+const PUBLIC_API_DEFAULT_CACHE: PublicApiCachePolicy = { browserTtl: 30, edgeTtl: 120 };
+const PUBLIC_API_STABLE_CACHE: PublicApiCachePolicy = { browserTtl: 60, edgeTtl: 300 };
+const PUBLIC_API_FAST_CACHE: PublicApiCachePolicy = { browserTtl: 15, edgeTtl: 60 };
 
 function requestPath(url: string) {
   return new URL(url).pathname;
@@ -50,6 +54,41 @@ function requestPath(url: string) {
 
 function isLightApiPath(path: string) {
   return API_LIGHT_PATHS.has(path);
+}
+
+function publicApiCachePolicy(request: Request): PublicApiCachePolicy | null {
+  if (request.method !== "GET") return null;
+  const url = new URL(request.url);
+  const path = url.pathname;
+  if (path === "/api/ads" || path === "/api/stats" || path === "/api/categories" || path === "/api/tags" || path === "/api/anchors") {
+    return PUBLIC_API_STABLE_CACHE;
+  }
+  if (path === "/api/threads" || path === "/api/threads/recent" || path === "/api/threads/featured") {
+    return PUBLIC_API_FAST_CACHE;
+  }
+  if (path === "/api/members") {
+    return PUBLIC_API_DEFAULT_CACHE;
+  }
+  if (/^\/api\/categories\/[^/]+$/.test(path) || /^\/api\/tags\/[^/]+$/.test(path)) {
+    return PUBLIC_API_DEFAULT_CACHE;
+  }
+  return null;
+}
+
+function isPublicReadApiRequest(request: Request) {
+  return publicApiCachePolicy(request) !== null;
+}
+
+function publicApiCacheHeader(policy: PublicApiCachePolicy) {
+  return `public, max-age=${policy.browserTtl}, stale-while-revalidate=${policy.edgeTtl}`;
+}
+
+function publicApiCacheKey(request: Request) {
+  const url = new URL(request.url);
+  return new Request(url.toString(), {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
 }
 
 function scheduleCoreSchemaWarmup(c: any) {
@@ -101,10 +140,42 @@ app.use("/api/*", async (c, next) => {
   await next();
   c.header("X-Robots-Tag", "noindex, nofollow");
 });
+app.use("/api/*", async (c, next) => {
+  const policy = publicApiCachePolicy(c.req.raw);
+  if (!policy) {
+    await next();
+    return;
+  }
+
+  const cacheKey = publicApiCacheKey(c.req.raw);
+  const cached = await caches.default.match(cacheKey);
+  if (cached) {
+    const response = new Response(cached.body, cached);
+    response.headers.set("Cache-Control", publicApiCacheHeader(policy));
+    response.headers.set("CDN-Cache-Control", `public, max-age=${policy.edgeTtl}`);
+    response.headers.set("Cloudflare-CDN-Cache-Control", `public, max-age=${policy.edgeTtl}`);
+    response.headers.set("Vary", "Accept");
+    response.headers.set("X-FSTDESK-Cache", "HIT");
+    response.headers.set("X-Robots-Tag", "noindex, nofollow");
+    return response;
+  }
+
+  await next();
+
+  const contentType = c.res.headers.get("content-type") ?? "";
+  if (c.res.status === 200 && contentType.includes("application/json")) {
+    c.header("Cache-Control", publicApiCacheHeader(policy));
+    c.header("CDN-Cache-Control", `public, max-age=${policy.edgeTtl}`);
+    c.header("Cloudflare-CDN-Cache-Control", `public, max-age=${policy.edgeTtl}`);
+    c.header("Vary", "Accept");
+    c.header("X-FSTDESK-Cache", "MISS");
+    c.executionCtx.waitUntil(caches.default.put(cacheKey, c.res.clone()));
+  }
+});
 app.use("/api/*", withDb);
 app.use("/api/*", async (c, next) => {
   const path = requestPath(c.req.url);
-  if (!isLightApiPath(path)) {
+  if (!isLightApiPath(path) && !isPublicReadApiRequest(c.req.raw)) {
     const ready = await ensureCoreSchema(c.env.DB);
     if (!ready) {
       console.warn("core_schema_check_deferred", path);
@@ -114,7 +185,7 @@ app.use("/api/*", async (c, next) => {
   await next();
 });
 app.use("/api/*", async (c, next) => {
-  if (isLightApiPath(requestPath(c.req.url))) {
+  if (isLightApiPath(requestPath(c.req.url)) || isPublicReadApiRequest(c.req.raw)) {
     c.set("user", null);
     await next();
     return;

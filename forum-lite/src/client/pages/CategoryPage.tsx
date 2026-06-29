@@ -9,6 +9,7 @@ import { SEOHead } from "../components/SEOHead";
 import { categoryPath, threadPath } from "../lib/routes";
 import { ListAdRow, shouldShowLeadListAd, shouldShowListAd } from "../components/ListAdRow";
 import { PaginationControls } from "../components/PaginationControls";
+import { bootstrapQueryOptions } from "../lib/bootstrap";
 
 const VISIBLE_ROWS = 18;
 
@@ -20,15 +21,24 @@ export default function CategoryPage() {
   const requestedPage = Number(sp.get("page") ?? 1);
   const page = Number.isFinite(requestedPage) && requestedPage > 0 ? Math.floor(requestedPage) : 1;
 
-  const { data: cat } = useQuery({ queryKey: ["category", catId], queryFn: () => api.category(catId!), enabled: !!catId, refetchOnMount: false });
-  const { data, isLoading } = useQuery({
-    queryKey: ["threads", "cat", catId, sort, "page", page],
-    queryFn: () => api.threads({ category: catId!, sort, page }),
-    enabled: !!catId,
-    placeholderData: (previous) => previous,
-    refetchOnMount: false,
+  const categoryKey = ["category", catId];
+  const threadsKey = ["threads", "cat", catId, sort, "page", page];
+  const { data: cat } = useQuery({
+    queryKey: categoryKey,
+    queryFn: () => api.category(catId!),
+    ...bootstrapQueryOptions<any>(categoryKey, { enabled: !!catId }),
   });
-  const { data: adsConfig } = useQuery({ queryKey: ["ads-config"], queryFn: api.adsConfig });
+  const { data, isLoading } = useQuery({
+    queryKey: threadsKey,
+    queryFn: () => api.threads({ category: catId!, sort, page }),
+    placeholderData: (previous) => previous,
+    ...bootstrapQueryOptions<any>(threadsKey, { enabled: !!catId }),
+  });
+  const { data: adsConfig } = useQuery({
+    queryKey: ["ads-config"],
+    queryFn: api.adsConfig,
+    ...bootstrapQueryOptions<any>(["ads-config"]),
+  });
 
   const list = data?.threads ?? [];
   const emptyCount = Math.max(0, VISIBLE_ROWS - list.length);
