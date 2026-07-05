@@ -16,52 +16,169 @@ const VIEWABLE_THRESHOLD = 0.01;
 const VIEWPORT_TOLERANCE_PX = 1;
 const DEFAULT_AD_HEIGHT = 160;
 const MAX_AD_HEIGHT = 600;
+const HOUSE_AD_SIDEBAR_INDEX = 9000;
 type AdSlotFormat = "horizontal" | "rectangle" | "vertical" | "auto";
+type HouseAdBrand = "manufox" | "brix";
+type HouseAdVariant = {
+  brand: HouseAdBrand;
+  brandLabel: string;
+  title: string;
+  copy: string;
+  cta: string;
+  tone: "lime" | "aqua" | "yellow" | "blue" | "orange" | "green";
+  layout: "bar" | "focus" | "split";
+  href: string;
+};
 
-const HOUSE_ADS = [
+const MANUFOX_HOUSE_ADS: HouseAdVariant[] = [
   {
+    brand: "manufox",
+    brandLabel: "MANUFOX",
     title: "ManuFox ERP",
     copy: "Production, stock, purchasing and quality workflows for manufacturers.",
     cta: "Explore",
     tone: "lime",
     layout: "bar",
+    href: "https://manufox.com/about",
   },
   {
+    brand: "manufox",
+    brandLabel: "MANUFOX",
     title: "Run manufacturing cleaner",
     copy: "Plan orders, track batches and keep operations visible from one system.",
     cta: "See ManuFox",
     tone: "aqua",
     layout: "focus",
+    href: "https://manufox.com/about",
   },
   {
+    brand: "manufox",
+    brandLabel: "MANUFOX",
     title: "Built for growing factories",
     copy: "A practical ERP layer for teams that need fewer spreadsheets and faster decisions.",
     cta: "Learn more",
     tone: "yellow",
     layout: "split",
+    href: "https://manufox.com/about",
   },
-] as const;
+];
 
-function randomHouseAdIndex(seed: number, reason: string) {
+const BRIX_HOUSE_ADS: HouseAdVariant[] = [
+  {
+    brand: "brix",
+    brandLabel: "BRIX",
+    title: "Food Engineering Services",
+    copy: "Product development, process, shelf life, labeling and production consulting.",
+    cta: "View services",
+    tone: "orange",
+    layout: "bar",
+    href: "https://brix.tr/en/solutions",
+  },
+  {
+    brand: "brix",
+    brandLabel: "BRIX",
+    title: "Build new food products",
+    copy: "Formulation, recipe development and market-ready technical support.",
+    cta: "Start project",
+    tone: "blue",
+    layout: "focus",
+    href: "https://brix.tr/en/solutions/new-product-development",
+  },
+  {
+    brand: "brix",
+    brandLabel: "BRIX",
+    title: "Process development help",
+    copy: "Optimize production processes, scale recipes and improve efficiency.",
+    cta: "Improve process",
+    tone: "green",
+    layout: "split",
+    href: "https://brix.tr/en/solutions/process-development",
+  },
+  {
+    brand: "brix",
+    brandLabel: "BRIX",
+    title: "Shelf life studies",
+    copy: "Stability tests and practical plans for safer product shelf life.",
+    cta: "Plan study",
+    tone: "blue",
+    layout: "bar",
+    href: "https://brix.tr/en/solutions/food-shelf-life-studies",
+  },
+  {
+    brand: "brix",
+    brandLabel: "BRIX",
+    title: "Labeling and regulation",
+    copy: "Food label, claim and compliance consulting for technical teams.",
+    cta: "Check labels",
+    tone: "orange",
+    layout: "focus",
+    href: "https://brix.tr/en/solutions/food-labeling-consulting",
+  },
+  {
+    brand: "brix",
+    brandLabel: "BRIX",
+    title: "Factory setup consulting",
+    copy: "Facility setup, feasibility and production technology integration.",
+    cta: "Talk to Brix",
+    tone: "green",
+    layout: "split",
+    href: "https://brix.tr/en/solutions/food-facility-setup-consulting",
+  },
+];
+
+function houseAdsForBrand(brand: HouseAdBrand) {
+  return brand === "brix" ? BRIX_HOUSE_ADS : MANUFOX_HOUSE_ADS;
+}
+
+function stableHash(value: string) {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function primaryHouseAdBrand() {
+  if (typeof window === "undefined") return "manufox";
+  const key = `${window.location.hostname}${window.location.pathname}`;
+  return stableHash(key) % 2 === 0 ? "manufox" : "brix";
+}
+
+function oppositeHouseAdBrand(brand: HouseAdBrand): HouseAdBrand {
+  return brand === "brix" ? "manufox" : "brix";
+}
+
+function houseAdBrandForSlot(index: number) {
+  const primary = primaryHouseAdBrand();
+  if (index >= HOUSE_AD_SIDEBAR_INDEX) return oppositeHouseAdBrand(primary);
+  if (index === 0) return primary;
+  if (typeof window === "undefined") return primary;
+  const key = `${window.location.hostname}${window.location.pathname}:${index}`;
+  return stableHash(key) % 2 === 0 ? "manufox" : "brix";
+}
+
+function randomHouseAdIndex(seed: number, reason: string, size: number) {
   if (globalThis.crypto?.getRandomValues) {
     const values = new Uint32Array(1);
     globalThis.crypto.getRandomValues(values);
-    return values[0] % HOUSE_ADS.length;
+    return values[0] % size;
   }
-  return Math.abs((seed * 1103515245 + reason.length * 12345) % HOUSE_ADS.length);
+  return Math.abs((seed * 1103515245 + reason.length * 12345) % size);
 }
 
-function houseAdHtml(variant: number, reason: string) {
-  const ad = HOUSE_ADS[variant % HOUSE_ADS.length];
-  const url = new URL("https://manufox.com/about");
+function houseAdHtml(brand: HouseAdBrand, variant: number, reason: string) {
+  const ads = houseAdsForBrand(brand);
+  const ad = ads[variant % ads.length];
+  const url = new URL(ad.href);
   url.searchParams.set("utm_source", "fstdesk");
   url.searchParams.set("utm_medium", "house_ad");
   url.searchParams.set("utm_campaign", "adsense_fallback");
-  url.searchParams.set("utm_content", `${ad.tone}_${reason}`);
+  url.searchParams.set("utm_content", `${ad.brand}_${ad.tone}_${reason}`);
 
   return `
-    <a class="gb-house-ad gb-house-ad-${ad.tone} gb-house-ad-${ad.layout}" href="${url.toString()}" target="_blank" rel="noopener sponsored">
-      <span class="gb-house-ad-brand">MANUFOX</span>
+    <a class="gb-house-ad gb-house-ad-${ad.brand} gb-house-ad-${ad.tone} gb-house-ad-${ad.layout}" href="${url.toString()}" target="_blank" rel="noopener sponsored" data-house-ad-brand="${ad.brand}">
+      <span class="gb-house-ad-brand">${ad.brandLabel}</span>
       <strong>${ad.title}</strong>
       <span class="gb-house-ad-copy">${ad.copy}</span>
       <span class="gb-house-ad-cta">${ad.cta}</span>
@@ -219,8 +336,12 @@ export function AdSlot({
       resizeObserver?.disconnect();
       slot?.setAttribute("data-ad-state", "house");
       mount.setAttribute("data-ad-fallback", reason);
-      if (houseVariantRef.current === null) houseVariantRef.current = randomHouseAdIndex(index, reason);
-      mount.innerHTML = houseAdHtml(houseVariantRef.current, reason);
+      const brand = houseAdBrandForSlot(index);
+      const ads = houseAdsForBrand(brand);
+      if (houseVariantRef.current === null) {
+        houseVariantRef.current = randomHouseAdIndex(index, `${brand}_${reason}`, ads.length);
+      }
+      mount.innerHTML = houseAdHtml(brand, houseVariantRef.current, reason);
       setSlotHeight();
       normalizeAdMarkup();
     };

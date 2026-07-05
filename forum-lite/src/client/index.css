@@ -809,6 +809,22 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
   font-weight: 700;
   white-space: nowrap;
 }
+.gb-house-ad-brix {
+  border-color: color-mix(in srgb, var(--gb-orange) 38%, var(--gb-bg2));
+  background:
+    linear-gradient(135deg, rgba(254, 128, 25, .15), rgba(149, 199, 192, .05)),
+    var(--gb-bg);
+}
+.gb-house-ad-brix:hover {
+  border-color: var(--gb-orange);
+}
+.gb-house-ad-brix .gb-house-ad-brand {
+  color: var(--gb-orange);
+}
+.gb-house-ad-brix .gb-house-ad-cta {
+  border-color: var(--gb-orange);
+  background: var(--gb-orange);
+}
 .gb-house-ad-aqua .gb-house-ad-brand { color: var(--gb-aqua); }
 .gb-house-ad-aqua {
   background:
@@ -816,6 +832,27 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
     var(--gb-bg);
 }
 .gb-house-ad-aqua .gb-house-ad-cta { border-color: var(--gb-aqua); background: var(--gb-aqua); }
+.gb-house-ad-blue .gb-house-ad-brand { color: var(--gb-blue); }
+.gb-house-ad-blue {
+  background:
+    linear-gradient(135deg, rgba(149, 199, 192, .16), rgba(254, 128, 25, .04)),
+    var(--gb-bg);
+}
+.gb-house-ad-blue .gb-house-ad-cta { border-color: var(--gb-blue); background: var(--gb-blue); }
+.gb-house-ad-green .gb-house-ad-brand { color: var(--gb-aqua); }
+.gb-house-ad-green {
+  background:
+    linear-gradient(135deg, rgba(142, 192, 124, .16), rgba(254, 128, 25, .04)),
+    var(--gb-bg);
+}
+.gb-house-ad-green .gb-house-ad-cta { border-color: var(--gb-aqua); background: var(--gb-aqua); }
+.gb-house-ad-orange .gb-house-ad-brand { color: var(--gb-orange); }
+.gb-house-ad-orange {
+  background:
+    linear-gradient(135deg, rgba(254, 128, 25, .16), rgba(250, 189, 47, .05)),
+    var(--gb-bg);
+}
+.gb-house-ad-orange .gb-house-ad-cta { border-color: var(--gb-orange); background: var(--gb-orange); }
 .gb-house-ad-yellow .gb-house-ad-brand { color: var(--gb-yellow); }
 .gb-house-ad-yellow {
   background:
