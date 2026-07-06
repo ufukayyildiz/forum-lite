@@ -5,6 +5,7 @@ import { useMe } from "../../lib/useAuth";
 import { api } from "../../lib/api";
 import { DAvatar } from "../DAvatar";
 import { ThreadLink } from "../ThreadLink";
+import { memberPath, publicPath } from "../../lib/routes";
 
 interface Props {
   crumbs?: { label: string; href?: string }[];
@@ -48,7 +49,7 @@ export function GbToolbar({ crumbs = [], actions }: Props) {
           {crumbs.map((c, i) => (
             <span key={i} className={`gb-breadcrumb-item${i === crumbs.length - 1 ? " is-current" : ""}`}>
               {c.href
-                ? <Link to={c.href} className="gb-breadcrumb-label" style={{ color: i === crumbs.length - 1 ? "var(--gb-green)" : "var(--gb-blue)" }}>{c.label}</Link>
+                ? <Link to={publicPath(c.href)} className="gb-breadcrumb-label" style={{ color: i === crumbs.length - 1 ? "var(--gb-green)" : "var(--gb-blue)" }}>{c.label}</Link>
                 : <span className="gb-breadcrumb-label" style={{ color: i === crumbs.length - 1 ? "var(--gb-green)" : "var(--gb-blue)" }}>{c.label}</span>
               }
               {i < crumbs.length - 1 && <span className="gb-breadcrumb-sep">/</span>}
@@ -101,7 +102,7 @@ export function GbToolbar({ crumbs = [], actions }: Props) {
                   </ThreadLink>
                 ))}
                 {results.users.map((u: any) => (
-                  <Link key={u.id} to={`/u/${u.username}`} className="gb-search-result" onClick={() => setShowSearch(false)}>
+                  <Link key={u.id} to={memberPath(u.username)} className="gb-search-result" onClick={() => setShowSearch(false)}>
                     <DAvatar src={u.avatarUrl} name={u.displayName} size={20} />
                     <div>
                       <div style={{ fontSize: 13 }}>{u.displayName}</div>

@@ -10,6 +10,15 @@ import {
   WHAT_IS_FSTDESK_TITLE,
   WHAT_IS_FSTDESK_TOPIC_EXAMPLES,
 } from "../../shared/what-is-fstdesk";
+import {
+  LOCALIZED_LOCALES,
+  LOCALE_DETAILS,
+  localizedAlternates,
+  localizePath,
+  parseLocalePath,
+  shouldLocalizePath,
+  type SupportedLocale,
+} from "../../shared/locales";
 
 type AppContext = Context<{ Bindings: Bindings; Variables: Variables }>;
 
@@ -30,6 +39,13 @@ type SeoPayload = {
   articleTags?: string[];
   schemas?: SeoSchema[];
   contentHtml?: string;
+  localized?: {
+    locale: SupportedLocale;
+    translated: boolean;
+    status: "complete" | "queued" | "running" | "error" | "disabled" | "missing";
+    sourceHash?: string;
+    error?: string | null;
+  };
 };
 
 type SeoContentRow = {
@@ -84,9 +100,7 @@ type BootstrapBuild = {
 const SITE_NAME = "FSTDESK";
 const SITE_TAGLINE = "Food Science and Technology Desk";
 const SITE_DESCRIPTION = `${SITE_TAGLINE} for food science, food safety, product development and food technology discussions.`;
-const HTML_LANG = "en";
-const CONTENT_LANGUAGE = "en-US";
-const OG_LOCALE = "en_US";
+const CONTENT_LANGUAGE = LOCALE_DETAILS.en.contentLanguage;
 const DEFAULT_IMAGE = "/og/default.webp";
 const CAT_COLORS = ["#b8bb26", "#83a598", "#fabd2f", "#d3869b", "#8ec07c", "#fe8019", "#fb4934", "#a89984"];
 const MAX_SEO_ANCHOR_TERMS = 80;
@@ -100,6 +114,52 @@ const VALUABLE_THREAD_MIN_REPLIES = 3;
 const BEST_DISCUSSIONS_LIMIT = 8;
 const PUBLIC_HTML_BROWSER_TTL = 30;
 const PUBLIC_HTML_EDGE_TTL = 180;
+const TRANSLATION_DEFAULT_API_URL = "https://api.openai.com/v1/chat/completions";
+const TRANSLATION_DEFAULT_MODEL = "gpt-4o-mini";
+const TRANSLATION_JOB_LOCK_SECONDS = 300;
+const TRANSLATION_MAX_ATTEMPTS = 3;
+const TRANSLATION_MAX_TEXTS_PER_PAGE = 240;
+const TRANSLATION_TEXT_CHUNK_SIZE = 32;
+const TRANSLATION_STATIC_PATHS = ["/", "/members", "/tags", "/what-is-fstdesk", "/contact", "/about"];
+
+type TranslationJobMessage = { jobId?: string; locale?: string; path?: string };
+
+type TranslationSettings = {
+  enabled: boolean;
+  provider: string;
+  apiUrl: string;
+  model: string;
+  batchLimit: number;
+  configured: boolean;
+};
+
+type TranslationRow = {
+  locale: string;
+  path: string;
+  source_hash: string;
+  title: string;
+  description: string;
+  content_html: string;
+  schemas_json: string | null;
+  article_section: string | null;
+  article_tags_json: string | null;
+  status: string;
+  error: string | null;
+};
+
+type TranslationJobRow = {
+  id: string;
+  locale: string;
+  path: string;
+  source_hash: string;
+  status: string;
+  attempts: number;
+};
+
+let translationSchemaReady = false;
+let translationSchemaPromise: Promise<void> | null = null;
+
+const nowSeconds = () => Math.floor(Date.now() / 1000);
 
 function cleanText(input: unknown, max = 160): string {
   const text = String(input ?? "")
@@ -144,6 +204,52 @@ function absoluteUrl(base: string, path: string): string {
   return new URL(path || "/", base).toString();
 }
 
+function absoluteLocalizedUrl(base: string, path: string, locale: SupportedLocale): string {
+  return absoluteUrl(base, localizePath(path || "/", locale));
+}
+
+function safeDecodePathParts(pathname: string): string[] {
+  return pathname.split("/").filter(Boolean).map((part) => {
+    try {
+      return decodeURIComponent(part);
+    } catch {
+      return part;
+    }
+  });
+}
+
+function localizeHtmlLinks(html: string, locale: SupportedLocale): string {
+  if (!html || locale === "en") return html;
+  return html.replace(/\s(href|action)="(\/[^"]*)"/g, (match, attr: string, raw: string) => {
+    if (raw.startsWith("//") || !shouldLocalizePath(raw)) return match;
+    return ` ${attr}="${escapeHtml(localizePath(raw, locale))}"`;
+  });
+}
+
+function localizeSchemaValue(value: unknown, base: string, locale: SupportedLocale): unknown {
+  if (Array.isArray(value)) return value.map((item) => localizeSchemaValue(item, base, locale));
+  if (!value || typeof value !== "object") {
+    if (typeof value !== "string") return value;
+    if (value.startsWith(`${base}/`)) {
+      try {
+        const url = new URL(value);
+        return `${url.origin}${localizePath(`${url.pathname}${url.search}${url.hash}`, locale)}`;
+      } catch {
+        return value;
+      }
+    }
+    if (value.startsWith("/") && !value.startsWith("//")) return localizePath(value, locale);
+    return value;
+  }
+  const details = LOCALE_DETAILS[locale];
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, item]) => {
+      if (key === "inLanguage") return [key, details.contentLanguage];
+      return [key, localizeSchemaValue(item, base, locale)];
+    }),
+  );
+}
+
 function hashString(input: string): number {
   let hash = 2166136261;
   for (let i = 0; i < input.length; i++) {
@@ -151,6 +257,601 @@ function hashString(input: string): number {
     hash = Math.imul(hash, 16777619);
   }
   return hash >>> 0;
+}
+
+function translationSourceHash(payload: SeoPayload): string {
+  return hashString([
+    payload.title,
+    payload.description,
+    payload.articleSection ?? "",
+    ...(payload.articleTags ?? []),
+    payload.contentHtml ?? "",
+    JSON.stringify(payload.schemas ?? []),
+  ].join("\n")).toString(16).padStart(8, "0");
+}
+
+async function ensureTranslationSchema(db: D1Database): Promise<void> {
+  if (translationSchemaReady) return;
+  if (translationSchemaPromise) return translationSchemaPromise;
+  translationSchemaPromise = (async () => {
+    await db.prepare(`CREATE TABLE IF NOT EXISTS content_translations (
+      id integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+      locale text NOT NULL,
+      path text NOT NULL,
+      source_hash text NOT NULL,
+      title text NOT NULL,
+      description text NOT NULL,
+      content_html text NOT NULL,
+      schemas_json text,
+      article_section text,
+      article_tags_json text,
+      provider text,
+      model text,
+      status text NOT NULL DEFAULT 'complete',
+      error text,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL
+    )`).run();
+    await db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS content_translations_locale_path_hash_idx ON content_translations(locale, path, source_hash)").run();
+    await db.prepare("CREATE INDEX IF NOT EXISTS content_translations_locale_path_status_idx ON content_translations(locale, path, status)").run();
+    await db.prepare("CREATE INDEX IF NOT EXISTS content_translations_updated_at_idx ON content_translations(updated_at)").run();
+    await db.prepare(`CREATE TABLE IF NOT EXISTS translation_jobs (
+      id text PRIMARY KEY NOT NULL,
+      locale text NOT NULL,
+      path text NOT NULL,
+      source_hash text NOT NULL,
+      status text NOT NULL DEFAULT 'queued',
+      attempts integer NOT NULL DEFAULT 0,
+      locked_until integer,
+      error_message text,
+      created_at integer NOT NULL,
+      updated_at integer NOT NULL,
+      finished_at integer
+    )`).run();
+    await db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS translation_jobs_locale_path_hash_idx ON translation_jobs(locale, path, source_hash)").run();
+    await db.prepare("CREATE INDEX IF NOT EXISTS translation_jobs_status_idx ON translation_jobs(status, updated_at)").run();
+    await db.prepare("CREATE INDEX IF NOT EXISTS translation_jobs_locked_until_idx ON translation_jobs(locked_until)").run();
+    translationSchemaReady = true;
+  })().finally(() => {
+    translationSchemaPromise = null;
+  });
+  return translationSchemaPromise;
+}
+
+async function translationSettings(env: Bindings): Promise<TranslationSettings> {
+  const rows = await env.DB.prepare("SELECT key, value FROM settings WHERE key LIKE 'translation_%'").all<Record<string, unknown>>();
+  const settings: Record<string, string> = {};
+  for (const row of rows.results ?? []) settings[String(row.key ?? "")] = String(row.value ?? "");
+  const provider = (settings.translation_provider || "openai_compatible").trim().toLowerCase();
+  const apiUrl = (settings.translation_api_url || env.TRANSLATION_API_URL || TRANSLATION_DEFAULT_API_URL).trim();
+  const model = (settings.translation_model || env.TRANSLATION_MODEL || TRANSLATION_DEFAULT_MODEL).trim();
+  const batchLimit = Math.max(1, Math.min(25, Number(settings.translation_batch_limit || 4) || 4));
+  const enabled = settings.translation_enabled !== "false" && provider !== "disabled";
+  return {
+    enabled,
+    provider,
+    apiUrl,
+    model,
+    batchLimit,
+    configured: enabled && Boolean(env.TRANSLATION_API_KEY && apiUrl && model),
+  };
+}
+
+async function translationSiteBase(env: Bindings): Promise<string> {
+  if (env.SITE_URL) return env.SITE_URL.replace(/\/+$/, "");
+  const row = await env.DB.prepare("SELECT value FROM settings WHERE key = 'site_url' LIMIT 1").first<{ value: string }>();
+  return (row?.value || "https://fstdesk.com").replace(/\/+$/, "");
+}
+
+function translationJobId(locale: SupportedLocale, path: string, sourceHash: string): string {
+  return `tr_${locale}_${hashString(`${locale}:${path}:${sourceHash}:${Date.now()}:${Math.random()}`).toString(16)}`;
+}
+
+function decodeHtmlText(input: string): string {
+  return input
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, "\"")
+    .replace(/&#39;|&apos;/gi, "'");
+}
+
+function significantTranslatableText(input: string): string {
+  const text = decodeHtmlText(input).replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  if (/^[\d\s,.:;!?()[\]{}#+/@|→←$%&*'"-]+$/.test(text)) return "";
+  return text;
+}
+
+type HtmlTextSegment = {
+  partIndex: number;
+  leading: string;
+  trailing: string;
+  text: string;
+};
+
+function splitHtmlTextSegments(html: string): { parts: string[]; segments: HtmlTextSegment[] } {
+  const parts = html.split(/(<[^>]+>)/g);
+  const segments: HtmlTextSegment[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (!part || part.startsWith("<")) continue;
+    const text = significantTranslatableText(part);
+    if (!text) continue;
+    const leading = part.match(/^\s*/)?.[0] ?? "";
+    const trailing = part.match(/\s*$/)?.[0] ?? "";
+    const core = part.slice(leading.length, Math.max(leading.length, part.length - trailing.length));
+    segments.push({ partIndex: i, leading, trailing, text: decodeHtmlText(core).trim() });
+  }
+  return { parts, segments };
+}
+
+function rebuildHtmlWithTranslations(parts: string[], segments: HtmlTextSegment[], translations: Map<string, string>): string {
+  for (const segment of segments) {
+    const translated = translations.get(segment.text);
+    if (translated) parts[segment.partIndex] = `${segment.leading}${escapeHtml(translated)}${segment.trailing}`;
+  }
+  return parts.join("");
+}
+
+function isSchemaTranslatableString(value: string): boolean {
+  if (!significantTranslatableText(value)) return false;
+  if (/^(https?:)?\/\//i.test(value) || value.startsWith("/") || value.startsWith("#")) return false;
+  if (/^\d{4}-\d{2}-\d{2}T/.test(value)) return false;
+  if (/^https:\/\/schema\.org\//i.test(value)) return false;
+  if (/^[A-Za-z]+Page$|^[A-Za-z]+Posting$|^ListItem$|^Person$|^Organization$|^Comment$|^EntryPoint$/.test(value)) return false;
+  return true;
+}
+
+function collectSchemaTexts(value: unknown, out: Set<string>): void {
+  if (Array.isArray(value)) {
+    for (const item of value) collectSchemaTexts(item, out);
+    return;
+  }
+  if (!value || typeof value !== "object") {
+    if (typeof value === "string" && isSchemaTranslatableString(value)) out.add(value);
+    return;
+  }
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    if (key.startsWith("@") || key === "url" || key === "item" || key === "image" || key === "inLanguage") continue;
+    collectSchemaTexts(item, out);
+  }
+}
+
+function translateSchemaTexts(value: unknown, translations: Map<string, string>): unknown {
+  if (Array.isArray(value)) return value.map((item) => translateSchemaTexts(item, translations));
+  if (!value || typeof value !== "object") {
+    if (typeof value === "string") return translations.get(value) ?? value;
+    return value;
+  }
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, item]) => {
+      if (key.startsWith("@") || key === "url" || key === "item" || key === "image" || key === "inLanguage") return [key, item];
+      return [key, translateSchemaTexts(item, translations)];
+    }),
+  );
+}
+
+function parseTranslationContent(raw: string): string[] {
+  const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+  const parsed = JSON.parse(cleaned);
+  const items = Array.isArray(parsed?.items) ? parsed.items : Array.isArray(parsed) ? parsed : [];
+  return items.map((item: unknown) => String(item ?? ""));
+}
+
+async function translateTextChunk(env: Bindings, settings: TranslationSettings, locale: SupportedLocale, texts: string[]): Promise<string[]> {
+  if (!texts.length) return [];
+  const details = LOCALE_DETAILS[locale];
+  const response = await fetch(settings.apiUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${env.TRANSLATION_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: settings.model,
+      temperature: 0.1,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: [
+            `Translate FSTDESK forum content to ${details.label}.`,
+            "Return only JSON with an items array matching the input length and order.",
+            "Preserve HTML-free text only; do not add markup.",
+            "Preserve URLs, emails, numbers, hashtags, usernames, product names, FSTDESK, ManuFox and Brix.",
+            "Use natural technical food-science language.",
+          ].join(" "),
+        },
+        {
+          role: "user",
+          content: JSON.stringify({ locale, language: details.label, items: texts }),
+        },
+      ],
+    }),
+  });
+  const json = await response.json().catch(() => null) as any;
+  if (!response.ok) {
+    const message = json?.error?.message || json?.message || `translation provider ${response.status}`;
+    throw new Error(String(message).slice(0, 1000));
+  }
+  const content = json?.choices?.[0]?.message?.content;
+  if (typeof content !== "string") throw new Error("translation provider returned no content");
+  const translated = parseTranslationContent(content);
+  if (translated.length !== texts.length) throw new Error(`translation count mismatch: ${translated.length}/${texts.length}`);
+  return translated;
+}
+
+async function translateTexts(env: Bindings, settings: TranslationSettings, locale: SupportedLocale, texts: string[]) {
+  const translated = new Map<string, string>();
+  const unique = Array.from(new Set(texts.map((text) => text.trim()).filter(Boolean))).slice(0, TRANSLATION_MAX_TEXTS_PER_PAGE);
+  for (let i = 0; i < unique.length; i += TRANSLATION_TEXT_CHUNK_SIZE) {
+    const chunk = unique.slice(i, i + TRANSLATION_TEXT_CHUNK_SIZE);
+    const result = await translateTextChunk(env, settings, locale, chunk);
+    chunk.forEach((source, index) => translated.set(source, result[index] || source));
+  }
+  return translated;
+}
+
+async function translatePayload(env: Bindings, payload: SeoPayload, locale: SupportedLocale, settings: TranslationSettings): Promise<SeoPayload> {
+  const html = payload.contentHtml ?? "";
+  const { parts, segments } = splitHtmlTextSegments(html);
+  const schemaTexts = new Set<string>();
+  for (const schema of payload.schemas ?? []) collectSchemaTexts(schema, schemaTexts);
+  const texts = [
+    payload.title,
+    payload.description,
+    payload.articleSection ?? "",
+    ...(payload.articleTags ?? []),
+    ...segments.map((segment) => segment.text),
+    ...schemaTexts,
+  ].filter(Boolean);
+  const translations = await translateTexts(env, settings, locale, texts);
+  const translatedSchemas = (payload.schemas ?? []).map((schema) => translateSchemaTexts(schema, translations) as SeoSchema);
+  return {
+    ...payload,
+    title: translations.get(payload.title) ?? payload.title,
+    description: translations.get(payload.description) ?? payload.description,
+    articleSection: payload.articleSection ? translations.get(payload.articleSection) ?? payload.articleSection : payload.articleSection,
+    articleTags: (payload.articleTags ?? []).map((tag) => translations.get(tag) ?? tag),
+    schemas: translatedSchemas,
+    contentHtml: rebuildHtmlWithTranslations(parts, segments, translations),
+    localized: { locale, translated: true, status: "complete", sourceHash: translationSourceHash(payload) },
+  };
+}
+
+function applyStoredTranslation(payload: SeoPayload, locale: SupportedLocale, row: TranslationRow): SeoPayload {
+  let schemas = payload.schemas;
+  let articleTags = payload.articleTags;
+  try {
+    if (row.schemas_json) schemas = JSON.parse(row.schemas_json);
+  } catch {
+    schemas = payload.schemas;
+  }
+  try {
+    if (row.article_tags_json) articleTags = JSON.parse(row.article_tags_json);
+  } catch {
+    articleTags = payload.articleTags;
+  }
+  return {
+    ...payload,
+    title: row.title,
+    description: row.description,
+    contentHtml: row.content_html,
+    schemas,
+    articleSection: row.article_section ?? payload.articleSection,
+    articleTags,
+    localized: { locale, translated: true, status: "complete", sourceHash: row.source_hash },
+  };
+}
+
+async function storePayloadTranslation(
+  env: Bindings,
+  locale: SupportedLocale,
+  path: string,
+  sourceHash: string,
+  payload: SeoPayload,
+  settings: TranslationSettings,
+): Promise<void> {
+  const now = nowSeconds();
+  await env.DB.prepare(
+    `INSERT INTO content_translations (
+      locale, path, source_hash, title, description, content_html, schemas_json, article_section, article_tags_json,
+      provider, model, status, error, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'complete', NULL, ?, ?)
+    ON CONFLICT(locale, path, source_hash) DO UPDATE SET
+      title = excluded.title,
+      description = excluded.description,
+      content_html = excluded.content_html,
+      schemas_json = excluded.schemas_json,
+      article_section = excluded.article_section,
+      article_tags_json = excluded.article_tags_json,
+      provider = excluded.provider,
+      model = excluded.model,
+      status = 'complete',
+      error = NULL,
+      updated_at = excluded.updated_at`,
+  ).bind(
+    locale,
+    path,
+    sourceHash,
+    payload.title,
+    payload.description,
+    payload.contentHtml ?? "",
+    JSON.stringify(payload.schemas ?? []),
+    payload.articleSection ?? null,
+    JSON.stringify(payload.articleTags ?? []),
+    settings.provider,
+    settings.model,
+    now,
+    now,
+  ).run();
+}
+
+async function queueTranslationJob(
+  env: Bindings,
+  ctx: ExecutionContext,
+  locale: SupportedLocale,
+  path: string,
+  sourceHash: string,
+): Promise<void> {
+  const now = nowSeconds();
+  const id = translationJobId(locale, path, sourceHash);
+  await env.DB.prepare(
+    `INSERT INTO translation_jobs (id, locale, path, source_hash, status, attempts, locked_until, error_message, created_at, updated_at, finished_at)
+     VALUES (?, ?, ?, ?, 'queued', 0, NULL, NULL, ?, ?, NULL)
+     ON CONFLICT(locale, path, source_hash) DO UPDATE SET
+       status = CASE WHEN translation_jobs.status = 'complete' THEN translation_jobs.status ELSE 'queued' END,
+       error_message = CASE WHEN translation_jobs.status = 'complete' THEN translation_jobs.error_message ELSE NULL END,
+       updated_at = excluded.updated_at`,
+  ).bind(id, locale, path, sourceHash, now, now).run();
+
+  const message: TranslationJobMessage = { locale, path };
+  if (env.TRANSLATION_QUEUE) {
+    ctx.waitUntil(
+      env.TRANSLATION_QUEUE.send(message).catch((error) => {
+        console.warn("translation_queue_send_failed", locale, path, error instanceof Error ? error.message : String(error));
+        return processTranslationJobs(env, ctx, { locale, path, limit: 1 });
+      }),
+    );
+  } else {
+    ctx.waitUntil(processTranslationJobs(env, ctx, { locale, path, limit: 1 }));
+  }
+}
+
+async function applyTranslationOrQueue(
+  c: AppContext,
+  payload: SeoPayload,
+  locale: SupportedLocale,
+  path: string,
+): Promise<SeoPayload> {
+  if (locale === "en" || payload.status === 404 || payload.robots?.includes("noindex")) {
+    return payload;
+  }
+  await ensureTranslationSchema(c.env.DB);
+  const sourceHash = translationSourceHash(payload);
+  const row = await c.env.DB.prepare(
+    `SELECT locale, path, source_hash, title, description, content_html, schemas_json, article_section, article_tags_json, status, error
+     FROM content_translations
+     WHERE locale = ? AND path = ? AND source_hash = ? AND status = 'complete'
+     LIMIT 1`,
+  ).bind(locale, path, sourceHash).first<TranslationRow>();
+  if (row) return applyStoredTranslation(payload, locale, row);
+
+  const settings = await translationSettings(c.env);
+  if (settings.configured) {
+    await queueTranslationJob(c.env, c.executionCtx, locale, path, sourceHash);
+    return { ...payload, localized: { locale, translated: false, status: "queued", sourceHash } };
+  }
+  return {
+    ...payload,
+    localized: {
+      locale,
+      translated: false,
+      status: settings.enabled ? "missing" : "disabled",
+      sourceHash,
+      error: settings.enabled ? "translation provider is not configured" : null,
+    },
+  };
+}
+
+async function loadQueuedTranslationJobs(
+  env: Bindings,
+  opts: { locale?: string; path?: string; jobId?: string; limit?: number } = {},
+): Promise<TranslationJobRow[]> {
+  const now = nowSeconds();
+  const limit = Math.max(1, Math.min(25, Number(opts.limit || 4) || 4));
+  if (opts.jobId) {
+    const row = await env.DB.prepare(
+      `SELECT id, locale, path, source_hash, status, attempts
+       FROM translation_jobs
+       WHERE id = ? AND status <> 'complete'
+       LIMIT 1`,
+    ).bind(opts.jobId).first<TranslationJobRow>();
+    return row ? [row] : [];
+  }
+  if (opts.locale && opts.path) {
+    const rows = await env.DB.prepare(
+      `SELECT id, locale, path, source_hash, status, attempts
+       FROM translation_jobs
+       WHERE locale = ? AND path = ? AND status <> 'complete'
+       ORDER BY updated_at ASC
+       LIMIT ?`,
+    ).bind(opts.locale, opts.path, limit).all<TranslationJobRow>();
+    return rows.results ?? [];
+  }
+  const rows = await env.DB.prepare(
+    `SELECT id, locale, path, source_hash, status, attempts
+     FROM translation_jobs
+     WHERE status IN ('queued', 'error')
+       AND attempts < ?
+       AND (locked_until IS NULL OR locked_until < ?)
+     ORDER BY updated_at ASC
+     LIMIT ?`,
+  ).bind(TRANSLATION_MAX_ATTEMPTS, now, limit).all<TranslationJobRow>();
+  return rows.results ?? [];
+}
+
+export async function processTranslationJobs(
+  env: Bindings,
+  ctx?: ExecutionContext,
+  opts: { jobId?: string; locale?: string; path?: string; limit?: number } = {},
+) {
+  await ensureTranslationSchema(env.DB);
+  const settings = await translationSettings(env);
+  if (!settings.configured) return { ok: false, processed: 0, complete: 0, error: 0, reason: "translation provider is not configured" };
+
+  const jobs = await loadQueuedTranslationJobs(env, { ...opts, limit: opts.limit ?? settings.batchLimit });
+  if (!jobs.length) return { ok: true, processed: 0, complete: 0, error: 0 };
+
+  const base = await translationSiteBase(env);
+  let complete = 0;
+  let error = 0;
+  for (const job of jobs) {
+    const locale = job.locale as SupportedLocale;
+    if (!LOCALIZED_LOCALES.includes(locale)) {
+      await env.DB.prepare("UPDATE translation_jobs SET status = 'error', error_message = ?, updated_at = ? WHERE id = ?")
+        .bind(`unsupported locale ${job.locale}`, nowSeconds(), job.id).run();
+      error += 1;
+      continue;
+    }
+    const now = nowSeconds();
+    await env.DB.prepare(
+      "UPDATE translation_jobs SET status = 'running', attempts = attempts + 1, locked_until = ?, updated_at = ? WHERE id = ?",
+    ).bind(now + TRANSLATION_JOB_LOCK_SECONDS, now, job.id).run();
+    try {
+      const fakeContext = { env } as AppContext;
+      const sourcePayload = await payloadForPath(fakeContext, base, job.path, []);
+      const sourceHash = translationSourceHash(sourcePayload);
+      const translated = await translatePayload(env, sourcePayload, locale, settings);
+      await storePayloadTranslation(env, locale, job.path, sourceHash, translated, settings);
+      await env.DB.prepare(
+        "UPDATE translation_jobs SET source_hash = ?, status = 'complete', locked_until = NULL, error_message = NULL, updated_at = ?, finished_at = ? WHERE id = ?",
+      ).bind(sourceHash, nowSeconds(), nowSeconds(), job.id).run();
+      complete += 1;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await env.DB.prepare(
+        "UPDATE translation_jobs SET status = 'error', locked_until = NULL, error_message = ?, updated_at = ? WHERE id = ?",
+      ).bind(message.slice(0, 1000), nowSeconds(), job.id).run();
+      console.warn("translation_job_failed", locale, job.path, message);
+      error += 1;
+    }
+  }
+  return { ok: error === 0, processed: jobs.length, complete, error };
+}
+
+export async function translationPipelineStatus(env: Bindings) {
+  await ensureTranslationSchema(env.DB);
+  const settings = await translationSettings(env);
+  const [jobs, translations, recentErrors] = await Promise.all([
+    env.DB.prepare("SELECT status, COUNT(*) AS count FROM translation_jobs GROUP BY status").all<Record<string, unknown>>(),
+    env.DB.prepare("SELECT locale, COUNT(*) AS count FROM content_translations WHERE status = 'complete' GROUP BY locale").all<Record<string, unknown>>(),
+    env.DB.prepare(
+      `SELECT locale, path, error_message AS error, updated_at AS updatedAt
+       FROM translation_jobs
+       WHERE status = 'error'
+       ORDER BY updated_at DESC
+       LIMIT 8`,
+    ).all<Record<string, unknown>>(),
+  ]);
+  const jobCounts: Record<string, number> = {};
+  for (const row of jobs.results ?? []) jobCounts[String(row.status ?? "unknown")] = Number(row.count ?? 0);
+  const completeByLocale: Record<string, number> = {};
+  for (const row of translations.results ?? []) completeByLocale[String(row.locale ?? "")] = Number(row.count ?? 0);
+  return {
+    enabled: settings.enabled,
+    configured: settings.configured,
+    provider: settings.provider,
+    model: settings.model,
+    batchLimit: settings.batchLimit,
+    queueBinding: Boolean(env.TRANSLATION_QUEUE),
+    locales: LOCALIZED_LOCALES.map((locale) => ({
+      locale,
+      label: LOCALE_DETAILS[locale].label,
+      complete: completeByLocale[locale] ?? 0,
+    })),
+    jobs: {
+      queued: jobCounts.queued ?? 0,
+      running: jobCounts.running ?? 0,
+      complete: jobCounts.complete ?? 0,
+      error: jobCounts.error ?? 0,
+    },
+    errors: (recentErrors.results ?? []).map((row) => ({
+      locale: String(row.locale ?? ""),
+      path: String(row.path ?? ""),
+      error: String(row.error ?? ""),
+      updatedAt: Number(row.updatedAt ?? 0),
+    })),
+  };
+}
+
+async function candidateTranslationPaths(env: Bindings, limit: number): Promise<string[]> {
+  const paths = new Set(TRANSLATION_STATIC_PATHS);
+  const threadLimit = Math.max(1, limit);
+  const [threads, categories, tags, users] = await Promise.all([
+    env.DB.prepare(
+      `SELECT public_id AS publicId
+       FROM threads
+       ORDER BY (COALESCE(views, 0) + COALESCE(reply_count, 0) * 80 + CASE WHEN featured THEN 500 ELSE 0 END) DESC, last_post_at DESC
+       LIMIT ?`,
+    ).bind(threadLimit).all<Record<string, unknown>>(),
+    env.DB.prepare("SELECT public_id AS publicId FROM categories ORDER BY position, id LIMIT 100").all<Record<string, unknown>>(),
+    env.DB.prepare(
+      `SELECT tags.slug
+       FROM tags
+       LEFT JOIN thread_tags ON thread_tags.tag_id = tags.id
+       GROUP BY tags.id
+       ORDER BY COUNT(thread_tags.thread_id) DESC, tags.name ASC
+       LIMIT 100`,
+    ).all<Record<string, unknown>>(),
+    env.DB.prepare("SELECT username FROM users ORDER BY post_count DESC, thread_count DESC, id DESC LIMIT 50").all<Record<string, unknown>>(),
+  ]);
+  for (const row of threads.results ?? []) if (row.publicId) paths.add(`/t/${row.publicId}`);
+  for (const row of categories.results ?? []) if (row.publicId) paths.add(`/c/${row.publicId}`);
+  for (const row of tags.results ?? []) if (row.slug) paths.add(`/tag/${encodeURIComponent(String(row.slug))}`);
+  for (const row of users.results ?? []) if (row.username) paths.add(`/u/${encodeURIComponent(String(row.username))}`);
+  return [...paths].slice(0, Math.max(1, limit + TRANSLATION_STATIC_PATHS.length + 250));
+}
+
+export async function queueMissingTranslations(
+  env: Bindings,
+  ctx: ExecutionContext,
+  opts: { locale?: string; limit?: number } = {},
+) {
+  await ensureTranslationSchema(env.DB);
+  const settings = await translationSettings(env);
+  if (!settings.configured) return { ok: false, queued: 0, skipped: 0, total: 0, reason: "translation provider is not configured" };
+  const locales = opts.locale && LOCALIZED_LOCALES.includes(opts.locale as SupportedLocale)
+    ? [opts.locale as SupportedLocale]
+    : [...LOCALIZED_LOCALES];
+  const limit = Math.max(1, Math.min(500, Number(opts.limit || 100) || 100));
+  const paths = await candidateTranslationPaths(env, limit);
+  const base = await translationSiteBase(env);
+  const fakeContext = { env } as AppContext;
+  let queued = 0;
+  let skipped = 0;
+  for (const locale of locales) {
+    for (const path of paths) {
+      const payload = await payloadForPath(fakeContext, base, path, []);
+      if (payload.status === 404 || payload.robots?.includes("noindex")) {
+        skipped += 1;
+        continue;
+      }
+      const sourceHash = translationSourceHash(payload);
+      const existing = await env.DB.prepare(
+        "SELECT 1 FROM content_translations WHERE locale = ? AND path = ? AND source_hash = ? AND status = 'complete' LIMIT 1",
+      ).bind(locale, path, sourceHash).first();
+      if (existing) {
+        skipped += 1;
+        continue;
+      }
+      await queueTranslationJob(env, ctx, locale, path, sourceHash);
+      queued += 1;
+    }
+  }
+  return { ok: true, queued, skipped, total: queued + skipped, locales, paths: paths.length };
 }
 
 function isSafeSeoAnchorUrl(url: string): boolean {
@@ -1016,29 +1717,31 @@ async function loadTagsApi(c: AppContext) {
   }));
 }
 
-function rootSchemas(base: string): SeoSchema[] {
+function rootSchemas(base: string, locale: SupportedLocale): SeoSchema[] {
+  const details = LOCALE_DETAILS[locale];
+  const rootUrl = absoluteLocalizedUrl(base, "/", locale);
   return [
     {
       "@context": "https://schema.org",
       "@type": "WebSite",
-      "@id": `${base}/#website`,
+      "@id": `${rootUrl}#website`,
       name: SITE_NAME,
       alternateName: SITE_TAGLINE,
       description: SITE_DESCRIPTION,
-      url: `${base}/`,
-      inLanguage: CONTENT_LANGUAGE,
+      url: rootUrl,
+      inLanguage: details.contentLanguage,
       publisher: {
         "@type": "Organization",
-        "@id": `${base}/#organization`,
+        "@id": `${rootUrl}#organization`,
         name: SITE_NAME,
         alternateName: SITE_TAGLINE,
-        url: `${base}/`,
+        url: rootUrl,
       },
       potentialAction: {
         "@type": "SearchAction",
         target: {
           "@type": "EntryPoint",
-          urlTemplate: `${base}/search?q={search_term_string}`,
+          urlTemplate: `${absoluteLocalizedUrl(base, "/search", locale)}?q={search_term_string}`,
         },
         "query-input": "required name=search_term_string",
       },
@@ -1046,12 +1749,12 @@ function rootSchemas(base: string): SeoSchema[] {
     {
       "@context": "https://schema.org",
       "@type": "Organization",
-      "@id": `${base}/#organization`,
+      "@id": `${rootUrl}#organization`,
       name: SITE_NAME,
       alternateName: SITE_TAGLINE,
       slogan: SITE_TAGLINE,
       description: SITE_DESCRIPTION,
-      url: `${base}/`,
+      url: rootUrl,
     },
   ];
 }
@@ -1993,7 +2696,7 @@ function contactPayload(base: string, anchors: SeoAnchorLink[]): SeoPayload {
 }
 
 async function payloadForPath(c: AppContext, base: string, pathname: string, anchors: SeoAnchorLink[]): Promise<SeoPayload> {
-  const parts = pathname.split("/").filter(Boolean).map((part) => decodeURIComponent(part));
+  const parts = safeDecodePathParts(pathname);
   if (pathname === "/") return homePayload(c, base, anchors);
   if (parts[0] === "t" && parts[1]) return (await threadPayload(c, base, parts[1], anchors)) ?? notFoundPayload(pathname, "Thread not found");
   if (parts[0] === "c" && parts[1]) return (await categoryPayload(c, base, parts[1], anchors)) ?? notFoundPayload(pathname, "Category not found");
@@ -2009,7 +2712,7 @@ async function payloadForPath(c: AppContext, base: string, pathname: string, anc
 }
 
 function shouldLoadSeoAnchors(pathname: string): boolean {
-  const section = pathname.split("/").filter(Boolean)[0] ?? "";
+  const section = parseLocalePath(pathname).path.split("/").filter(Boolean)[0] ?? "";
   return !["admin", "login", "register", "new-thread", "search"].includes(section);
 }
 
@@ -2026,7 +2729,7 @@ function shouldRenderHtml(c: AppContext): boolean {
 
 function isPublicHtmlCacheable(c: AppContext, url: URL): boolean {
   if (c.req.header("cookie")) return false;
-  const section = url.pathname.split("/").filter(Boolean)[0] ?? "";
+  const section = parseLocalePath(url.pathname).path.split("/").filter(Boolean)[0] ?? "";
   if (["admin", "login", "register", "new-thread", "search"].includes(section)) return false;
   return true;
 }
@@ -2042,13 +2745,28 @@ function publicHtmlCacheControl() {
   return `public, max-age=${PUBLIC_HTML_BROWSER_TTL}, stale-while-revalidate=${PUBLIC_HTML_EDGE_TTL}`;
 }
 
-function stripFallbackHead(html: string): string {
+function effectiveMetaLocale(payload: SeoPayload, locale: SupportedLocale): SupportedLocale {
+  return locale !== "en" && payload.localized?.translated === false ? "en" : locale;
+}
+
+function effectiveRobots(payload: SeoPayload, locale: SupportedLocale): string {
+  if (locale !== "en" && payload.localized?.translated === false && !payload.robots?.includes("noindex")) return "noindex,follow";
+  return payload.robots ?? "index,follow";
+}
+
+function isPayloadReadyForLocale(payload: SeoPayload, locale: SupportedLocale): boolean {
+  return locale === "en" || payload.localized?.translated !== false;
+}
+
+function stripFallbackHead(html: string, locale: SupportedLocale, translated = true): string {
+  const details = LOCALE_DETAILS[locale];
   return html
-    .replace(/<html\s+lang="[^"]*"/i, `<html lang="${HTML_LANG}"`)
+    .replace(/<html\s+lang="[^"]*"[^>]*>/i, `<html lang="${details.htmlLang}" dir="${details.dir}" data-fstdesk-translated="${translated ? "1" : "0"}">`)
     .replace(/^[ \t]*<title>[\s\S]*?<\/title>[ \t]*\r?\n?/im, "")
-    .replace(/^[ \t]*<meta\s+(?:name|property)="(?:description|robots|application-name|apple-mobile-web-app-title|author|publisher|keywords|twitter:card|twitter:title|twitter:description|twitter:image|twitter:image:alt|og:site_name|og:type|og:title|og:description|og:url|og:image|og:image:secure_url|og:image:type|og:image:width|og:image:height|og:image:alt|og:locale|article:published_time|article:modified_time|article:section|article:tag)"[^>]*>[ \t]*\r?\n?/gim, "")
+    .replace(/^[ \t]*<meta\s+(?:name|property)="(?:description|robots|application-name|apple-mobile-web-app-title|author|publisher|keywords|twitter:card|twitter:title|twitter:description|twitter:image|twitter:image:alt|og:site_name|og:type|og:title|og:description|og:url|og:image|og:image:secure_url|og:image:type|og:image:width|og:image:height|og:image:alt|og:locale|og:locale:alternate|article:published_time|article:modified_time|article:section|article:tag)"[^>]*>[ \t]*\r?\n?/gim, "")
     .replace(/^[ \t]*<meta\s+http-equiv="content-language"[^>]*>[ \t]*\r?\n?/gim, "")
     .replace(/^[ \t]*<link\s+rel="canonical"[^>]*>[ \t]*\r?\n?/gim, "")
+    .replace(/^[ \t]*<link\s+rel="alternate"[^>]*>[ \t]*\r?\n?/gim, "")
     .replace(/\n{3,}/g, "\n\n");
 }
 
@@ -2071,14 +2789,20 @@ function seoKeywords(payload: SeoPayload): string {
   ).join(", ");
 }
 
-function metaHtml(payload: SeoPayload, base: string): string {
-  const canonical = absoluteUrl(base, payload.canonicalPath);
+function metaHtml(payload: SeoPayload, base: string, locale: SupportedLocale): string {
+  const metaLocale = effectiveMetaLocale(payload, locale);
+  const details = LOCALE_DETAILS[metaLocale];
+  const canonicalPath = localizePath(payload.canonicalPath, metaLocale);
+  const canonical = absoluteUrl(base, canonicalPath);
   const fullTitle = fullSeoTitle(payload.title);
   const imagePath = payload.imagePath ?? DEFAULT_IMAGE;
   const image = absoluteUrl(base, imagePath);
   const imageType = imagePath.toLowerCase().endsWith(".webp") ? "image/webp" : "image/svg+xml";
   const imageAlt = payload.imageAlt ?? fullTitle;
-  const schemas = [...rootSchemas(base), ...(payload.schemas ?? [])];
+  const robots = effectiveRobots(payload, locale);
+  const alternates = robots.includes("noindex") ? [] : localizedAlternates(payload.canonicalPath);
+  const schemas = [...rootSchemas(base, metaLocale), ...(payload.schemas ?? [])]
+    .map((schema) => localizeSchemaValue(schema, base, metaLocale) as SeoSchema);
   const articleMeta =
     payload.type === "article"
       ? [
@@ -2091,14 +2815,15 @@ function metaHtml(payload: SeoPayload, base: string): string {
   return [
     `<title>${escapeHtml(fullTitle)}</title>`,
     `<meta name="description" content="${escapeHtml(payload.description)}" />`,
-    `<meta name="robots" content="${escapeHtml(payload.robots ?? "index,follow")}" />`,
+    `<meta name="robots" content="${escapeHtml(robots)}" />`,
     `<meta name="application-name" content="${escapeHtml(SITE_NAME)}" />`,
     `<meta name="apple-mobile-web-app-title" content="${escapeHtml(SITE_NAME)}" />`,
     `<meta name="author" content="${escapeHtml(SITE_NAME)}" />`,
     `<meta name="publisher" content="${escapeHtml(SITE_NAME)}" />`,
     `<meta name="keywords" content="${escapeHtml(seoKeywords(payload))}" />`,
-    `<meta http-equiv="content-language" content="${CONTENT_LANGUAGE}" />`,
+    `<meta http-equiv="content-language" content="${escapeHtml(details.contentLanguage)}" />`,
     `<link rel="canonical" href="${escapeHtml(canonical)}" />`,
+    ...alternates.map((alternate) => `<link rel="alternate" hreflang="${escapeHtml(alternate.hreflang)}" href="${escapeHtml(absoluteUrl(base, alternate.path))}" />`),
     `<meta property="og:site_name" content="${escapeHtml(SITE_NAME)}" />`,
     `<meta property="og:type" content="${payload.type === "article" ? "article" : payload.type === "profile" ? "profile" : "website"}" />`,
     `<meta property="og:title" content="${escapeHtml(fullTitle)}" />`,
@@ -2110,7 +2835,10 @@ function metaHtml(payload: SeoPayload, base: string): string {
     `<meta property="og:image:width" content="1200" />`,
     `<meta property="og:image:height" content="630" />`,
     `<meta property="og:image:alt" content="${escapeHtml(imageAlt)}" />`,
-    `<meta property="og:locale" content="${OG_LOCALE}" />`,
+    `<meta property="og:locale" content="${escapeHtml(details.ogLocale)}" />`,
+    ...alternates
+      .filter((alternate) => alternate.locale !== "x-default" && alternate.locale !== metaLocale)
+      .map((alternate) => `<meta property="og:locale:alternate" content="${escapeHtml(LOCALE_DETAILS[alternate.locale as SupportedLocale].ogLocale)}" />`),
     ...articleMeta,
     `<meta name="twitter:card" content="summary_large_image" />`,
     `<meta name="twitter:title" content="${escapeHtml(fullTitle)}" />`,
@@ -2123,7 +2851,7 @@ function metaHtml(payload: SeoPayload, base: string): string {
 
 async function bootstrapForUrl(c: AppContext, url: URL): Promise<BootstrapBuild> {
   const pathname = url.pathname;
-  const parts = pathname.split("/").filter(Boolean).map((part) => decodeURIComponent(part));
+  const parts = safeDecodePathParts(pathname);
   const queries: BootstrapQuery[] = [];
 
   const [categories, stats, adsConfig] = await Promise.all([loadCategoriesApi(c), loadStatsApi(c), loadAdsConfigApi(c)]);
@@ -2173,7 +2901,7 @@ async function bootstrapForUrl(c: AppContext, url: URL): Promise<BootstrapBuild>
   return { categories, payload: { queries } };
 }
 
-function staticSidebarHtml(pathname: string, categories: ApiCategory[]): string {
+function staticSidebarHtml(pathname: string, categories: ApiCategory[], locale: SupportedLocale): string {
   const nav = [
     { href: "/", label: "threads", exact: true },
     { href: "/members", label: "members" },
@@ -2185,8 +2913,9 @@ function staticSidebarHtml(pathname: string, categories: ApiCategory[]): string 
   const navHtml = nav
     .map((item) => {
       const active = item.exact ? pathname === item.href : pathname.startsWith(item.href);
+      const href = localizePath(item.href, locale);
       return [
-        `<a class="gb-tree-item${active ? " active" : ""}" href="${escapeHtml(item.href)}">`,
+        `<a class="gb-tree-item${active ? " active" : ""}" href="${escapeHtml(href)}">`,
         `<span style="color:${active ? "var(--gb-yellow)" : "var(--gb-gray)"};width:16px;flex-shrink:0">#</span>`,
         `<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${escapeHtml(item.label)}</span>`,
         "</a>",
@@ -2196,8 +2925,9 @@ function staticSidebarHtml(pathname: string, categories: ApiCategory[]): string 
 
   const categoryHtml = categories
     .map((cat, index) => {
-      const href = apiCategoryPath(cat);
-      const active = pathname === href || pathname === `/c/${cat.id}`;
+      const rawHref = apiCategoryPath(cat);
+      const href = localizePath(rawHref, locale);
+      const active = pathname === rawHref || pathname === `/c/${cat.id}`;
       return [
         `<a class="gb-tree-item${active ? " active" : ""}" href="${escapeHtml(href)}">`,
         `<span style="color:${CAT_COLORS[index % CAT_COLORS.length]};width:16px;flex-shrink:0;font-size:14px">${active ? "&gt;" : "#"}</span>`,
@@ -2227,7 +2957,7 @@ function staticSidebarHtml(pathname: string, categories: ApiCategory[]): string 
   ].join("");
 }
 
-function staticShellHtml(contentHtml: string, pathname: string, categories: ApiCategory[], embedded = false): string {
+function staticShellHtml(contentHtml: string, pathname: string, categories: ApiCategory[], embedded = false, locale: SupportedLocale = "en"): string {
   const page = pathname === "/" ? "threads" : pathname.replace("/", "").split("/")[0] || "threads";
   if (embedded) {
     return [
@@ -2242,18 +2972,18 @@ function staticShellHtml(contentHtml: string, pathname: string, categories: ApiC
     '<div class="gb-tabline">',
     '<div class="gb-tabline-left">',
     '<button class="gb-hamburger" title="Menu" aria-label="Open sidebar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>',
-    '<div class="gb-tab active" style="padding-left:12px"><a href="/" style="color:var(--gb-yellow);font-weight:700;text-decoration:none">FSTDESK</a></div>',
+    `<div class="gb-tab active" style="padding-left:12px"><a href="${escapeHtml(localizePath("/", locale))}" style="color:var(--gb-yellow);font-weight:700;text-decoration:none">FSTDESK</a></div>`,
     '<nav class="gb-header-nav" aria-label="Primary">',
-    '<a class="gb-header-link" href="/">threads</a>',
-    '<a class="gb-header-link" href="/members">members</a>',
-    '<a class="gb-header-link" href="/tags">tags</a>',
-    '<a class="gb-header-link" href="/what-is-fstdesk">what is fstdesk</a>',
+    `<a class="gb-header-link" href="${escapeHtml(localizePath("/", locale))}">threads</a>`,
+    `<a class="gb-header-link" href="${escapeHtml(localizePath("/members", locale))}">members</a>`,
+    `<a class="gb-header-link" href="${escapeHtml(localizePath("/tags", locale))}">tags</a>`,
+    `<a class="gb-header-link" href="${escapeHtml(localizePath("/what-is-fstdesk", locale))}">what is fstdesk</a>`,
     "</nav>",
     "</div>",
     '<div class="gb-tabline-right">utf-8 | unix</div>',
     "</div>",
     '<div class="gb-body">',
-    `<div class="gb-sidebar">${staticSidebarHtml(pathname, categories)}</div>`,
+    `<div class="gb-sidebar">${staticSidebarHtml(pathname, categories, locale)}</div>`,
     `<div class="gb-main">${contentHtml}</div>`,
     "</div>",
     '<div class="gb-statusbar">',
@@ -2303,26 +3033,37 @@ function prioritizeStylesheets(indexHtml: string): string {
   return html.replace("<head>", `<head>\n    ${block}`);
 }
 
-function injectHtml(indexHtml: string, payload: SeoPayload, base: string, url: URL, bootstrap: BootstrapBuild): string {
-  const withCleanHead = prioritizeStylesheets(stripFallbackHead(indexHtml));
-  const seoMeta = metaHtml(payload, base);
+function injectHtml(indexHtml: string, payload: SeoPayload, base: string, url: URL, contentPathname: string, bootstrap: BootstrapBuild, locale: SupportedLocale): string {
+  const metaLocale = effectiveMetaLocale(payload, locale);
+  const translated = isPayloadReadyForLocale(payload, locale);
+  const withCleanHead = prioritizeStylesheets(stripFallbackHead(indexHtml, metaLocale, translated));
+  const seoMeta = metaHtml(payload, base, locale);
+  const localeScript = `<script id="__FSTDESK_LOCALE_STATUS__" type="application/json">${escapeJsonScript({ locale, metaLocale, translated, status: payload.localized?.status ?? "complete" })}</script>`;
   const bootstrapScript = `<script id="__FSTDESK_BOOTSTRAP__" type="application/json">${escapeJsonScript(bootstrap.payload)}</script>`;
   const withMeta = /<meta\s+name="theme-color"[^>]*>\s*/i.test(withCleanHead)
     ? withCleanHead.replace(/(<meta\s+name="theme-color"[^>]*>\s*)/i, `$1\n    ${seoMeta}\n`)
     : withCleanHead.replace("<head>", `<head>\n    ${seoMeta}`);
   const withBootstrap = /<script\s+type="module"[^>]*src="[^"]+"[^>]*><\/script>/i.test(withMeta)
-    ? withMeta.replace(/(<script\s+type="module"[^>]*src="[^"]+"[^>]*><\/script>)/i, `${bootstrapScript}\n    $1`)
-    : withMeta.replace("</head>", `    ${bootstrapScript}\n  </head>`);
-  const content = payload.contentHtml ?? seoBlock(SITE_NAME, payload.description);
+    ? withMeta.replace(/(<script\s+type="module"[^>]*src="[^"]+"[^>]*><\/script>)/i, `${localeScript}\n    ${bootstrapScript}\n    $1`)
+    : withMeta.replace("</head>", `    ${localeScript}\n    ${bootstrapScript}\n  </head>`);
+  const content = localizeHtmlLinks(payload.contentHtml ?? seoBlock(SITE_NAME, payload.description), locale);
   return withBootstrap.replace(
     /<div id="root"><\/div>/,
-    `<div id="root">${staticShellHtml(content, url.pathname, bootstrap.categories, url.searchParams.get("embed") === "1")}</div>`,
+    `<div id="root">${staticShellHtml(content, contentPathname, bootstrap.categories, url.searchParams.get("embed") === "1", locale)}</div>`,
   );
 }
 
 export async function renderSeoHtml(c: AppContext): Promise<Response> {
   if (!shouldRenderHtml(c)) return c.env.ASSETS.fetch(c.req.raw);
   const url = new URL(c.req.url);
+  const localeInfo = parseLocalePath(url.pathname);
+  if (localeInfo.isLocalized && !shouldLocalizePath(localeInfo.path)) {
+    const target = new URL(url.toString());
+    target.pathname = localeInfo.path;
+    return c.redirect(target.toString(), 302);
+  }
+  const contentUrl = new URL(url.toString());
+  contentUrl.pathname = localeInfo.path;
   const cacheable = isPublicHtmlCacheable(c, url);
   const cacheKey = cacheable ? publicHtmlCacheKey(url) : null;
   if (cacheKey) {
@@ -2345,14 +3086,22 @@ export async function renderSeoHtml(c: AppContext): Promise<Response> {
   try {
     const base = `${url.protocol}//${url.host}`;
     const [anchors, bootstrap] = await Promise.all([
-      shouldLoadSeoAnchors(url.pathname) ? loadSeoAnchors(c) : Promise.resolve([]),
-      bootstrapForUrl(c, url),
+      shouldLoadSeoAnchors(contentUrl.pathname) ? loadSeoAnchors(c) : Promise.resolve([]),
+      bootstrapForUrl(c, contentUrl),
     ]);
-    const payload = await payloadForPath(c, base, url.pathname, anchors);
-    const html = injectHtml(await assetResponse.text(), payload, base, url, bootstrap);
+    const payload = await applyTranslationOrQueue(
+      c,
+      await payloadForPath(c, base, contentUrl.pathname, anchors),
+      localeInfo.locale,
+      contentUrl.pathname,
+    );
+    const html = injectHtml(await assetResponse.text(), payload, base, url, contentUrl.pathname, bootstrap, localeInfo.locale);
     const headers = new Headers(assetResponse.headers);
+    const metaLocale = effectiveMetaLocale(payload, localeInfo.locale);
+    const localeReady = isPayloadReadyForLocale(payload, localeInfo.locale);
     headers.set("content-type", "text/html; charset=utf-8");
-    if (cacheable && (payload.status ?? assetResponse.status) === 200) {
+    headers.set("content-language", LOCALE_DETAILS[metaLocale].contentLanguage);
+    if (cacheable && localeReady && (payload.status ?? assetResponse.status) === 200) {
       headers.set("cache-control", publicHtmlCacheControl());
       headers.set("cdn-cache-control", `public, max-age=${PUBLIC_HTML_EDGE_TTL}`);
       headers.set("cloudflare-cdn-cache-control", `public, max-age=${PUBLIC_HTML_EDGE_TTL}`);

@@ -3,10 +3,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, ChevronDown } from "lucide-react";
 import type { CSSProperties } from "react";
 import { api } from "../../lib/api";
-import { categoryPath } from "../../lib/routes";
+import { categoryPath, publicPath } from "../../lib/routes";
 import { useState } from "react";
 import { AdSlot } from "../AdSlot";
 import { bootstrapQueryOptions } from "../../lib/bootstrap";
+import { parseLocalePath } from "../../../shared/locales";
 
 const CAT_COLORS = ["#b8bb26","#83a598","#fabd2f","#d3869b","#8ec07c","#fe8019","#fb4934","#a89984"];
 const MOBILE_NAV_ITEMS = [
@@ -49,6 +50,7 @@ function SidebarStickyAd({ routeKey }: { routeKey: string }) {
 export function Sidebar({ onClose }: { onClose?: () => void }) {
   const location = useLocation();
   const { pathname } = location;
+  const publicPathname = parseLocalePath(pathname).path;
   const adRouteKey = `${location.pathname}${location.search}${location.hash}`;
   const qc = useQueryClient();
   const { data: categories } = useQuery({
@@ -72,9 +74,10 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
         <div className="gb-sidebar-mobile-nav">
           <div className="gb-section">NAVIGATION</div>
           {MOBILE_NAV_ITEMS.map((item) => {
-            const activeNav = item.exact ? pathname === item.href : pathname === item.href || pathname.startsWith(`${item.href}/`);
+            const href = publicPath(item.href);
+            const activeNav = item.exact ? publicPathname === item.href : publicPathname === item.href || publicPathname.startsWith(`${item.href}/`);
             return (
-              <Link key={item.href} to={item.href} className={`gb-tree-item${activeNav ? " active" : ""}`} onClick={onClose}>
+              <Link key={item.href} to={href} className={`gb-tree-item${activeNav ? " active" : ""}`} onClick={onClose}>
                 <span style={{ color: activeNav ? "var(--gb-yellow)" : "var(--gb-gray)", width: 16, flexShrink: 0 }}>
                   {activeNav ? ">" : "#"}
                 </span>
@@ -92,7 +95,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
 
         {catsOpen && categories?.map((cat, i) => {
           const href = categoryPath(cat);
-          const activeCat = pathname === href || pathname === `/c/${cat.id}`;
+          const activeCat = publicPathname === `/c/${cat.publicId}` || publicPathname === `/c/${cat.id}`;
           return (
             <Link
               key={cat.id}

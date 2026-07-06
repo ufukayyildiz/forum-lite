@@ -7,6 +7,7 @@ import { GbToolbar } from "../components/layout/Header";
 import { SEOHead } from "../components/SEOHead";
 import { ListAdRow, shouldShowLeadListAd, shouldShowListAd } from "../components/ListAdRow";
 import { bootstrapQueryOptions } from "../lib/bootstrap";
+import { memberPath } from "../lib/routes";
 
 const ROLE_LABEL: Record<string, string> = { admin: "[admin]", moderator: "[mod]" };
 const ROLE_COLOR: Record<string, string> = { admin: "var(--gb-red)", moderator: "var(--gb-blue)" };
@@ -102,7 +103,7 @@ export default function MembersPage() {
                       </td>
                       <td className="gb-member-name-cell">
                         <div className="gb-member-name-line">
-                          <Link to={`/u/${m.username}`} className="gb-col-name gb-member-name-link" style={{ color: "var(--gb-green)" }}>
+                          <Link to={memberPath(m.username)} className="gb-col-name gb-member-name-link" style={{ color: "var(--gb-green)" }}>
                             {m.displayName}
                           </Link>
                           {ROLE_LABEL[m.role] && (

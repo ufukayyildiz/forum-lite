@@ -23,6 +23,10 @@
 //         npx wrangler secret put EMAIL_VERIFY_SECRET --config wrangler.local.jsonc
 //         npx wrangler secret put EMAIL_VERIFY_FROM --config wrangler.local.jsonc
 //         npx wrangler secret put EMAIL_VERIFY_HELO --config wrangler.local.jsonc
+// Optional content translation provider:
+//         npx wrangler queues create fstdesk-translation-jobs
+//         npx wrangler secret put TRANSLATION_API_KEY --config wrangler.local.jsonc
+//         Optional vars/settings: TRANSLATION_API_URL, TRANSLATION_MODEL
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "forum-lite",
@@ -73,5 +77,31 @@
       "name": "SEND_EMAIL",
       "allowed_sender_addresses": ["noreply@example.com"]
     }
-  ]
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "MARKETING_QUEUE",
+        "queue": "fstdesk-marketing-email-jobs"
+      },
+      {
+        "binding": "TRANSLATION_QUEUE",
+        "queue": "fstdesk-translation-jobs"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "fstdesk-marketing-email-jobs",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 3
+      },
+      {
+        "queue": "fstdesk-translation-jobs",
+        "max_batch_size": 2,
+        "max_batch_timeout": 2,
+        "max_retries": 3
+      }
+    ]
+  }
 }

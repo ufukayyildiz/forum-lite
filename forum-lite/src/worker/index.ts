@@ -15,7 +15,7 @@ import contactRoutes from "./routes/contact";
 import anchorRoutes from "./routes/anchors";
 import { schema, getDb } from "./db";
 import type { Bindings, Variables } from "./types";
-import { renderSeoHtml } from "./lib/seo";
+import { processTranslationJobs, renderSeoHtml } from "./lib/seo";
 import { serveDefaultWebp, serveThreadWebp } from "./lib/og";
 import { legacyCanonicalRedirect } from "./lib/legacy-redirects";
 import { parseBounceEmail } from "./lib/bounce";
@@ -25,6 +25,7 @@ import { createAnalyticsPageview, updateAnalyticsDuration } from "./lib/analytic
 import { syncCloudflareEmailSuppressions } from "./lib/email-sync";
 import { errorToRecord, recordErrorEvent, requestErrorMeta } from "./lib/error-events";
 import { ensureCoreSchema } from "./lib/core-schema";
+import { localizedAlternates } from "../shared/locales";
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -423,9 +424,12 @@ function sitemapUrl(
   path: string,
   opts: { lastmod?: number | string | Date | null; changefreq?: string; priority?: string } = {},
 ): string {
+  const alternates = localizedAlternates(path)
+    .map((alternate) => `<xhtml:link rel="alternate" hreflang="${xmlEscape(alternate.hreflang)}" href="${xmlEscape(base + alternate.path)}" />`);
   return [
     "<url>",
     `<loc>${xmlEscape(base + path)}</loc>`,
+    ...alternates,
     opts.lastmod ? `<lastmod>${safeDate(opts.lastmod)}</lastmod>` : "",
     opts.changefreq ? `<changefreq>${opts.changefreq}</changefreq>` : "",
     opts.priority ? `<priority>${opts.priority}</priority>` : "",
@@ -434,7 +438,7 @@ function sitemapUrl(
 }
 
 function urlset(urls: string[]): string {
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join("\n")}\n</urlset>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n${urls.join("\n")}\n</urlset>`;
 }
 
 function sitemapIndex(base: string): string {
@@ -1087,9 +1091,28 @@ async function handleScheduled(_controller: ScheduledController, env: Bindings, 
     });
   ctx.waitUntil(syncIfDue);
   ctx.waitUntil(processMarketingJobs(env, ctx));
+  ctx.waitUntil(processTranslationJobs(env, ctx).catch((error) => {
+    console.warn("scheduled_translation_jobs_failed", error instanceof Error ? error.message : String(error));
+  }));
 }
 
-async function handleQueue(batch: MessageBatch<{ jobId?: string }>, env: Bindings, ctx: ExecutionContext): Promise<void> {
+async function handleQueue(batch: MessageBatch<{ jobId?: string; locale?: string; path?: string }>, env: Bindings, ctx: ExecutionContext): Promise<void> {
+  if (batch.queue.includes("translation")) {
+    for (const message of batch.messages) {
+      const jobId = typeof message.body?.jobId === "string" ? message.body.jobId : undefined;
+      const locale = typeof message.body?.locale === "string" ? message.body.locale : undefined;
+      const path = typeof message.body?.path === "string" ? message.body.path : undefined;
+      try {
+        await processTranslationJobs(env, ctx, { jobId, locale, path, limit: 1 });
+        message.ack();
+      } catch (error) {
+        console.warn("translation_queue_job_failed", locale ?? jobId ?? "batch", error instanceof Error ? error.message : String(error));
+        message.retry({ delaySeconds: 60 });
+      }
+    }
+    return;
+  }
+
   for (const message of batch.messages) {
     const jobId = typeof message.body?.jobId === "string" ? message.body.jobId : "";
     if (!/^[a-f0-9]{20}$/i.test(jobId)) {

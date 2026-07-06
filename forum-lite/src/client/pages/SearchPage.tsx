@@ -7,6 +7,7 @@ import { GbToolbar } from "../components/layout/Header";
 import { SEOHead } from "../components/SEOHead";
 import { relativeTime } from "../lib/utils";
 import { ThreadLink } from "../components/ThreadLink";
+import { memberPath } from "../lib/routes";
 
 export default function SearchPage() {
   const [sp, setSp] = useSearchParams();
@@ -96,7 +97,7 @@ export default function SearchPage() {
                         <td style={{ color: "var(--gb-gray)", textAlign: "right", paddingRight: 16, width: 48, fontSize: 12 }}>{i + 1}</td>
                         <td style={{ width: 36 }}><DAvatar src={u.avatarUrl} name={u.displayName} size={24} /></td>
                         <td>
-                          <Link to={`/u/${u.username}`} className="gb-col-name" style={{ color: "var(--gb-green)" }}>{u.displayName}</Link>
+                          <Link to={memberPath(u.username)} className="gb-col-name" style={{ color: "var(--gb-green)" }}>{u.displayName}</Link>
                           <span style={{ color: "var(--gb-gray)", fontSize: 12, marginLeft: 8 }}>@{u.username}</span>
                         </td>
                         <td />

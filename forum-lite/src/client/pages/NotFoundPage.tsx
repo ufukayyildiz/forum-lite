@@ -5,6 +5,7 @@ import { GbToolbar } from "../components/layout/Header";
 import { AdSlot } from "../components/AdSlot";
 import { api } from "../lib/api";
 import { bootstrapQueryOptions } from "../lib/bootstrap";
+import { publicPath } from "../lib/routes";
 
 export default function NotFoundPage() {
   const location = useLocation();
@@ -41,11 +42,11 @@ export default function NotFoundPage() {
             <tr>
               <td style={{ color: "var(--gb-bg3)", textAlign: "right", paddingRight: 16, fontSize: 12 }}>~</td>
               <td colSpan={2} style={{ color: "var(--gb-fg4)" }}>
-                <Link to="/" style={{ color: "var(--gb-yellow)", fontWeight: 700 }}>$ threads</Link>
+                <Link to={publicPath("/")} style={{ color: "var(--gb-yellow)", fontWeight: 700 }}>$ threads</Link>
                 <span style={{ color: "var(--gb-gray)" }}> / </span>
-                <Link to="/members" style={{ color: "var(--gb-green)", fontWeight: 700 }}>$ members</Link>
+                <Link to={publicPath("/members")} style={{ color: "var(--gb-green)", fontWeight: 700 }}>$ members</Link>
                 <span style={{ color: "var(--gb-gray)" }}> / </span>
-                <Link to="/tags" style={{ color: "var(--gb-aqua)", fontWeight: 700 }}>$ tags</Link>
+                <Link to={publicPath("/tags")} style={{ color: "var(--gb-aqua)", fontWeight: 700 }}>$ tags</Link>
               </td>
             </tr>
             {Array.from({ length: 8 }).map((_, i) => (

@@ -1,6 +1,7 @@
 import type { Context } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import type { Bindings, Variables } from "../types";
+import { parseLocalePath } from "../../shared/locales";
 
 type AppContext = Context<{ Bindings: Bindings; Variables: Variables }>;
 
@@ -82,7 +83,7 @@ function normalizePath(rawPath: unknown, requestUrl: string): string {
 }
 
 function routeType(path: string): string {
-  const pathname = path.split("?")[0] || "/";
+  const pathname = parseLocalePath(path.split("?")[0] || "/").path;
   if (pathname === "/") return "home";
   if (pathname.startsWith("/t/")) return "thread";
   if (pathname.startsWith("/c/")) return "category";

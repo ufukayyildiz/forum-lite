@@ -15,6 +15,7 @@ import { classificationForPreflight, preflightEmail, type EmailPreflightResult }
 import { isEmailSuppressed, normalizeEmailAddress, recordEmailSuppression } from "../lib/email-suppression";
 import { syncCloudflareEmailSuppressions } from "../lib/email-sync";
 import { assertReachableHttpsUrl, assertValidBioLinks } from "../lib/profile-links";
+import { processTranslationJobs, queueMissingTranslations, translationPipelineStatus } from "../lib/seo";
 
 const app = new Hono<AppEnv>();
 const WE_ARE_BACK_CAMPAIGN = "we-are-back";
@@ -2739,6 +2740,27 @@ app.post("/marketing/send", zValidator("json", z.object({
   });
 });
 
+app.get("/translations", async (c) => {
+  return c.json(await translationPipelineStatus(c.env));
+});
+
+app.post("/translations/queue", zValidator("json", z.object({
+  locale: z.string().trim().min(2).max(8).optional(),
+  limit: z.number().int().min(1).max(500).optional(),
+}).default({})), async (c) => {
+  const result = await queueMissingTranslations(c.env, c.executionCtx, c.req.valid("json"));
+  return c.json(result, result.ok ? 202 : 409);
+});
+
+app.post("/translations/process", zValidator("json", z.object({
+  locale: z.string().trim().min(2).max(8).optional(),
+  path: z.string().trim().min(1).max(300).optional(),
+  limit: z.number().int().min(1).max(25).optional(),
+}).default({})), async (c) => {
+  const result = await processTranslationJobs(c.env, c.executionCtx, c.req.valid("json"));
+  return c.json(result, result.ok ? 200 : 409);
+});
+
 app.get("/settings", async (c) => {
   const db = c.get("db");
   const rows = await db.select().from(schema.settings);
@@ -2752,6 +2774,11 @@ app.get("/settings", async (c) => {
   result.email_ses_transport = result.email_ses_transport || emailSettings.sesTransport;
   result.email_ses_port = result.email_ses_port || String(emailSettings.sesPort);
   result.email_test_to = result.email_test_to || emailSettings.testTo;
+  result.translation_enabled = result.translation_enabled || "true";
+  result.translation_provider = result.translation_provider || "openai_compatible";
+  result.translation_api_url = result.translation_api_url || c.env.TRANSLATION_API_URL || "https://api.openai.com/v1/chat/completions";
+  result.translation_model = result.translation_model || c.env.TRANSLATION_MODEL || "gpt-4o-mini";
+  result.translation_batch_limit = result.translation_batch_limit || "4";
   result._email_cf_configured = c.env.SEND_EMAIL ? "true" : "false";
   result._email_ses_configured = isAwsSesConfigured(c.env, emailSettings.sesTransport) ? "true" : "false";
   result._email_ses_smtp_configured = isAwsSesConfigured(c.env, "smtp") ? "true" : "false";

@@ -24,6 +24,11 @@ const FIELDS = [
   { key: "email_ses_port",        label: "--ses-port",             placeholder: "587", hint: "SMTP STARTTLS port" },
   { key: "email_test_to",         label: "--test-email-to",        placeholder: "ufuk@devfox.net", hint: "Default test recipient" },
   { key: "site_url",              label: "--site-url",             placeholder: "https://fstdesk.com", hint: "Public site URL (used in emails)" },
+  { key: "translation_enabled",   label: "--translation-enabled",  placeholder: "true", hint: "localized pages use cache; missing pages stay noindex", type: "select", options: ["true", "false"] },
+  { key: "translation_provider",  label: "--translation-provider", placeholder: "openai_compatible", hint: "openai_compatible / disabled", type: "select", options: ["openai_compatible", "disabled"] },
+  { key: "translation_api_url",   label: "--translation-api-url",  placeholder: "https://api.openai.com/v1/chat/completions", hint: "OpenAI-compatible chat completions endpoint" },
+  { key: "translation_model",     label: "--translation-model",    placeholder: "gpt-4o-mini", hint: "Model used by background translation jobs" },
+  { key: "translation_batch_limit",label: "--translation-batch",   placeholder: "4", hint: "Jobs processed per queue/cron run" },
 ];
 
 const SAVED_KEYS = new Set(FIELDS.map((field) => field.key));
@@ -31,6 +36,7 @@ const SAVED_KEYS = new Set(FIELDS.map((field) => field.key));
 export default function AdminSettings() {
   const qc = useQueryClient();
   const { data, isLoading } = useQuery({ queryKey: ["admin-settings"], queryFn: api.adminSettings });
+  const { data: translationStatus } = useQuery({ queryKey: ["admin-translations"], queryFn: api.adminTranslations, refetchInterval: 15000 });
   const [form, setForm] = useState<Record<string, string>>({});
   const [testTo, setTestTo] = useState("ufuk@devfox.net");
 
@@ -51,6 +57,22 @@ export default function AdminSettings() {
     onSuccess: (res) => toast.success(`Test email ${res.status}: ${res.to}`),
     onError: (e: any) => toast.error(e.message),
   });
+  const queueTranslations = useMutation({
+    mutationFn: () => api.adminQueueTranslations({ limit: 100 }),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["admin-translations"] });
+      toast.success(`Queued ${res.queued}, skipped ${res.skipped}`);
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+  const processTranslations = useMutation({
+    mutationFn: () => api.adminProcessTranslations({ limit: Number(form.translation_batch_limit || 4) || 4 }),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["admin-translations"] });
+      toast.success(`Processed ${res.processed}: ${res.complete} complete, ${res.error} error`);
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
 
   const provider = form.email_provider || "cloudflare";
   const sesTransport = form.email_ses_transport || "smtp";
@@ -67,6 +89,33 @@ export default function AdminSettings() {
           <span>{providerConfigured ? "configured" : "missing secrets/binding"}</span>
           {provider === "ses" && <span>transport: {sesTransport}{sesTransport === "smtp" ? `:${sesPort}` : ""}</span>}
           {provider === "ses" && <span>sender: {form.email_ses_from || "support@fstdesk.com"}</span>}
+        </div>
+      )}
+      {translationStatus && (
+        <div style={{ border: "1px solid var(--gb-bg2)", padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", color: "var(--gb-gray)", fontSize: 12 }}>
+            <span>translation: <strong style={{ color: translationStatus.configured ? "var(--gb-green)" : "var(--gb-red)" }}>{translationStatus.provider}</strong></span>
+            <span>{translationStatus.enabled ? "enabled" : "disabled"}</span>
+            <span>{translationStatus.configured ? "configured" : "missing TRANSLATION_API_KEY"}</span>
+            <span>queue: {translationStatus.queueBinding ? "bound" : "waitUntil fallback"}</span>
+            <span>jobs q/r/e: {translationStatus.jobs.queued}/{translationStatus.jobs.running}/{translationStatus.jobs.error}</span>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <button className="gb-btn" onClick={() => queueTranslations.mutate()} disabled={queueTranslations.isPending || save.isPending}>
+              {queueTranslations.isPending ? "$ queueing..." : "$ queue missing translations"}
+            </button>
+            <button className="gb-btn" onClick={() => processTranslations.mutate()} disabled={processTranslations.isPending || save.isPending}>
+              {processTranslations.isPending ? "$ processing..." : "$ process now"}
+            </button>
+            <span style={{ color: "var(--gb-gray)", fontSize: 11 }}>
+              {translationStatus.locales.map((row) => `${row.locale}:${row.complete}`).join(" ")}
+            </span>
+          </div>
+          {translationStatus.errors.length > 0 && (
+            <div style={{ color: "var(--gb-red)", fontSize: 11, lineHeight: 1.5 }}>
+              {translationStatus.errors.slice(0, 3).map((row) => `${row.locale} ${row.path}: ${row.error}`).join(" | ")}
+            </div>
+          )}
         </div>
       )}
       {isLoading ? (

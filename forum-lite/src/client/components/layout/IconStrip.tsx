@@ -2,8 +2,9 @@ import { Link, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Home, Users, AlignLeft } from "lucide-react";
 import { api } from "../../lib/api";
-import { categoryPath } from "../../lib/routes";
+import { categoryPath, publicPath } from "../../lib/routes";
 import { bootstrapQueryOptions } from "../../lib/bootstrap";
+import { parseLocalePath } from "../../../shared/locales";
 
 function catInitials(name: string) {
   return name.slice(0, 2).toUpperCase();
@@ -14,6 +15,7 @@ function colorFor(id: number) { return PALETTE[id % PALETTE.length]; }
 
 export function IconStrip({ onMobileMenu }: { onMobileMenu: () => void }) {
   const { pathname } = useLocation();
+  const publicPathname = parseLocalePath(pathname).path;
   const { data: categories } = useQuery({
     queryKey: ["categories"],
     queryFn: api.categories,
@@ -33,8 +35,8 @@ export function IconStrip({ onMobileMenu }: { onMobileMenu: () => void }) {
       </button>
 
       {/* Home */}
-      <Link to="/" style={{ textDecoration: "none" }}>
-        <div className={`strip-icon ${pathname === "/" ? "active" : ""}`} title="Forum Ana Sayfa">
+      <Link to={publicPath("/")} style={{ textDecoration: "none" }}>
+        <div className={`strip-icon ${publicPathname === "/" ? "active" : ""}`} title="Forum Ana Sayfa">
           <div className="pill" />
           <span style={{ fontSize: 22, fontWeight: 900, fontFamily: "serif" }}>F</span>
         </div>
@@ -45,7 +47,7 @@ export function IconStrip({ onMobileMenu }: { onMobileMenu: () => void }) {
       {/* Category shortcuts */}
       {categories?.map((cat) => {
         const href = categoryPath(cat);
-        const active = pathname === href || pathname === `/c/${cat.id}`;
+        const active = publicPathname === `/c/${cat.publicId}` || publicPathname === `/c/${cat.id}`;
         return (
           <Link key={cat.id} to={href} style={{ textDecoration: "none" }}>
             <div
@@ -67,8 +69,8 @@ export function IconStrip({ onMobileMenu }: { onMobileMenu: () => void }) {
       <div className="strip-divider" />
 
       {/* Members */}
-      <Link to="/members" style={{ textDecoration: "none" }}>
-        <div className={`strip-icon ${pathname.startsWith("/members") ? "active" : ""}`} title="Members">
+      <Link to={publicPath("/members")} style={{ textDecoration: "none" }}>
+        <div className={`strip-icon ${publicPathname.startsWith("/members") ? "active" : ""}`} title="Members">
           <div className="pill" />
           <Users size={20} />
         </div>

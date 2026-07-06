@@ -11,6 +11,7 @@ import {
   WHAT_IS_FSTDESK_TITLE,
   WHAT_IS_FSTDESK_TOPIC_EXAMPLES,
 } from "../../shared/what-is-fstdesk";
+import { publicPath } from "../lib/routes";
 
 export default function WhatIsFstdeskPage() {
   const origin = typeof window !== "undefined" ? window.location.origin : "";
@@ -90,10 +91,10 @@ export default function WhatIsFstdeskPage() {
             <h1>{WHAT_IS_FSTDESK_TITLE}</h1>
             <p>{WHAT_IS_FSTDESK_DESCRIPTION}</p>
             <div className="gb-what-quicklinks" aria-label="Quick links">
-              <Link to="/">threads</Link>
-              <Link to="/members">members</Link>
-              <Link to="/tags">tags</Link>
-              <Link to="/contact">contact</Link>
+              <Link to={publicPath("/")}>threads</Link>
+              <Link to={publicPath("/members")}>members</Link>
+              <Link to={publicPath("/tags")}>tags</Link>
+              <Link to={publicPath("/contact")}>contact</Link>
             </div>
           </header>
 
@@ -129,7 +130,7 @@ export default function WhatIsFstdeskPage() {
                   <tr key={topic.title}>
                     <td>{index + 1}</td>
                     <td>
-                      <Link to={topic.href}>{topic.title}</Link>
+                      <Link to={publicPath(topic.href)}>{topic.title}</Link>
                     </td>
                     <td>
                       <span className="gb-what-area">{topic.area}</span>

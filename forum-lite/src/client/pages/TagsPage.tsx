@@ -6,6 +6,7 @@ import { GbToolbar } from "../components/layout/Header";
 import { SEOHead } from "../components/SEOHead";
 import { ListAdRow, shouldShowLeadListAd, shouldShowListAd } from "../components/ListAdRow";
 import { bootstrapQueryOptions } from "../lib/bootstrap";
+import { tagPath } from "../lib/routes";
 
 const VISIBLE_ROWS = 18;
 
@@ -72,7 +73,7 @@ export default function TagsPage() {
                         <span style={{ color: "var(--gb-aqua)", fontSize: 13 }}>#</span>
                       </td>
                       <td>
-                        <Link to={`/tag/${t.slug}`} className="gb-col-name" style={{ color: "var(--gb-aqua)" }}>{t.name}</Link>
+                        <Link to={tagPath(t.slug)} className="gb-col-name" style={{ color: "var(--gb-aqua)" }}>{t.name}</Link>
                       </td>
                       <td style={{ textAlign: "right", paddingRight: 16, color: "var(--gb-fg4)", fontSize: 13 }}>{t.threadCount}</td>
                       <td colSpan={2} />

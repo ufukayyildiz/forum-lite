@@ -42,6 +42,7 @@ import AdminSuppressions from "./pages/admin/AdminSuppressions";
 import AdminAnchors from "./pages/admin/AdminAnchors";
 import { AnalyticsTracker } from "./components/AnalyticsTracker";
 import { installClientErrorReporting } from "./lib/error-reporting";
+import { LOCALIZED_LOCALES } from "../shared/locales";
 
 installClientErrorReporting();
 
@@ -51,6 +52,27 @@ try {
   console.warn("FSTDESK bootstrap skipped", error);
 }
 
+const publicRoutes = [
+  { path: "/", element: <HomePage /> },
+  { path: "/c/:id", element: <CategoryPage /> },
+  { path: "/t/:id", element: <ThreadPage /> },
+  { path: "/members", element: <MembersPage /> },
+  { path: "/u/:username", element: <MemberPage /> },
+  { path: "/search", element: <SearchPage /> },
+  { path: "/tags", element: <TagsPage /> },
+  { path: "/tag/:slug", element: <TagDetailPage /> },
+  { path: "/what-is-fstdesk", element: <WhatIsFstdeskPage /> },
+  { path: "/contact", element: <ContactPage /> },
+  { path: "/about", element: <AboutPage /> },
+];
+
+function routePath(prefix: string, path: string) {
+  if (!prefix) return path;
+  return path === "/" ? prefix : `${prefix}${path}`;
+}
+
+const localizedPrefixes = LOCALIZED_LOCALES.map((locale) => `/${locale}`);
+
 const app = (
   <React.StrictMode>
     <AppErrorBoundary>
@@ -59,20 +81,15 @@ const app = (
       <BrowserRouter>
         <AnalyticsTracker />
         <Routes>
-          <Route path="/" element={<Layout><HomePage /></Layout>} />
-          <Route path="/c/:id" element={<Layout><CategoryPage /></Layout>} />
-          <Route path="/t/:id" element={<Layout><ThreadPage /></Layout>} />
+          {publicRoutes.map((route) => (
+            <Route key={route.path} path={route.path} element={<Layout>{route.element}</Layout>} />
+          ))}
+          {localizedPrefixes.flatMap((prefix) => publicRoutes.map((route) => (
+            <Route key={`${prefix}${route.path}`} path={routePath(prefix, route.path)} element={<Layout>{route.element}</Layout>} />
+          )))}
           <Route path="/new-thread" element={<Layout><NewThreadPage /></Layout>} />
-          <Route path="/members" element={<Layout><MembersPage /></Layout>} />
-          <Route path="/u/:username" element={<Layout><MemberPage /></Layout>} />
           <Route path="/login" element={<Layout><LoginPage /></Layout>} />
           <Route path="/register" element={<Layout><RegisterPage /></Layout>} />
-          <Route path="/search" element={<Layout><SearchPage /></Layout>} />
-          <Route path="/tags" element={<Layout><TagsPage /></Layout>} />
-          <Route path="/tag/:slug" element={<Layout><TagDetailPage /></Layout>} />
-          <Route path="/what-is-fstdesk" element={<Layout><WhatIsFstdeskPage /></Layout>} />
-          <Route path="/contact" element={<Layout><ContactPage /></Layout>} />
-          <Route path="/about" element={<Layout><AboutPage /></Layout>} />
           <Route path="/admin" element={<Layout><AdminLayout /></Layout>}>
             <Route index element={<AdminDashboard />} />
             <Route path="users" element={<AdminUsers />} />

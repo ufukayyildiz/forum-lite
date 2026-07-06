@@ -3,7 +3,7 @@ import { MessageSquare, Eye, Pin, Lock } from "lucide-react";
 import { Avatar } from "./ui/avatar";
 import { Badge } from "./ui/badge";
 import { relativeTime } from "../lib/utils";
-import { categoryPath } from "../lib/routes";
+import { categoryPath, memberPath } from "../lib/routes";
 import type { Thread } from "../lib/api";
 import { ThreadLink } from "./ThreadLink";
 
@@ -25,7 +25,7 @@ export function ThreadCard({ thread }: { thread: Thread }) {
         </div>
 
         <div className="mt-1 flex items-center gap-3 text-xs text-[var(--color-muted-foreground)] flex-wrap">
-          <Link to={`/u/${thread.author.username}`} className="hover:text-[var(--color-foreground)]">
+          <Link to={memberPath(thread.author.username)} className="hover:text-[var(--color-foreground)]">
             {thread.author.displayName}
           </Link>
           <span>{relativeTime(thread.createdAt)}</span>

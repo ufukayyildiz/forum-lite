@@ -742,6 +742,21 @@ export const api = {
   adminSaveSettings: (b: Record<string, string>) => post<{ ok: boolean }>("/admin/settings", b),
   adminSendTestEmail: (b: { to?: string }) =>
     post<{ ok: boolean; status: string; provider: string; from: string; to: string; code: string | null; message: string | null; eventId: number }>("/admin/settings/email-test", b),
+  adminTranslations: () => get<{
+    enabled: boolean;
+    configured: boolean;
+    provider: string;
+    model: string;
+    batchLimit: number;
+    queueBinding: boolean;
+    locales: Array<{ locale: string; label: string; complete: number }>;
+    jobs: { queued: number; running: number; complete: number; error: number };
+    errors: Array<{ locale: string; path: string; error: string; updatedAt: number }>;
+  }>("/admin/translations"),
+  adminQueueTranslations: (b: { locale?: string; limit?: number } = {}) =>
+    post<{ ok: boolean; queued: number; skipped: number; total: number; reason?: string }>("/admin/translations/queue", b),
+  adminProcessTranslations: (b: { locale?: string; path?: string; limit?: number } = {}) =>
+    post<{ ok: boolean; processed: number; complete: number; error: number; reason?: string }>("/admin/translations/process", b),
 
   // attachments
   attachmentConfig: () => get<{ enabled: boolean; maxMb: number; allowedMime: string[] }>("/attachments/config"),

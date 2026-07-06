@@ -11,7 +11,7 @@ import { SEOHead } from "../components/SEOHead";
 import { AdSlot } from "../components/AdSlot";
 import { MarkdownContent } from "../components/MarkdownContent";
 import { ThreadLink } from "../components/ThreadLink";
-import { categoryPath, threadPath } from "../lib/routes";
+import { categoryPath, memberPath, tagPath, threadPath } from "../lib/routes";
 import { activeAdInterval } from "../lib/ads";
 import { normalizeQuoteFirstMarkdown } from "../lib/sanitize";
 import { toast } from "sonner";
@@ -213,13 +213,13 @@ function PostItem({ post, threadId, onQuote, anchors, currentPath }: {
     <>
     <div className="gb-post" style={{ padding: "12px 20px" }}>
       <div className="gb-post-avatar" style={{ flexShrink: 0 }}>
-        <Link to={`/u/${post.author.username}`}>
+        <Link to={memberPath(post.author.username)}>
           <DAvatar src={post.author.avatarUrl} name={post.author.displayName} size={32} />
         </Link>
       </div>
       <div className="gb-post-main" style={{ flex: 1, minWidth: 0 }}>
         <div className="gb-post-meta">
-          <Link to={`/u/${post.author.username}`} className="gb-post-author" style={{ textDecoration: "none" }}>
+          <Link to={memberPath(post.author.username)} className="gb-post-author" style={{ textDecoration: "none" }}>
             {post.author.displayName}
           </Link>
           {post.author.role === "admin" && <span className="gb-post-role-admin">[admin]</span>}
@@ -562,7 +562,7 @@ export default function ThreadPage() {
       <div className="gb-content" style={{ padding: "0 20px 20px" }}>
         {/* Thread meta bar */}
         <div className="gb-thread-meta-bar" style={{ display: "flex", alignItems: "center", gap: 16, padding: "8px 0", borderBottom: "1px solid var(--gb-bg2)", fontSize: 12, color: "var(--gb-gray)", flexWrap: "wrap" }}>
-          <span>by <Link to={`/u/${thread.author.username}`} style={{ color: "var(--gb-green)" }}>{thread.author.displayName}</Link></span>
+          <span>by <Link to={memberPath(thread.author.username)} style={{ color: "var(--gb-green)" }}>{thread.author.displayName}</Link></span>
           <span>{formatDate(thread.createdAt)}</span>
           {threadEdited && <span title={formatDate(threadEdited)}>edited {relativeTime(threadEdited)}</span>}
           {threadReviewed && <span title={formatDate(threadReviewed)}>last reviewed {relativeTime(threadReviewed)}</span>}
@@ -571,7 +571,7 @@ export default function ThreadPage() {
           {thread.locked && <span style={{ color: "var(--gb-orange)", fontWeight: 700 }}>[LOCKED]</span>}
           {thread.pinned && <span style={{ color: "var(--gb-yellow)", fontWeight: 700 }}>[PINNED]</span>}
           {thread.tags?.map((t) => (
-            <Link key={t.id} to={`/tag/${t.slug}`} className="gb-tag">{t.name}</Link>
+            <Link key={t.id} to={tagPath(t.slug)} className="gb-tag">{t.name}</Link>
           ))}
         </div>
 
@@ -585,13 +585,13 @@ export default function ThreadPage() {
         <div style={{ borderBottom: "1px solid var(--gb-bg2)" }}>
           <div className="gb-post" style={{ padding: "12px 20px" }}>
             <div className="gb-post-avatar" style={{ flexShrink: 0 }}>
-              <Link to={`/u/${thread.author.username}`}>
+              <Link to={memberPath(thread.author.username)}>
                 <DAvatar src={thread.author.avatarUrl} name={thread.author.displayName} size={32} />
               </Link>
             </div>
             <div className="gb-post-main" style={{ flex: 1, minWidth: 0 }}>
               <div className="gb-post-meta">
-                <Link to={`/u/${thread.author.username}`} className="gb-post-author" style={{ textDecoration: "none" }}>
+                <Link to={memberPath(thread.author.username)} className="gb-post-author" style={{ textDecoration: "none" }}>
                   {thread.author.displayName}
                 </Link>
                 {(thread.author.role === "admin" || thread.author.role === "moderator") && (

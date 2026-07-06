@@ -7,9 +7,12 @@ import { useMe } from "../../lib/useAuth";
 import { AlignLeft } from "lucide-react";
 import { bootstrapQueryOptions } from "../../lib/bootstrap";
 import { ExternalLinkDialog } from "../ExternalLinkDialog";
+import { memberPath, publicPath } from "../../lib/routes";
+import { parseLocalePath } from "../../../shared/locales";
 
 function Tabline({ onMenu }: { onMenu: () => void }) {
   const { pathname } = useLocation();
+  const publicPathname = parseLocalePath(pathname).path;
   const qc = useQueryClient();
   const { data: me } = useMe();
   const isStaff = me?.role === "admin" || me?.role === "moderator";
@@ -20,8 +23,8 @@ function Tabline({ onMenu }: { onMenu: () => void }) {
     { to: "/what-is-fstdesk", label: "what is fstdesk" },
   ];
   const active = (to: string) => {
-    if (to === "/") return pathname === "/" || pathname.startsWith("/t/") || pathname.startsWith("/c/");
-    return pathname === to || pathname.startsWith(`${to}/`);
+    if (to === "/") return publicPathname === "/" || publicPathname.startsWith("/t/") || publicPathname.startsWith("/c/");
+    return publicPathname === to || publicPathname.startsWith(`${to}/`);
   };
   const warmQuery = (to: string) => {
     if (to === "/") {
@@ -47,13 +50,13 @@ function Tabline({ onMenu }: { onMenu: () => void }) {
           <AlignLeft size={16} />
         </button>
         <div className="gb-tab active" style={{ paddingLeft: 12 }}>
-          <Link to="/" style={{ color: "var(--gb-yellow)", fontWeight: 700, textDecoration: "none" }}>FSTDESK</Link>
+          <Link to={publicPath("/")} style={{ color: "var(--gb-yellow)", fontWeight: 700, textDecoration: "none" }}>FSTDESK</Link>
         </div>
         <nav className="gb-header-nav" aria-label="Primary">
           {navItems.map((item) => (
             <Link
               key={item.to}
-              to={item.to}
+              to={publicPath(item.to)}
               className={`gb-header-link${active(item.to) ? " active" : ""}`}
               onFocus={() => warmQuery(item.to)}
               onPointerEnter={() => warmQuery(item.to)}
@@ -68,7 +71,7 @@ function Tabline({ onMenu }: { onMenu: () => void }) {
       <div className="gb-tabline-right">
         <span className="gb-encoding">utf-8 | unix</span>
         {me ? (
-          <Link to={isStaff ? "/admin" : `/u/${me.username}`} className={`gb-header-user${isStaff ? " is-admin" : ""}`}>
+          <Link to={isStaff ? "/admin" : memberPath(me.username)} className={`gb-header-user${isStaff ? " is-admin" : ""}`}>
             {isStaff ? "[admin]" : `@${me.username}`}
           </Link>
         ) : (
@@ -84,19 +87,20 @@ function Tabline({ onMenu }: { onMenu: () => void }) {
 
 function Statusbar() {
   const { pathname } = useLocation();
+  const publicPathname = parseLocalePath(pathname).path;
   const { data: stats } = useQuery({
     queryKey: ["stats"],
     queryFn: api.stats,
     ...bootstrapQueryOptions<any>(["stats"], { staleTime: 60_000 }),
   });
-  const page = pathname === "/" ? "threads" : pathname.replace("/", "").split("/")[0];
+  const page = publicPathname === "/" ? "threads" : publicPathname.replace("/", "").split("/")[0];
 
   return (
     <div className="gb-statusbar">
       <span className="gb-statusbar-mode">NORMAL</span>
       <span className="gb-statusbar-links">
-        <Link to="/contact">contact</Link>
-        <Link to="/about">about</Link>
+        <Link to={publicPath("/contact")}>contact</Link>
+        <Link to={publicPath("/about")}>about</Link>
       </span>
       <span style={{ flex: 1 }} />
       {stats && (

@@ -1,6 +1,6 @@
 import { Pin, Lock } from "lucide-react";
 import { relativeTime, formatCount } from "../lib/utils";
-import { categoryPath } from "../lib/routes";
+import { categoryPath, tagPath } from "../lib/routes";
 import type { Thread } from "../lib/api";
 import { Link } from "react-router-dom";
 import { ThreadLink } from "./ThreadLink";
@@ -45,7 +45,7 @@ export function TopicRow({ thread, showCategory = true, lineNum }: Props) {
             </Link>
           )}
           {thread.tags?.map((t) => (
-            <Link key={t.id} to={`/tag/${t.slug}`} className="gb-tag">{t.name}</Link>
+            <Link key={t.id} to={tagPath(t.slug)} className="gb-tag">{t.name}</Link>
           ))}
         </div>
       </td>

@@ -22,6 +22,8 @@ const CORE_TABLES = [
   "analytics_pageviews",
   "error_events",
   "anchor_links",
+  "content_translations",
+  "translation_jobs",
 ];
 
 const REQUIRED_SESSION_COLUMNS = ["token", "user_id", "expires_at", "created_at"];
@@ -373,6 +375,45 @@ async function createFeatureTables(db: D1Database) {
   await run(db, "CREATE INDEX IF NOT EXISTS anchor_links_term_idx ON anchor_links(term)");
   await run(db, "CREATE INDEX IF NOT EXISTS anchor_links_enabled_idx ON anchor_links(enabled)");
   await run(db, "CREATE INDEX IF NOT EXISTS anchor_links_click_count_idx ON anchor_links(click_count)");
+
+  await run(db, `CREATE TABLE IF NOT EXISTS content_translations (
+    id integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+    locale text NOT NULL,
+    path text NOT NULL,
+    source_hash text NOT NULL,
+    title text NOT NULL,
+    description text NOT NULL,
+    content_html text NOT NULL,
+    schemas_json text,
+    article_section text,
+    article_tags_json text,
+    provider text,
+    model text,
+    status text NOT NULL DEFAULT 'complete',
+    error text,
+    created_at integer NOT NULL,
+    updated_at integer NOT NULL
+  )`);
+  await run(db, "CREATE UNIQUE INDEX IF NOT EXISTS content_translations_locale_path_hash_idx ON content_translations(locale, path, source_hash)");
+  await run(db, "CREATE INDEX IF NOT EXISTS content_translations_locale_path_status_idx ON content_translations(locale, path, status)");
+  await run(db, "CREATE INDEX IF NOT EXISTS content_translations_updated_at_idx ON content_translations(updated_at)");
+
+  await run(db, `CREATE TABLE IF NOT EXISTS translation_jobs (
+    id text PRIMARY KEY NOT NULL,
+    locale text NOT NULL,
+    path text NOT NULL,
+    source_hash text NOT NULL,
+    status text NOT NULL DEFAULT 'queued',
+    attempts integer NOT NULL DEFAULT 0,
+    locked_until integer,
+    error_message text,
+    created_at integer NOT NULL,
+    updated_at integer NOT NULL,
+    finished_at integer
+  )`);
+  await run(db, "CREATE UNIQUE INDEX IF NOT EXISTS translation_jobs_locale_path_hash_idx ON translation_jobs(locale, path, source_hash)");
+  await run(db, "CREATE INDEX IF NOT EXISTS translation_jobs_status_idx ON translation_jobs(status, updated_at)");
+  await run(db, "CREATE INDEX IF NOT EXISTS translation_jobs_locked_until_idx ON translation_jobs(locked_until)");
 }
 
 async function repairColumns(db: D1Database) {
@@ -424,6 +465,17 @@ async function repairColumns(db: D1Database) {
   await addColumnIfMissing(db, "anchor_links", "created_by_user_id", "created_by_user_id INTEGER");
   await addColumnIfMissing(db, "anchor_links", "created_at", "created_at INTEGER");
   await addColumnIfMissing(db, "anchor_links", "updated_at", "updated_at INTEGER");
+
+  await addColumnIfMissing(db, "content_translations", "schemas_json", "schemas_json TEXT");
+  await addColumnIfMissing(db, "content_translations", "article_section", "article_section TEXT");
+  await addColumnIfMissing(db, "content_translations", "article_tags_json", "article_tags_json TEXT");
+  await addColumnIfMissing(db, "content_translations", "provider", "provider TEXT");
+  await addColumnIfMissing(db, "content_translations", "model", "model TEXT");
+  await addColumnIfMissing(db, "content_translations", "status", "status TEXT NOT NULL DEFAULT 'complete'");
+  await addColumnIfMissing(db, "content_translations", "error", "error TEXT");
+  await addColumnIfMissing(db, "translation_jobs", "locked_until", "locked_until INTEGER");
+  await addColumnIfMissing(db, "translation_jobs", "error_message", "error_message TEXT");
+  await addColumnIfMissing(db, "translation_jobs", "finished_at", "finished_at INTEGER");
 }
 
 async function ensureCorePerformanceIndexes(db: D1Database) {
@@ -434,6 +486,8 @@ async function ensureCorePerformanceIndexes(db: D1Database) {
   await run(db, "CREATE INDEX IF NOT EXISTS error_events_level_created_at_idx ON error_events(level, created_at)");
   await run(db, "CREATE INDEX IF NOT EXISTS error_events_source_created_at_idx ON error_events(source, created_at)");
   await run(db, "CREATE INDEX IF NOT EXISTS error_events_level_source_created_at_idx ON error_events(level, source, created_at)");
+  await run(db, "CREATE INDEX IF NOT EXISTS content_translations_locale_path_status_idx ON content_translations(locale, path, status)");
+  await run(db, "CREATE INDEX IF NOT EXISTS translation_jobs_status_idx ON translation_jobs(status, updated_at)");
   corePerformanceIndexesReady = true;
 }
 
