@@ -759,8 +759,10 @@ export const api = {
     batchLimit: number;
     queueBinding: boolean;
     locales: Array<{ locale: string; label: string; complete: number }>;
+    byLocale: Array<{ locale: string; label: string; queued: number; running: number; complete: number; error: number; translated: number }>;
     jobs: { queued: number; running: number; complete: number; error: number };
     errors: Array<{ locale: string; path: string; error: string; updatedAt: number }>;
+    recentJobs: Array<{ locale: string; path: string; status: string; attempts: number; error: string | null; createdAt: number; updatedAt: number; finishedAt: number | null }>;
   }>("/admin/translations"),
   adminQueueTranslations: (b: { locale?: string; limit?: number } = {}) =>
     req<{ ok: boolean; queued: number; skipped: number; total: number; started?: boolean; reason?: string }>("/admin/translations/queue", {

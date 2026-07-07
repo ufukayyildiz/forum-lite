@@ -745,7 +745,7 @@ export async function processTranslationJobs(
 export async function translationPipelineStatus(env: Bindings) {
   await ensureTranslationSchema(env.DB);
   const settings = await translationSettings(env);
-  const [jobs, translations, recentErrors] = await Promise.all([
+  const [jobs, translations, recentErrors, jobsByLocale, recentJobs] = await Promise.all([
     env.DB.prepare("SELECT status, COUNT(*) AS count FROM translation_jobs GROUP BY status").all<Record<string, unknown>>(),
     env.DB.prepare("SELECT locale, COUNT(*) AS count FROM content_translations WHERE status = 'complete' GROUP BY locale").all<Record<string, unknown>>(),
     env.DB.prepare(
@@ -755,11 +755,34 @@ export async function translationPipelineStatus(env: Bindings) {
        ORDER BY updated_at DESC
        LIMIT 8`,
     ).all<Record<string, unknown>>(),
+    env.DB.prepare("SELECT locale, status, COUNT(*) AS count FROM translation_jobs GROUP BY locale, status").all<Record<string, unknown>>(),
+    env.DB.prepare(
+      `SELECT locale, path, status, attempts, error_message AS error, created_at AS createdAt, updated_at AS updatedAt, finished_at AS finishedAt
+       FROM translation_jobs
+       ORDER BY updated_at DESC
+       LIMIT 24`,
+    ).all<Record<string, unknown>>(),
   ]);
   const jobCounts: Record<string, number> = {};
   for (const row of jobs.results ?? []) jobCounts[String(row.status ?? "unknown")] = Number(row.count ?? 0);
   const completeByLocale: Record<string, number> = {};
   for (const row of translations.results ?? []) completeByLocale[String(row.locale ?? "")] = Number(row.count ?? 0);
+  const localeJobCounts: Record<string, Record<string, number>> = {};
+  for (const row of jobsByLocale.results ?? []) {
+    const locale = String(row.locale ?? "");
+    const status = String(row.status ?? "unknown");
+    localeJobCounts[locale] = localeJobCounts[locale] ?? {};
+    localeJobCounts[locale][status] = Number(row.count ?? 0);
+  }
+  const byLocale = LOCALIZED_LOCALES.map((locale) => ({
+    locale,
+    label: LOCALE_DETAILS[locale].label,
+    queued: localeJobCounts[locale]?.queued ?? 0,
+    running: localeJobCounts[locale]?.running ?? 0,
+    complete: localeJobCounts[locale]?.complete ?? 0,
+    error: localeJobCounts[locale]?.error ?? 0,
+    translated: completeByLocale[locale] ?? 0,
+  }));
   return {
     enabled: settings.enabled,
     configured: settings.configured,
@@ -772,6 +795,7 @@ export async function translationPipelineStatus(env: Bindings) {
       label: LOCALE_DETAILS[locale].label,
       complete: completeByLocale[locale] ?? 0,
     })),
+    byLocale,
     jobs: {
       queued: jobCounts.queued ?? 0,
       running: jobCounts.running ?? 0,
@@ -783,6 +807,16 @@ export async function translationPipelineStatus(env: Bindings) {
       path: String(row.path ?? ""),
       error: String(row.error ?? ""),
       updatedAt: Number(row.updatedAt ?? 0),
+    })),
+    recentJobs: (recentJobs.results ?? []).map((row) => ({
+      locale: String(row.locale ?? ""),
+      path: String(row.path ?? ""),
+      status: String(row.status ?? ""),
+      attempts: Number(row.attempts ?? 0),
+      error: row.error == null ? null : String(row.error),
+      createdAt: Number(row.createdAt ?? 0),
+      updatedAt: Number(row.updatedAt ?? 0),
+      finishedAt: row.finishedAt == null ? null : Number(row.finishedAt),
     })),
   };
 }

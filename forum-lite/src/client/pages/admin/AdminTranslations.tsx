@@ -13,15 +13,27 @@ const TRANSLATION_FIELDS = [
 
 const TRANSLATION_KEYS = new Set(TRANSLATION_FIELDS.map((field) => field.key));
 
+function shortTime(value: number | null | undefined) {
+  if (!value) return "-";
+  const seconds = Math.max(0, Math.floor(Date.now() / 1000 - value));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
+}
+
 export default function AdminTranslations() {
   const qc = useQueryClient();
   const { data: settings, isLoading: settingsLoading } = useQuery({ queryKey: ["admin-settings"], queryFn: api.adminSettings });
   const { data: status, isLoading: statusLoading } = useQuery({
     queryKey: ["admin-translations"],
     queryFn: api.adminTranslations,
-    refetchInterval: 15000,
+    refetchInterval: 5000,
   });
   const [form, setForm] = useState<Record<string, string>>({});
+  const [queueStarted, setQueueStarted] = useState(false);
 
   useEffect(() => {
     if (settings) setForm(settings);
@@ -40,6 +52,7 @@ export default function AdminTranslations() {
   const queueTranslations = useMutation({
     mutationFn: () => api.adminQueueTranslations({ limit: 100 }),
     onSuccess: (res) => {
+      setQueueStarted(true);
       qc.invalidateQueries({ queryKey: ["admin-translations"] });
       if (res.started) {
         toast.success("Translation queue started");
@@ -65,7 +78,16 @@ export default function AdminTranslations() {
     onError: (error: any) => toast.error(error.message),
   });
 
+  const queuedJobs = status?.jobs.queued ?? 0;
+  const runningJobs = status?.jobs.running ?? 0;
+  const queueReady = queuedJobs > 0;
+  const processDisabled = processTranslationsDisabled(status, processTranslations.isPending, queueTranslations.isPending, save.isPending);
+  const processHint = processHintText(status, queueStarted);
   const isLoading = settingsLoading || statusLoading;
+
+  useEffect(() => {
+    if (queueStarted && (queuedJobs > 0 || runningJobs > 0)) setQueueStarted(false);
+  }, [queueStarted, queuedJobs, runningJobs]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 980 }}>
@@ -79,21 +101,86 @@ export default function AdminTranslations() {
             <span>jobs q/r/c/e: {status.jobs.queued}/{status.jobs.running}/{status.jobs.complete}/{status.jobs.error}</span>
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            <button className="gb-btn" onClick={() => queueTranslations.mutate()} disabled={queueTranslations.isPending || save.isPending}>
+            <button className="gb-btn" onClick={() => queueTranslations.mutate()} disabled={queueTranslations.isPending || queueStarted || save.isPending}>
               {queueTranslations.isPending ? "$ queueing..." : "$ queue missing translations"}
             </button>
-            <button className="gb-btn" onClick={() => processTranslations.mutate()} disabled={processTranslations.isPending || save.isPending}>
+            <button
+              className="gb-btn"
+              onClick={() => processTranslations.mutate()}
+              disabled={processDisabled}
+              title={processHint}
+            >
               {processTranslations.isPending ? "$ processing..." : "$ process now"}
             </button>
-            <span style={{ color: "var(--gb-gray)", fontSize: 11 }}>
-              {status.locales.map((row) => `${row.locale}:${row.complete}`).join(" ")}
+            <span style={{ color: queueReady ? "var(--gb-green)" : "var(--gb-yellow)", fontSize: 11 }}>
+              {processHint}
             </span>
           </div>
+          {queueStarted && !queueReady && runningJobs === 0 && (
+            <div style={{ color: "var(--gb-yellow)", fontSize: 11 }}>
+              queue started; waiting until jobs appear in queued/running counts...
+            </div>
+          )}
           {status.errors.length > 0 && (
             <div style={{ color: "var(--gb-red)", fontSize: 11, lineHeight: 1.5 }}>
               {status.errors.slice(0, 5).map((row) => `${row.locale} ${row.path}: ${row.error}`).join(" | ")}
             </div>
           )}
+          <table className="gb-table" style={{ marginTop: 2 }}>
+            <thead>
+              <tr>
+                <th style={{ width: 52 }}>LANG</th>
+                <th>LABEL</th>
+                <th style={{ textAlign: "right", paddingRight: 12 }}>QUEUED</th>
+                <th style={{ textAlign: "right", paddingRight: 12 }}>RUNNING</th>
+                <th style={{ textAlign: "right", paddingRight: 12 }}>DONE</th>
+                <th style={{ textAlign: "right", paddingRight: 12 }}>ERROR</th>
+                <th style={{ textAlign: "right", paddingRight: 12 }}>TRANSLATED</th>
+              </tr>
+            </thead>
+            <tbody>
+              {status.byLocale.map((row) => (
+                <tr key={row.locale}>
+                  <td style={{ color: row.queued > 0 ? "var(--gb-yellow)" : "var(--gb-gray)", fontWeight: 700 }}>{row.locale}</td>
+                  <td>{row.label}</td>
+                  <td style={{ color: row.queued > 0 ? "var(--gb-yellow)" : "var(--gb-gray)", textAlign: "right", paddingRight: 12 }}>{row.queued}</td>
+                  <td style={{ color: row.running > 0 ? "var(--gb-blue)" : "var(--gb-gray)", textAlign: "right", paddingRight: 12 }}>{row.running}</td>
+                  <td style={{ color: "var(--gb-green)", textAlign: "right", paddingRight: 12 }}>{row.complete}</td>
+                  <td style={{ color: row.error > 0 ? "var(--gb-red)" : "var(--gb-gray)", textAlign: "right", paddingRight: 12 }}>{row.error}</td>
+                  <td style={{ color: "var(--gb-green)", textAlign: "right", paddingRight: 12 }}>{row.translated}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ color: "var(--gb-gray)", fontSize: 11 }}>$ recent translation jobs</div>
+          <table className="gb-table">
+            <thead>
+              <tr>
+                <th style={{ width: 52 }}>LANG</th>
+                <th>PATH</th>
+                <th style={{ width: 82 }}>STATUS</th>
+                <th style={{ width: 70 }}>TRY</th>
+                <th style={{ width: 70 }}>UPDATED</th>
+                <th>ERROR</th>
+              </tr>
+            </thead>
+            <tbody>
+              {status.recentJobs.length > 0 ? status.recentJobs.map((job) => (
+                <tr key={`${job.locale}-${job.path}-${job.updatedAt}`}>
+                  <td style={{ color: "var(--gb-yellow)", fontWeight: 700 }}>{job.locale}</td>
+                  <td style={{ maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{job.path}</td>
+                  <td style={{ color: job.status === "error" ? "var(--gb-red)" : job.status === "queued" ? "var(--gb-yellow)" : job.status === "running" ? "var(--gb-blue)" : "var(--gb-green)" }}>{job.status}</td>
+                  <td>{job.attempts}</td>
+                  <td>{shortTime(job.updatedAt)}</td>
+                  <td style={{ color: job.error ? "var(--gb-red)" : "var(--gb-gray)", maxWidth: 380, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{job.error || "-"}</td>
+                </tr>
+              )) : (
+                <tr>
+                  <td colSpan={6} style={{ color: "var(--gb-gray)" }}>no translation jobs yet</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       )}
 
@@ -153,4 +240,27 @@ export default function AdminTranslations() {
       </div>
     </div>
   );
+}
+
+function processTranslationsDisabled(
+  status: Awaited<ReturnType<typeof api.adminTranslations>> | undefined,
+  processPending: boolean,
+  queuePending: boolean,
+  savePending: boolean,
+) {
+  if (processPending || queuePending || savePending) return true;
+  if (!status?.enabled || !status.configured) return true;
+  if (status.jobs.running > 0) return true;
+  if (status.jobs.queued <= 0) return true;
+  return false;
+}
+
+function processHintText(status: Awaited<ReturnType<typeof api.adminTranslations>> | undefined, queueStarted: boolean) {
+  if (!status) return "loading translation status";
+  if (!status.enabled) return "translation disabled";
+  if (!status.configured) return "missing TRANSLATION_API_KEY";
+  if (status.jobs.running > 0) return `${status.jobs.running} jobs already running`;
+  if (status.jobs.queued > 0) return `${status.jobs.queued} queued jobs ready; process now is safe`;
+  if (queueStarted) return "waiting for queue to create jobs";
+  return "queue missing translations first";
 }
