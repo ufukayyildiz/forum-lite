@@ -2747,8 +2747,18 @@ app.get("/translations", async (c) => {
 app.post("/translations/queue", zValidator("json", z.object({
   locale: z.string().trim().min(2).max(8).optional(),
   limit: z.number().int().min(1).max(500).optional(),
+  background: z.boolean().optional(),
 }).default({})), async (c) => {
-  const result = await queueMissingTranslations(c.env, c.executionCtx, c.req.valid("json"));
+  const body = c.req.valid("json");
+  if (body.background) {
+    c.executionCtx.waitUntil(
+      queueMissingTranslations(c.env, c.executionCtx, body).catch((error) => {
+        console.warn("admin_translation_queue_background_failed", error instanceof Error ? error.message : String(error));
+      }),
+    );
+    return c.json({ ok: true, started: true, queued: 0, skipped: 0, total: 0 }, 202);
+  }
+  const result = await queueMissingTranslations(c.env, c.executionCtx, body);
   return c.json(result, result.ok ? 202 : 409);
 });
 
@@ -2756,8 +2766,18 @@ app.post("/translations/process", zValidator("json", z.object({
   locale: z.string().trim().min(2).max(8).optional(),
   path: z.string().trim().min(1).max(300).optional(),
   limit: z.number().int().min(1).max(25).optional(),
+  background: z.boolean().optional(),
 }).default({})), async (c) => {
-  const result = await processTranslationJobs(c.env, c.executionCtx, c.req.valid("json"));
+  const body = c.req.valid("json");
+  if (body.background) {
+    c.executionCtx.waitUntil(
+      processTranslationJobs(c.env, c.executionCtx, body).catch((error) => {
+        console.warn("admin_translation_process_background_failed", error instanceof Error ? error.message : String(error));
+      }),
+    );
+    return c.json({ ok: true, started: true, processed: 0, complete: 0, error: 0 }, 202);
+  }
+  const result = await processTranslationJobs(c.env, c.executionCtx, body);
   return c.json(result, result.ok ? 200 : 409);
 });
 

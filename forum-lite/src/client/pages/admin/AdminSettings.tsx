@@ -61,6 +61,11 @@ export default function AdminSettings() {
     mutationFn: () => api.adminQueueTranslations({ limit: 100 }),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["admin-translations"] });
+      if (res.started) {
+        toast.success("Translation queue started");
+        globalThis.setTimeout(() => qc.invalidateQueries({ queryKey: ["admin-translations"] }), 3000);
+        return;
+      }
       toast.success(`Queued ${res.queued}, skipped ${res.skipped}`);
     },
     onError: (e: any) => toast.error(e.message),
@@ -69,6 +74,11 @@ export default function AdminSettings() {
     mutationFn: () => api.adminProcessTranslations({ limit: Number(form.translation_batch_limit || 4) || 4 }),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["admin-translations"] });
+      if (res.started) {
+        toast.success("Translation processing started");
+        globalThis.setTimeout(() => qc.invalidateQueries({ queryKey: ["admin-translations"] }), 3000);
+        return;
+      }
       toast.success(`Processed ${res.processed}: ${res.complete} complete, ${res.error} error`);
     },
     onError: (e: any) => toast.error(e.message),

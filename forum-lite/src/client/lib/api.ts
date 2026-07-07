@@ -11,7 +11,13 @@ type ApiRequestInit = RequestInit & {
 function isBenignNetworkError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   const name = error instanceof Error ? error.name : "";
-  return name === "AbortError" || /failed to fetch|load failed|network request failed|cancelled/i.test(message);
+  return name === "AbortError" || /failed to fetch|load failed|network request failed|cancelled|signal is aborted/i.test(message);
+}
+
+function isRequestAbort(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  const name = error instanceof Error ? error.name : "";
+  return name === "AbortError" || /signal is aborted/i.test(message);
 }
 
 function shouldReportApiStatus(status: number) {
@@ -45,6 +51,9 @@ async function req<T>(path: string, init?: ApiRequestInit): Promise<T> {
       signal: init?.signal ?? controller?.signal,
     });
   } catch (error) {
+    if (isRequestAbort(error)) {
+      throw new Error("Request timed out. The background job may still be running.");
+    }
     if (!isBenignNetworkError(error)) {
       reportClientError({
         kind: "api_network_error",
@@ -754,9 +763,17 @@ export const api = {
     errors: Array<{ locale: string; path: string; error: string; updatedAt: number }>;
   }>("/admin/translations"),
   adminQueueTranslations: (b: { locale?: string; limit?: number } = {}) =>
-    post<{ ok: boolean; queued: number; skipped: number; total: number; reason?: string }>("/admin/translations/queue", b),
+    req<{ ok: boolean; queued: number; skipped: number; total: number; started?: boolean; reason?: string }>("/admin/translations/queue", {
+      method: "POST",
+      body: JSON.stringify({ ...b, background: true }),
+      timeoutMs: 30_000,
+    }),
   adminProcessTranslations: (b: { locale?: string; path?: string; limit?: number } = {}) =>
-    post<{ ok: boolean; processed: number; complete: number; error: number; reason?: string }>("/admin/translations/process", b),
+    req<{ ok: boolean; processed: number; complete: number; error: number; started?: boolean; reason?: string }>("/admin/translations/process", {
+      method: "POST",
+      body: JSON.stringify({ ...b, background: true }),
+      timeoutMs: 30_000,
+    }),
 
   // attachments
   attachmentConfig: () => get<{ enabled: boolean; maxMb: number; allowedMime: string[] }>("/attachments/config"),
