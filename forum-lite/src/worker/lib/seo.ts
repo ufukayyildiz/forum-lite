@@ -2959,6 +2959,13 @@ function staticSidebarHtml(pathname: string, categories: ApiCategory[], locale: 
 
 function staticShellHtml(contentHtml: string, pathname: string, categories: ApiCategory[], embedded = false, locale: SupportedLocale = "en"): string {
   const page = pathname === "/" ? "threads" : pathname.replace("/", "").split("/")[0] || "threads";
+  const languageOptions = (["en", ...LOCALIZED_LOCALES] as SupportedLocale[])
+    .map((option) => {
+      const selected = option === locale ? " selected" : "";
+      const value = escapeHtml(option);
+      return `<option value="${value}"${selected}>${escapeHtml(option.toUpperCase())} · ${escapeHtml(LOCALE_DETAILS[option].label)}</option>`;
+    })
+    .join("");
   if (embedded) {
     return [
       '<div class="gb-shell gb-shell-embedded" data-server-rendered="seo-shell">',
@@ -2980,7 +2987,12 @@ function staticShellHtml(contentHtml: string, pathname: string, categories: ApiC
     `<a class="gb-header-link" href="${escapeHtml(localizePath("/what-is-fstdesk", locale))}">what is fstdesk</a>`,
     "</nav>",
     "</div>",
-    '<div class="gb-tabline-right">utf-8 | unix</div>',
+    '<div class="gb-tabline-right">',
+    '<label class="gb-language" title="Language">',
+    '<span class="gb-language-prefix">lang</span>',
+    `<select class="gb-language-select" aria-label="Language">${languageOptions}</select>`,
+    "</label>",
+    "</div>",
     "</div>",
     '<div class="gb-body">',
     `<div class="gb-sidebar">${staticSidebarHtml(pathname, categories, locale)}</div>`,
@@ -3010,6 +3022,7 @@ function criticalShellCss(): string {
     ".gb-body{display:flex;flex:1 1 auto;min-height:0;overflow:hidden}.gb-sidebar{width:240px;flex:0 0 240px;overflow:hidden;background:var(--gb-bg1);border-right:1px solid var(--gb-bg2)}.gb-main{flex:1 1 auto;min-width:0;overflow:auto;background:var(--gb-bg)}",
     ".gb-shell-embedded{background:var(--gb-bg)}.gb-main-embedded{width:100%;height:100%;max-width:none;overflow:auto}",
     ".gb-statusbar{display:flex;height:22px;align-items:center;gap:8px;padding:0 8px;flex-shrink:0;background:var(--gb-bg1);border-top:1px solid var(--gb-bg2);color:var(--gb-gray);font-size:11px}",
+    ".gb-language{display:inline-flex;align-items:center;height:24px;border:1px solid var(--gb-bg2);background:var(--gb-bg);color:var(--gb-gray)}.gb-language-prefix{padding:0 7px;color:var(--gb-yellow);font-size:10px;font-weight:700;line-height:22px;border-right:1px solid var(--gb-bg2);text-transform:uppercase}.gb-language-select{width:128px;height:22px;padding:0 22px 0 8px;border:0;border-radius:0;outline:0;background:var(--gb-bg1);color:var(--gb-fg);font-family:inherit;font-size:11px;font-weight:700}",
     "</style>",
   ].join("");
 }

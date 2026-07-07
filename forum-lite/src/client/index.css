@@ -110,7 +110,7 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
 .gb-tabline-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   font-size: 11px;
   color: var(--gb-gray);
   min-width: 0;
@@ -158,6 +158,47 @@ a:hover { text-decoration: underline; color: var(--gb-yellow); }
   display: flex;
   align-items: center;
   gap: 10px;
+}
+.gb-language {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  min-width: 0;
+  border: 1px solid var(--gb-bg2);
+  background: var(--gb-bg);
+  color: var(--gb-gray);
+}
+.gb-language-prefix {
+  padding: 0 7px;
+  color: var(--gb-yellow);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 22px;
+  border-right: 1px solid var(--gb-bg2);
+  text-transform: uppercase;
+}
+.gb-language-select {
+  width: 128px;
+  height: 22px;
+  padding: 0 22px 0 8px;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  background: var(--gb-bg1);
+  color: var(--gb-fg);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.gb-language-select:focus {
+  box-shadow: inset 0 -2px 0 var(--gb-yellow);
+}
+.gb-language.is-disabled {
+  opacity: 0.55;
+}
+.gb-language.is-disabled .gb-language-select {
+  cursor: not-allowed;
 }
 
 /* ── Body (sidebar + main) ───────────────────────────────── */
@@ -2577,7 +2618,12 @@ textarea.gb-input {
     font-size: 11px;
   }
   .gb-header-nav { display: none; }
-  .gb-encoding { display: none; }
+  .gb-language-prefix { display: none; }
+  .gb-language-select {
+    width: 72px;
+    padding-left: 6px;
+    padding-right: 16px;
+  }
   .gb-header-user { max-width: 92px; }
   .gb-header-auth { gap: 7px; }
   .gb-toolbar {
@@ -2979,9 +3025,6 @@ textarea.gb-input {
 
   /* Search overlay full-width */
   .gb-search-overlay { padding-top: 20px; padding-left: 8px; padding-right: 8px; }
-
-  /* Tabline right label — keep account visible, hide encoding on tiny screens */
-  .gb-encoding { display: none; }
 
   /* Admin forms: single column on mobile */
   .gb-admin-grid-2,

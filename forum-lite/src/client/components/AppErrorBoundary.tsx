@@ -34,7 +34,14 @@ export class AppErrorBoundary extends React.Component<React.PropsWithChildren, S
               <a href="/" style={{ color: "var(--gb-yellow)", fontWeight: 700, textDecoration: "none" }}>FSTDESK</a>
             </div>
           </div>
-          <div className="gb-tabline-right">utf-8 | unix</div>
+          <div className="gb-tabline-right">
+            <label className="gb-language is-disabled" title="Language">
+              <span className="gb-language-prefix">lang</span>
+              <select className="gb-language-select" aria-label="Language" value="en" disabled>
+                <option value="en">EN · English</option>
+              </select>
+            </label>
+          </div>
         </div>
         <div className="gb-main" style={{ overflow: "auto" }}>
           <div className="gb-content">

@@ -96,7 +96,7 @@ function baseSvg(inner: string): string {
   <rect x="0" y="0" width="${WIDTH}" height="52" fill="#32302f" />
   <rect x="0" y="0" width="132" height="52" fill="#1d2021" />
   <text x="32" y="34" font-family="JetBrains Mono, Fira Code, Courier New, monospace" font-size="20" font-weight="800" fill="#fabd2f">forum</text>
-  <text x="1060" y="34" font-family="JetBrains Mono, Fira Code, Courier New, monospace" font-size="14" fill="#a89984">utf-8 | unix</text>
+  <text x="1060" y="34" font-family="JetBrains Mono, Fira Code, Courier New, monospace" font-size="14" fill="#a89984">lang: EN</text>
   <rect x="0" y="52" width="182" height="578" fill="#3c3836" />
   <text x="26" y="94" font-family="JetBrains Mono, Fira Code, Courier New, monospace" font-size="14" font-weight="800" letter-spacing="1.6" fill="#928374">" NAVIGATION</text>
   <text x="28" y="132" font-family="JetBrains Mono, Fira Code, Courier New, monospace" font-size="18" fill="#928374"># threads</text>

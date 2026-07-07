@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useLocation, Link } from "react-router-dom";
+import { useLocation, Link, useNavigate } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../lib/api";
@@ -8,7 +8,48 @@ import { AlignLeft } from "lucide-react";
 import { bootstrapQueryOptions } from "../../lib/bootstrap";
 import { ExternalLinkDialog } from "../ExternalLinkDialog";
 import { memberPath, publicPath } from "../../lib/routes";
-import { parseLocalePath } from "../../../shared/locales";
+import {
+  LOCALIZED_LOCALES,
+  LOCALE_DETAILS,
+  localizePath,
+  parseLocalePath,
+  shouldLocalizePath,
+  type SupportedLocale,
+} from "../../../shared/locales";
+
+const LANGUAGE_OPTIONS: SupportedLocale[] = ["en", ...LOCALIZED_LOCALES];
+
+function LanguageSelector() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const parsed = parseLocalePath(location.pathname);
+  const canLocalize = shouldLocalizePath(parsed.path);
+  const current = canLocalize ? parsed.locale : "en";
+
+  const changeLanguage = (locale: SupportedLocale) => {
+    if (!canLocalize) return;
+    navigate(localizePath(`${parsed.path}${location.search}${location.hash}`, locale));
+  };
+
+  return (
+    <label className={`gb-language${canLocalize ? "" : " is-disabled"}`} title={canLocalize ? "Language" : "This page is not translated"}>
+      <span className="gb-language-prefix">lang</span>
+      <select
+        className="gb-language-select"
+        aria-label="Language"
+        value={current}
+        disabled={!canLocalize}
+        onChange={(event) => changeLanguage(event.target.value as SupportedLocale)}
+      >
+        {LANGUAGE_OPTIONS.map((locale) => (
+          <option key={locale} value={locale}>
+            {locale.toUpperCase()} · {LOCALE_DETAILS[locale].label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
 
 function Tabline({ onMenu }: { onMenu: () => void }) {
   const { pathname } = useLocation();
@@ -69,7 +110,7 @@ function Tabline({ onMenu }: { onMenu: () => void }) {
         </nav>
       </div>
       <div className="gb-tabline-right">
-        <span className="gb-encoding">utf-8 | unix</span>
+        <LanguageSelector />
         {me ? (
           <Link to={isStaff ? "/admin" : memberPath(me.username)} className={`gb-header-user${isStaff ? " is-admin" : ""}`}>
             {isStaff ? "[admin]" : `@${me.username}`}
