@@ -40,6 +40,7 @@ import AdminAnalytics from "./pages/admin/AdminAnalytics";
 import AdminEmailVerify from "./pages/admin/AdminEmailVerify";
 import AdminSuppressions from "./pages/admin/AdminSuppressions";
 import AdminAnchors from "./pages/admin/AdminAnchors";
+import AdminTranslations from "./pages/admin/AdminTranslations";
 import { AnalyticsTracker } from "./components/AnalyticsTracker";
 import { installClientErrorReporting } from "./lib/error-reporting";
 import { LOCALIZED_LOCALES } from "../shared/locales";
@@ -100,6 +101,7 @@ const app = (
             <Route path="notifications" element={<AdminNotifications />} />
             <Route path="marketing" element={<AdminMarketing />} />
             <Route path="anchors" element={<AdminAnchors />} />
+            <Route path="translations" element={<AdminTranslations />} />
             <Route path="email-verify" element={<AdminEmailVerify />} />
             <Route path="suppressions" element={<AdminSuppressions />} />
             <Route path="bounces" element={<AdminBounces />} />

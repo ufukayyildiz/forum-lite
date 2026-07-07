@@ -1971,10 +1971,13 @@ textarea.gb-input {
   display: flex;
   border-bottom: 1px solid var(--gb-bg2);
   background: var(--gb-bg);
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 .gb-tab-item {
   padding: 7px 16px;
   min-height: 32px;
+  flex: 0 0 auto;
   font-size: 12px;
   color: var(--gb-gray);
   cursor: pointer;

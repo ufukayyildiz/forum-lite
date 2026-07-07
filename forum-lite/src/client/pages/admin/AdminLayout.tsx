@@ -13,6 +13,7 @@ const ALL_TABS = [
   { path: "/admin/notifications", label: "NOTIFY",               adminOnly: true },
   { path: "/admin/marketing",  label: "MARKETING",              adminOnly: true },
   { path: "/admin/anchors",    label: "ANCHORS",                adminOnly: true },
+  { path: "/admin/translations", label: "TRANSLATIONS",          adminOnly: true },
   { path: "/admin/email-verify", label: "EMAIL VERIFY",          adminOnly: true },
   { path: "/admin/suppressions", label: "SUPPRESSION",           adminOnly: true },
   { path: "/admin/bounces",    label: "BOUNCES",                adminOnly: true },
