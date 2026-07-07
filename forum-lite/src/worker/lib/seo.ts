@@ -120,6 +120,8 @@ const TRANSLATION_JOB_LOCK_SECONDS = 300;
 const TRANSLATION_MAX_ATTEMPTS = 3;
 const TRANSLATION_MAX_TEXTS_PER_PAGE = 240;
 const TRANSLATION_TEXT_CHUNK_SIZE = 32;
+const TRANSLATION_QUEUE_DEFAULT_PATH_LIMIT = 10000;
+const TRANSLATION_QUEUE_MAX_PATH_LIMIT = 20000;
 const TRANSLATION_STATIC_PATHS = ["/", "/members", "/tags", "/what-is-fstdesk", "/contact", "/about"];
 
 type TranslationJobMessage = { jobId?: string; locale?: string; path?: string };
@@ -479,8 +481,13 @@ async function translateTextChunk(env: Bindings, settings: TranslationSettings, 
   const content = json?.choices?.[0]?.message?.content;
   if (typeof content !== "string") throw new Error("translation provider returned no content");
   const translated = parseTranslationContent(content);
-  if (translated.length !== texts.length) throw new Error(`translation count mismatch: ${translated.length}/${texts.length}`);
-  return translated;
+  if (translated.length !== texts.length) {
+    console.warn("translation_count_mismatch_fallback", locale, `${translated.length}/${texts.length}`);
+  }
+  return texts.map((source, index) => {
+    const value = translated[index]?.trim();
+    return value || source;
+  });
 }
 
 async function translateTexts(env: Bindings, settings: TranslationSettings, locale: SupportedLocale, texts: string[]) {
@@ -595,6 +602,7 @@ async function queueTranslationJob(
   locale: SupportedLocale,
   path: string,
   sourceHash: string,
+  options: { dispatch?: boolean } = {},
 ): Promise<void> {
   const now = nowSeconds();
   const id = translationJobId(locale, path, sourceHash);
@@ -609,6 +617,8 @@ async function queueTranslationJob(
        finished_at = CASE WHEN translation_jobs.status = 'complete' THEN translation_jobs.finished_at ELSE NULL END,
        updated_at = excluded.updated_at`,
   ).bind(id, locale, path, sourceHash, now, now).run();
+
+  if (options.dispatch === false) return;
 
   const message: TranslationJobMessage = { locale, path };
   if (env.TRANSLATION_QUEUE) {
@@ -684,15 +694,32 @@ async function loadQueuedTranslationJobs(
     ).bind(opts.locale, opts.path, limit).all<TranslationJobRow>();
     return rows.results ?? [];
   }
+  const localeOrder = LOCALIZED_LOCALES.map((locale, index) => `WHEN '${locale}' THEN ${index}`).join(" ");
+  const pendingLocale = await env.DB.prepare(
+    `SELECT locale
+     FROM translation_jobs
+     WHERE attempts < ?
+       AND (
+         (status IN ('queued', 'error') AND (locked_until IS NULL OR locked_until < ?))
+         OR (status = 'running' AND locked_until IS NOT NULL AND locked_until < ?)
+       )
+     GROUP BY locale
+     ORDER BY CASE locale ${localeOrder} ELSE 999 END
+     LIMIT 1`,
+  ).bind(TRANSLATION_MAX_ATTEMPTS, now, now).first<{ locale: string }>();
+  if (!pendingLocale?.locale) return [];
   const rows = await env.DB.prepare(
     `SELECT id, locale, path, source_hash, status, attempts
      FROM translation_jobs
-     WHERE status IN ('queued', 'error')
+     WHERE locale = ?
        AND attempts < ?
-       AND (locked_until IS NULL OR locked_until < ?)
+       AND (
+         (status IN ('queued', 'error') AND (locked_until IS NULL OR locked_until < ?))
+         OR (status = 'running' AND locked_until IS NOT NULL AND locked_until < ?)
+       )
      ORDER BY updated_at ASC
      LIMIT ?`,
-  ).bind(TRANSLATION_MAX_ATTEMPTS, now, limit).all<TranslationJobRow>();
+  ).bind(pendingLocale.locale, TRANSLATION_MAX_ATTEMPTS, now, now, limit).all<TranslationJobRow>();
   return rows.results ?? [];
 }
 
@@ -826,12 +853,12 @@ export async function translationPipelineStatus(env: Bindings) {
 
 async function candidateTranslationPaths(env: Bindings, limit: number): Promise<string[]> {
   const paths = new Set(TRANSLATION_STATIC_PATHS);
-  const threadLimit = Math.max(1, limit);
+  const threadLimit = Math.max(1, Math.min(TRANSLATION_QUEUE_MAX_PATH_LIMIT, limit));
   const [threads, categories, tags, users] = await Promise.all([
     env.DB.prepare(
       `SELECT public_id AS publicId
        FROM threads
-       ORDER BY (COALESCE(views, 0) + COALESCE(reply_count, 0) * 80 + CASE WHEN featured THEN 500 ELSE 0 END) DESC, last_post_at DESC
+       ORDER BY id ASC
        LIMIT ?`,
     ).bind(threadLimit).all<Record<string, unknown>>(),
     env.DB.prepare("SELECT public_id AS publicId FROM categories ORDER BY position, id LIMIT 100").all<Record<string, unknown>>(),
@@ -849,7 +876,7 @@ async function candidateTranslationPaths(env: Bindings, limit: number): Promise<
   for (const row of categories.results ?? []) if (row.publicId) paths.add(`/c/${row.publicId}`);
   for (const row of tags.results ?? []) if (row.slug) paths.add(`/tag/${encodeURIComponent(String(row.slug))}`);
   for (const row of users.results ?? []) if (row.username) paths.add(`/u/${encodeURIComponent(String(row.username))}`);
-  return [...paths].slice(0, Math.max(1, limit + TRANSLATION_STATIC_PATHS.length + 250));
+  return [...paths].slice(0, Math.max(1, threadLimit + TRANSLATION_STATIC_PATHS.length + 250));
 }
 
 export async function queueMissingTranslations(
@@ -863,20 +890,23 @@ export async function queueMissingTranslations(
   const locales = opts.locale && LOCALIZED_LOCALES.includes(opts.locale as SupportedLocale)
     ? [opts.locale as SupportedLocale]
     : [...LOCALIZED_LOCALES];
-  const limit = Math.max(1, Math.min(500, Number(opts.limit || 100) || 100));
+  const limit = Math.max(1, Math.min(TRANSLATION_QUEUE_MAX_PATH_LIMIT, Number(opts.limit || TRANSLATION_QUEUE_DEFAULT_PATH_LIMIT) || TRANSLATION_QUEUE_DEFAULT_PATH_LIMIT));
   const paths = await candidateTranslationPaths(env, limit);
   const base = await translationSiteBase(env);
   const fakeContext = { env } as AppContext;
+  const candidates: Array<{ path: string; sourceHash: string }> = [];
   let queued = 0;
   let skipped = 0;
+  for (const path of paths) {
+    const payload = await payloadForPath(fakeContext, base, path, []);
+    if (payload.status === 404 || payload.robots?.includes("noindex")) {
+      skipped += locales.length;
+      continue;
+    }
+    candidates.push({ path, sourceHash: translationSourceHash(payload) });
+  }
   for (const locale of locales) {
-    for (const path of paths) {
-      const payload = await payloadForPath(fakeContext, base, path, []);
-      if (payload.status === 404 || payload.robots?.includes("noindex")) {
-        skipped += 1;
-        continue;
-      }
-      const sourceHash = translationSourceHash(payload);
+    for (const { path, sourceHash } of candidates) {
       const existing = await env.DB.prepare(
         "SELECT 1 FROM content_translations WHERE locale = ? AND path = ? AND source_hash = ? AND status = 'complete' LIMIT 1",
       ).bind(locale, path, sourceHash).first();
@@ -884,10 +914,13 @@ export async function queueMissingTranslations(
         skipped += 1;
         continue;
       }
-      await queueTranslationJob(env, ctx, locale, path, sourceHash);
+      await queueTranslationJob(env, ctx, locale, path, sourceHash, { dispatch: false });
       queued += 1;
     }
   }
+  ctx.waitUntil(processTranslationJobs(env, ctx).catch((error) => {
+    console.warn("translation_queue_after_bulk_failed", error instanceof Error ? error.message : String(error));
+  }));
   return { ok: true, queued, skipped, total: queued + skipped, locales, paths: paths.length };
 }
 

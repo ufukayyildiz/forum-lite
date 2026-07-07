@@ -50,7 +50,7 @@ export default function AdminTranslations() {
   });
 
   const queueTranslations = useMutation({
-    mutationFn: () => api.adminQueueTranslations({ limit: 100 }),
+    mutationFn: () => api.adminQueueTranslations({ limit: 10000 }),
     onSuccess: (res) => {
       setQueueStarted(true);
       qc.invalidateQueries({ queryKey: ["admin-translations"] });
@@ -250,7 +250,6 @@ function processTranslationsDisabled(
 ) {
   if (processPending || queuePending || savePending) return true;
   if (!status?.enabled || !status.configured) return true;
-  if (status.jobs.running > 0) return true;
   if (status.jobs.queued <= 0) return true;
   return false;
 }
@@ -259,8 +258,9 @@ function processHintText(status: Awaited<ReturnType<typeof api.adminTranslations
   if (!status) return "loading translation status";
   if (!status.enabled) return "translation disabled";
   if (!status.configured) return "missing TRANSLATION_API_KEY";
-  if (status.jobs.running > 0) return `${status.jobs.running} jobs already running`;
+  if (status.jobs.queued > 0 && status.jobs.running > 0) return `${status.jobs.running} running; ${status.jobs.queued} queued jobs ready`;
   if (status.jobs.queued > 0) return `${status.jobs.queued} queued jobs ready; process now is safe`;
+  if (status.jobs.running > 0) return `${status.jobs.running} jobs already running`;
   if (queueStarted) return "waiting for queue to create jobs";
   return "queue missing translations first";
 }

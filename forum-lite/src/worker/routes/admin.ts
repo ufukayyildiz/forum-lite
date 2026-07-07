@@ -2746,7 +2746,7 @@ app.get("/translations", async (c) => {
 
 app.post("/translations/queue", zValidator("json", z.object({
   locale: z.string().trim().min(2).max(8).optional(),
-  limit: z.number().int().min(1).max(500).optional(),
+  limit: z.number().int().min(1).max(20000).optional(),
   background: z.boolean().optional(),
 }).default({})), async (c) => {
   const body = c.req.valid("json");
