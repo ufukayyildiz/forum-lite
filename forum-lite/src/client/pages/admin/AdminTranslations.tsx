@@ -50,7 +50,7 @@ export default function AdminTranslations() {
   });
 
   const queueTranslations = useMutation({
-    mutationFn: () => api.adminQueueTranslations({ limit: 10000 }),
+    mutationFn: (locale?: string) => api.adminQueueTranslations({ limit: 10000, ...(locale ? { locale } : {}) }),
     onSuccess: (res) => {
       setQueueStarted(true);
       qc.invalidateQueries({ queryKey: ["admin-translations"] });
@@ -65,7 +65,7 @@ export default function AdminTranslations() {
   });
 
   const processTranslations = useMutation({
-    mutationFn: () => api.adminProcessTranslations({ limit: Number(form.translation_batch_limit || status?.batchLimit || 4) || 4 }),
+    mutationFn: (locale?: string) => api.adminProcessTranslations({ limit: Number(form.translation_batch_limit || status?.batchLimit || 4) || 4, ...(locale ? { locale } : {}) }),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["admin-translations"] });
       if (res.started) {
@@ -81,7 +81,7 @@ export default function AdminTranslations() {
   const queuedJobs = status?.jobs.queued ?? 0;
   const runningJobs = status?.jobs.running ?? 0;
   const queueReady = queuedJobs > 0;
-  const processDisabled = processTranslationsDisabled(status, processTranslations.isPending, queueTranslations.isPending, save.isPending);
+  const processDisabled = processTranslationsDisabled(status, processTranslations.isPending, queueTranslations.isPending, save.isPending, queueStarted);
   const processHint = processHintText(status, queueStarted);
   const isLoading = settingsLoading || statusLoading;
 
@@ -101,12 +101,12 @@ export default function AdminTranslations() {
             <span>jobs q/r/c/e: {status.jobs.queued}/{status.jobs.running}/{status.jobs.complete}/{status.jobs.error}</span>
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            <button className="gb-btn" onClick={() => queueTranslations.mutate()} disabled={queueTranslations.isPending || queueStarted || save.isPending}>
-              {queueTranslations.isPending ? "$ queueing..." : "$ queue missing translations"}
+            <button className="gb-btn" onClick={() => queueTranslations.mutate(undefined)} disabled={queueTranslations.isPending || queueStarted || save.isPending}>
+              {queueTranslations.isPending ? "$ queueing..." : "$ queue all languages"}
             </button>
             <button
               className="gb-btn"
-              onClick={() => processTranslations.mutate()}
+              onClick={() => processTranslations.mutate(undefined)}
               disabled={processDisabled}
               title={processHint}
             >
@@ -136,6 +136,7 @@ export default function AdminTranslations() {
                 <th style={{ textAlign: "right", paddingRight: 12 }}>DONE</th>
                 <th style={{ textAlign: "right", paddingRight: 12 }}>ERROR</th>
                 <th style={{ textAlign: "right", paddingRight: 12 }}>TRANSLATED</th>
+                <th style={{ width: 150 }}>ACTIONS</th>
               </tr>
             </thead>
             <tbody>
@@ -148,6 +149,26 @@ export default function AdminTranslations() {
                   <td style={{ color: "var(--gb-green)", textAlign: "right", paddingRight: 12 }}>{row.complete}</td>
                   <td style={{ color: row.error > 0 ? "var(--gb-red)" : "var(--gb-gray)", textAlign: "right", paddingRight: 12 }}>{row.error}</td>
                   <td style={{ color: "var(--gb-green)", textAlign: "right", paddingRight: 12 }}>{row.translated}</td>
+                  <td>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      <button
+                        className="gb-btn"
+                        style={{ padding: "3px 8px" }}
+                        onClick={() => queueTranslations.mutate(row.locale)}
+                        disabled={queueTranslations.isPending || save.isPending}
+                      >
+                        $ queue
+                      </button>
+                      <button
+                        className="gb-btn"
+                        style={{ padding: "3px 8px" }}
+                        onClick={() => processTranslations.mutate(row.locale)}
+                        disabled={processTranslations.isPending || queueTranslations.isPending || save.isPending || !status.enabled || !status.configured || status.jobs.running > 0 || row.queued <= 0}
+                      >
+                        {row.running > 0 ? "$ running" : "$ process"}
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -247,9 +268,11 @@ function processTranslationsDisabled(
   processPending: boolean,
   queuePending: boolean,
   savePending: boolean,
+  queueStarted: boolean,
 ) {
-  if (processPending || queuePending || savePending) return true;
+  if (processPending || queuePending || savePending || queueStarted) return true;
   if (!status?.enabled || !status.configured) return true;
+  if (status.jobs.running > 0) return true;
   if (status.jobs.queued <= 0) return true;
   return false;
 }
@@ -258,7 +281,7 @@ function processHintText(status: Awaited<ReturnType<typeof api.adminTranslations
   if (!status) return "loading translation status";
   if (!status.enabled) return "translation disabled";
   if (!status.configured) return "missing TRANSLATION_API_KEY";
-  if (status.jobs.queued > 0 && status.jobs.running > 0) return `${status.jobs.running} running; ${status.jobs.queued} queued jobs ready`;
+  if (status.jobs.queued > 0 && status.jobs.running > 0) return `${status.jobs.running} running; wait before next process`;
   if (status.jobs.queued > 0) return `${status.jobs.queued} queued jobs ready; process now is safe`;
   if (status.jobs.running > 0) return `${status.jobs.running} jobs already running`;
   if (queueStarted) return "waiting for queue to create jobs";

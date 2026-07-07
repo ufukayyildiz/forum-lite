@@ -15,7 +15,7 @@ import contactRoutes from "./routes/contact";
 import anchorRoutes from "./routes/anchors";
 import { schema, getDb } from "./db";
 import type { Bindings, Variables } from "./types";
-import { processTranslationJobs, renderSeoHtml } from "./lib/seo";
+import { renderSeoHtml } from "./lib/seo";
 import { serveDefaultWebp, serveThreadWebp } from "./lib/og";
 import { legacyCanonicalRedirect } from "./lib/legacy-redirects";
 import { parseBounceEmail } from "./lib/bounce";
@@ -1091,24 +1091,12 @@ async function handleScheduled(_controller: ScheduledController, env: Bindings, 
     });
   ctx.waitUntil(syncIfDue);
   ctx.waitUntil(processMarketingJobs(env, ctx));
-  ctx.waitUntil(processTranslationJobs(env, ctx).catch((error) => {
-    console.warn("scheduled_translation_jobs_failed", error instanceof Error ? error.message : String(error));
-  }));
 }
 
 async function handleQueue(batch: MessageBatch<{ jobId?: string; locale?: string; path?: string }>, env: Bindings, ctx: ExecutionContext): Promise<void> {
   if (batch.queue.includes("translation")) {
     for (const message of batch.messages) {
-      const jobId = typeof message.body?.jobId === "string" ? message.body.jobId : undefined;
-      const locale = typeof message.body?.locale === "string" ? message.body.locale : undefined;
-      const path = typeof message.body?.path === "string" ? message.body.path : undefined;
-      try {
-        await processTranslationJobs(env, ctx, { jobId, locale, path, limit: 1 });
-        message.ack();
-      } catch (error) {
-        console.warn("translation_queue_job_failed", locale ?? jobId ?? "batch", error instanceof Error ? error.message : String(error));
-        message.retry({ delaySeconds: 60 });
-      }
+      message.ack();
     }
     return;
   }
