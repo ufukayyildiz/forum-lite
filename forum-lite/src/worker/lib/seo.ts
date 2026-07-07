@@ -603,7 +603,10 @@ async function queueTranslationJob(
      VALUES (?, ?, ?, ?, 'queued', 0, NULL, NULL, ?, ?, NULL)
      ON CONFLICT(locale, path, source_hash) DO UPDATE SET
        status = CASE WHEN translation_jobs.status = 'complete' THEN translation_jobs.status ELSE 'queued' END,
+       attempts = CASE WHEN translation_jobs.status = 'complete' THEN translation_jobs.attempts ELSE 0 END,
+       locked_until = CASE WHEN translation_jobs.status = 'complete' THEN translation_jobs.locked_until ELSE NULL END,
        error_message = CASE WHEN translation_jobs.status = 'complete' THEN translation_jobs.error_message ELSE NULL END,
+       finished_at = CASE WHEN translation_jobs.status = 'complete' THEN translation_jobs.finished_at ELSE NULL END,
        updated_at = excluded.updated_at`,
   ).bind(id, locale, path, sourceHash, now, now).run();
 
@@ -727,8 +730,8 @@ export async function processTranslationJobs(
       const translated = await translatePayload(env, sourcePayload, locale, settings);
       await storePayloadTranslation(env, locale, job.path, sourceHash, translated, settings);
       await env.DB.prepare(
-        "UPDATE translation_jobs SET source_hash = ?, status = 'complete', locked_until = NULL, error_message = NULL, updated_at = ?, finished_at = ? WHERE id = ?",
-      ).bind(sourceHash, nowSeconds(), nowSeconds(), job.id).run();
+        "UPDATE translation_jobs SET status = 'complete', locked_until = NULL, error_message = NULL, updated_at = ?, finished_at = ? WHERE id = ?",
+      ).bind(nowSeconds(), nowSeconds(), job.id).run();
       complete += 1;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
