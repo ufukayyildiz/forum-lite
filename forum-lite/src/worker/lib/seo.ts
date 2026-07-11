@@ -275,14 +275,39 @@ function hashString(input: string): number {
 }
 
 function translationSourceHash(payload: SeoPayload): string {
+  const schemas = (payload.schemas ?? []).map(stableTranslationSchemaValue);
   return hashString([
     payload.title,
     payload.description,
     payload.articleSection ?? "",
     ...(payload.articleTags ?? []),
-    payload.contentHtml ?? "",
-    JSON.stringify(payload.schemas ?? []),
+    stableTranslationHtml(payload.contentHtml ?? ""),
+    JSON.stringify(schemas),
   ].join("\n")).toString(16).padStart(8, "0");
+}
+
+function stableTranslationHtml(html: string): string {
+  return html
+    .replace(/\sdata-count="\d+"/g, "")
+    .replace(/<span>\d+\s+views<\/span>/gi, "")
+    .replace(/<span>\d+\s+replies<\/span>/gi, "")
+    .replace(/<span>updated\s+<time[^>]*>[\s\S]*?<\/time><\/span>/gi, "")
+    .replace(/<span>last reviewed\s+<time[^>]*>[\s\S]*?<\/time><\/span>/gi, "")
+    .replace(/<span>posted\s+<time[^>]*>[\s\S]*?<\/time><\/span>/gi, "")
+    .replace(/·\s*\d+\s+replies\s*·\s*\d+\s+views/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function stableTranslationSchemaValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableTranslationSchemaValue).filter((item) => item !== undefined);
+  if (!value || typeof value !== "object") return value;
+  const out: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    if (key === "dateModified" || key === "interactionStatistic" || key === "commentCount") continue;
+    out[key] = stableTranslationSchemaValue(item);
+  }
+  return out;
 }
 
 async function ensureTranslationSchema(db: D1Database): Promise<void> {
@@ -360,6 +385,27 @@ async function translationSiteBase(env: Bindings): Promise<string> {
 
 function translationJobId(locale: SupportedLocale, path: string, sourceHash: string): string {
   return `tr_${locale}_${hashString(`${locale}:${path}:${sourceHash}:${Date.now()}:${Math.random()}`).toString(16)}`;
+}
+
+function translationJobPathPrioritySql(pathColumn = "path"): string {
+  return `CASE
+    WHEN ${pathColumn} = '/' THEN 0
+    WHEN ${pathColumn} IN ('/members', '/tags', '/what-is-fstdesk', '/contact', '/about') THEN 1
+    WHEN ${pathColumn} LIKE '/t/%' THEN 2
+    WHEN ${pathColumn} LIKE '/c/%' THEN 3
+    WHEN ${pathColumn} LIKE '/tag/%' THEN 4
+    WHEN ${pathColumn} LIKE '/u/%' THEN 8
+    ELSE 9
+  END`;
+}
+
+function translationJobOrderSql(): string {
+  const priority = translationJobPathPrioritySql();
+  return [
+    `CASE WHEN source_hash = '${TRANSLATION_PENDING_SOURCE_HASH}' THEN 1 ELSE 0 END`,
+    priority,
+    `CASE WHEN source_hash = '${TRANSLATION_PENDING_SOURCE_HASH}' THEN updated_at ELSE -updated_at END ASC`,
+  ].join(", ");
 }
 
 function decodeHtmlText(input: string): string {
@@ -708,6 +754,7 @@ async function loadQueuedTranslationJobs(
     return rows.results ?? [];
   }
   if (opts.locale) {
+    const jobOrder = translationJobOrderSql();
     const rows = await env.DB.prepare(
       `SELECT id, locale, path, source_hash, status, attempts
        FROM translation_jobs
@@ -717,12 +764,14 @@ async function loadQueuedTranslationJobs(
            (status IN ('queued', 'error') AND (locked_until IS NULL OR locked_until < ?))
            OR (status = 'running' AND locked_until IS NOT NULL AND locked_until < ?)
          )
-       ORDER BY updated_at ASC
+       ORDER BY ${jobOrder}
        LIMIT ?`,
     ).bind(opts.locale, TRANSLATION_MAX_ATTEMPTS, now, now, limit).all<TranslationJobRow>();
     return rows.results ?? [];
   }
   const localeOrder = LOCALIZED_LOCALES.map((locale, index) => `WHEN '${locale}' THEN ${index}`).join(" ");
+  const pathPriority = translationJobPathPrioritySql();
+  const jobOrder = translationJobOrderSql();
   const pendingLocale = await env.DB.prepare(
     `SELECT locale
      FROM translation_jobs
@@ -732,7 +781,7 @@ async function loadQueuedTranslationJobs(
          OR (status = 'running' AND locked_until IS NOT NULL AND locked_until < ?)
        )
      GROUP BY locale
-     ORDER BY CASE locale ${localeOrder} ELSE 999 END
+     ORDER BY CASE locale ${localeOrder} ELSE 999 END, MIN(${pathPriority}), MIN(updated_at)
      LIMIT 1`,
   ).bind(TRANSLATION_MAX_ATTEMPTS, now, now).first<{ locale: string }>();
   if (!pendingLocale?.locale) return [];
@@ -745,7 +794,7 @@ async function loadQueuedTranslationJobs(
          (status IN ('queued', 'error') AND (locked_until IS NULL OR locked_until < ?))
          OR (status = 'running' AND locked_until IS NOT NULL AND locked_until < ?)
        )
-     ORDER BY updated_at ASC
+     ORDER BY ${jobOrder}
      LIMIT ?`,
   ).bind(pendingLocale.locale, TRANSLATION_MAX_ATTEMPTS, now, now, limit).all<TranslationJobRow>();
   return rows.results ?? [];
@@ -915,7 +964,7 @@ export async function translationPipelineStatus(env: Bindings) {
         finished_at AS finishedAt, locked_until AS lockedUntil
        FROM translation_jobs
        WHERE status = 'queued'
-       ORDER BY CASE locale ${localeOrder} ELSE 999 END, updated_at ASC
+       ORDER BY CASE locale ${localeOrder} ELSE 999 END, ${translationJobOrderSql()}
        LIMIT 24`,
     ).all<Record<string, unknown>>(),
   ]);
@@ -3171,6 +3220,105 @@ async function bootstrapForUrl(c: AppContext, url: URL): Promise<BootstrapBuild>
   return { categories, payload: { queries } };
 }
 
+function stripSiteTitleSuffix(title: string): string {
+  return title.replace(/\s+[—-]\s+FSTDESK\s*$/i, "").trim();
+}
+
+function htmlToForumText(html: string): string {
+  return decodeHtmlText(
+    html
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/p>/gi, "\n\n")
+      .replace(/<p[^>]*>/gi, "")
+      .replace(/<li[^>]*>/gi, "- ")
+      .replace(/<\/(?:li|div|section|article|h[1-6])>/gi, "\n")
+      .replace(/<a\s+[^>]*>([\s\S]*?)<\/a>/gi, "$1")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/[ \t]+\n/g, "\n")
+      .replace(/\n[ \t]+/g, "\n")
+      .replace(/[ \t]{2,}/g, " ")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim(),
+  );
+}
+
+function firstHtmlMatch(html: string, pattern: RegExp): string {
+  return pattern.exec(html)?.[1] ?? "";
+}
+
+function translatedThreadPieces(payload: SeoPayload): {
+  title: string;
+  content: string;
+  replies: Map<number, string>;
+} {
+  const html = payload.contentHtml ?? "";
+  const title = htmlToForumText(firstHtmlMatch(html, /<h1[^>]*id="seo-content-title"[^>]*>([\s\S]*?)<\/h1>/i)) || stripSiteTitleSuffix(payload.title);
+  const content = htmlToForumText(firstHtmlMatch(
+    html,
+    /<section[^>]*class="seo-content__post"[^>]*>[\s\S]*?<div class="seo-content__body">([\s\S]*?)<\/div>\s*<\/section>/i,
+  ));
+  const replies = new Map<number, string>();
+  const replyPattern = /<article[^>]*class="seo-content__comment"[^>]*id="post-(\d+)"[^>]*>[\s\S]*?<div class="seo-content__body">([\s\S]*?)<\/div>\s*<\/article>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = replyPattern.exec(html))) {
+    const id = Number(match[1]);
+    const text = htmlToForumText(match[2] ?? "");
+    if (Number.isFinite(id) && text) replies.set(id, text);
+  }
+  return { title, content, replies };
+}
+
+function localizeBootstrapForPayload(
+  bootstrap: BootstrapBuild,
+  payload: SeoPayload,
+  locale: SupportedLocale,
+  contentPathname: string,
+): BootstrapBuild {
+  if (locale === "en" || payload.localized?.translated !== true) return bootstrap;
+  const parts = safeDecodePathParts(contentPathname);
+  if (parts[0] !== "t" || !parts[1]) return bootstrap;
+  const pieces = translatedThreadPieces(payload);
+  if (!pieces.title && !pieces.content && pieces.replies.size === 0) return bootstrap;
+
+  const queries = bootstrap.payload.queries.map((query) => {
+    const key = Array.isArray(query.key) ? query.key : [];
+    if (key[0] === "thread" && String(key[1]) === parts[1] && query.data && typeof query.data === "object") {
+      const thread = query.data as Record<string, any>;
+      return {
+        ...query,
+        data: {
+          ...thread,
+          title: pieces.title || thread.title,
+          content: pieces.content || thread.content,
+          category: thread.category && payload.articleSection
+            ? { ...thread.category, name: payload.articleSection }
+            : thread.category,
+          tags: Array.isArray(thread.tags) && payload.articleTags?.length
+            ? thread.tags.map((tag: Record<string, any>, index: number) => ({ ...tag, name: payload.articleTags?.[index] ?? tag.name }))
+            : thread.tags,
+        },
+      };
+    }
+    if (key[0] === "posts" && query.data && typeof query.data === "object") {
+      const postsData = query.data as Record<string, any>;
+      if (!Array.isArray(postsData.posts)) return query;
+      return {
+        ...query,
+        data: {
+          ...postsData,
+          posts: postsData.posts.map((post: Record<string, any>) => {
+            const translated = pieces.replies.get(Number(post.id));
+            return translated ? { ...post, content: translated } : post;
+          }),
+        },
+      };
+    }
+    return query;
+  });
+
+  return { ...bootstrap, payload: { queries } };
+}
+
 function staticSidebarHtml(pathname: string, categories: ApiCategory[], locale: SupportedLocale): string {
   const nav = [
     { href: "/", label: "threads", exact: true },
@@ -3378,7 +3526,8 @@ export async function renderSeoHtml(c: AppContext): Promise<Response> {
       localeInfo.locale,
       contentUrl.pathname,
     );
-    const html = injectHtml(await assetResponse.text(), payload, base, url, contentUrl.pathname, bootstrap, localeInfo.locale);
+    const localizedBootstrap = localizeBootstrapForPayload(bootstrap, payload, localeInfo.locale, contentUrl.pathname);
+    const html = injectHtml(await assetResponse.text(), payload, base, url, contentUrl.pathname, localizedBootstrap, localeInfo.locale);
     const headers = new Headers(assetResponse.headers);
     const metaLocale = effectiveMetaLocale(payload, localeInfo.locale);
     const localeReady = isPayloadReadyForLocale(payload, localeInfo.locale);
