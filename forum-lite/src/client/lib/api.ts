@@ -758,11 +758,14 @@ export const api = {
     model: string;
     batchLimit: number;
     queueBinding: boolean;
+    recoveredStale: number;
     locales: Array<{ locale: string; label: string; complete: number }>;
     byLocale: Array<{ locale: string; label: string; queued: number; running: number; complete: number; error: number; translated: number }>;
     jobs: { queued: number; running: number; complete: number; error: number };
     errors: Array<{ locale: string; path: string; error: string; updatedAt: number }>;
     recentJobs: Array<{ locale: string; path: string; status: string; attempts: number; error: string | null; createdAt: number; updatedAt: number; finishedAt: number | null }>;
+    runningJobs: Array<{ locale: string; path: string; status: string; attempts: number; error: string | null; createdAt: number; updatedAt: number; finishedAt: number | null; lockedUntil: number | null }>;
+    nextJobs: Array<{ locale: string; path: string; status: string; attempts: number; error: string | null; createdAt: number; updatedAt: number; finishedAt: number | null; lockedUntil: number | null }>;
   }>("/admin/translations"),
   adminQueueTranslations: (b: { locale?: string; limit?: number } = {}) =>
     req<{ ok: boolean; queued: number; skipped: number; total: number; started?: boolean; reason?: string }>("/admin/translations/queue", {
@@ -771,7 +774,7 @@ export const api = {
       timeoutMs: 30_000,
     }),
   adminProcessTranslations: (b: { locale?: string; path?: string; limit?: number } = {}) =>
-    req<{ ok: boolean; processed: number; complete: number; error: number; started?: boolean; reason?: string }>("/admin/translations/process", {
+    req<{ ok: boolean; processed: number; complete: number; error: number; started?: boolean; queuedProcessor?: boolean; reason?: string }>("/admin/translations/process", {
       method: "POST",
       body: JSON.stringify({ ...b, background: true }),
       timeoutMs: 30_000,

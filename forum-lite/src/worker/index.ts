@@ -15,7 +15,7 @@ import contactRoutes from "./routes/contact";
 import anchorRoutes from "./routes/anchors";
 import { schema, getDb } from "./db";
 import type { Bindings, Variables } from "./types";
-import { renderSeoHtml } from "./lib/seo";
+import { hasPendingTranslationJobs, processTranslationJobs, renderSeoHtml } from "./lib/seo";
 import { serveDefaultWebp, serveThreadWebp } from "./lib/og";
 import { legacyCanonicalRedirect } from "./lib/legacy-redirects";
 import { parseBounceEmail } from "./lib/bounce";
@@ -1093,10 +1093,27 @@ async function handleScheduled(_controller: ScheduledController, env: Bindings, 
   ctx.waitUntil(processMarketingJobs(env, ctx));
 }
 
-async function handleQueue(batch: MessageBatch<{ jobId?: string; locale?: string; path?: string }>, env: Bindings, ctx: ExecutionContext): Promise<void> {
+async function handleQueue(batch: MessageBatch<{ action?: "process"; jobId?: string; locale?: string; path?: string; limit?: number }>, env: Bindings, ctx: ExecutionContext): Promise<void> {
   if (batch.queue.includes("translation")) {
     for (const message of batch.messages) {
-      message.ack();
+      if (message.body?.action !== "process") {
+        message.ack();
+        continue;
+      }
+      const jobId = typeof message.body.jobId === "string" ? message.body.jobId : undefined;
+      const locale = typeof message.body.locale === "string" ? message.body.locale : undefined;
+      const path = typeof message.body.path === "string" ? message.body.path : undefined;
+      const limit = Math.max(1, Math.min(25, Number(message.body.limit || 4) || 4));
+      try {
+        await processTranslationJobs(env, ctx, { jobId, locale, path, limit });
+        if (env.TRANSLATION_QUEUE && await hasPendingTranslationJobs(env, { jobId, locale, path })) {
+          await env.TRANSLATION_QUEUE.send({ action: "process", jobId, locale, path, limit });
+        }
+        message.ack();
+      } catch (error) {
+        console.warn("translation_queue_processor_failed", locale ?? jobId ?? "global", error instanceof Error ? error.message : String(error));
+        message.retry({ delaySeconds: 60 });
+      }
     }
     return;
   }

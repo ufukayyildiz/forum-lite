@@ -15,7 +15,7 @@ import { classificationForPreflight, preflightEmail, type EmailPreflightResult }
 import { isEmailSuppressed, normalizeEmailAddress, recordEmailSuppression } from "../lib/email-suppression";
 import { syncCloudflareEmailSuppressions } from "../lib/email-sync";
 import { assertReachableHttpsUrl, assertValidBioLinks } from "../lib/profile-links";
-import { processTranslationJobs, queueMissingTranslations, translationPipelineStatus } from "../lib/seo";
+import { enqueueTranslationProcessor, processTranslationJobs, queueMissingTranslations, translationPipelineStatus } from "../lib/seo";
 
 const app = new Hono<AppEnv>();
 const WE_ARE_BACK_CAMPAIGN = "we-are-back";
@@ -2770,12 +2770,8 @@ app.post("/translations/process", zValidator("json", z.object({
 }).default({})), async (c) => {
   const body = c.req.valid("json");
   if (body.background) {
-    c.executionCtx.waitUntil(
-      processTranslationJobs(c.env, c.executionCtx, body).catch((error) => {
-        console.warn("admin_translation_process_background_failed", error instanceof Error ? error.message : String(error));
-      }),
-    );
-    return c.json({ ok: true, started: true, processed: 0, complete: 0, error: 0 }, 202);
+    const result = await enqueueTranslationProcessor(c.env, c.executionCtx, body);
+    return c.json({ ...result, processed: 0, complete: 0, error: 0 }, result.ok ? 202 : 409);
   }
   const result = await processTranslationJobs(c.env, c.executionCtx, body);
   return c.json(result, result.ok ? 200 : 409);

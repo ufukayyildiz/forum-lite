@@ -8,7 +8,7 @@ export type Bindings = {
   ASSETS: Fetcher;
   SEND_EMAIL: SendEmail;
   MARKETING_QUEUE?: Queue<{ jobId: string }>;
-  TRANSLATION_QUEUE?: Queue<{ jobId?: string; locale?: string; path?: string }>;
+  TRANSLATION_QUEUE?: Queue<{ action?: "process"; jobId?: string; locale?: string; path?: string; limit?: number }>;
   ADMIN_EMAIL?: string;
   SITE_URL?: string;
   TRANSLATION_API_KEY?: string;

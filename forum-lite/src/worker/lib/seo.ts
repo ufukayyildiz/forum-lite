@@ -125,7 +125,7 @@ const TRANSLATION_QUEUE_MAX_PATH_LIMIT = 20000;
 const TRANSLATION_PENDING_SOURCE_HASH = "pending";
 const TRANSLATION_STATIC_PATHS = ["/", "/members", "/tags", "/what-is-fstdesk", "/contact", "/about"];
 
-type TranslationJobMessage = { jobId?: string; locale?: string; path?: string };
+type TranslationJobMessage = { action?: "process"; jobId?: string; locale?: string; path?: string; limit?: number };
 
 type TranslationSettings = {
   enabled: boolean;
@@ -157,6 +157,18 @@ type TranslationJobRow = {
   source_hash: string;
   status: string;
   attempts: number;
+};
+
+type TranslationJobStatusRow = {
+  locale: string;
+  path: string;
+  status: string;
+  attempts: number;
+  error: string | null;
+  createdAt: number;
+  updatedAt: number;
+  finishedAt: number | null;
+  lockedUntil: number | null;
 };
 
 let translationSchemaReady = false;
@@ -739,12 +751,38 @@ async function loadQueuedTranslationJobs(
   return rows.results ?? [];
 }
 
+async function recoverStaleRunningTranslationJobs(env: Bindings): Promise<number> {
+  const now = nowSeconds();
+  const requeued = await env.DB.prepare(
+    `UPDATE translation_jobs
+     SET status = 'queued',
+       locked_until = NULL,
+       error_message = NULL,
+       updated_at = ?
+     WHERE status = 'running'
+       AND attempts < ?
+       AND (locked_until IS NULL OR locked_until < ?)`,
+  ).bind(now, TRANSLATION_MAX_ATTEMPTS, now).run();
+  const failed = await env.DB.prepare(
+    `UPDATE translation_jobs
+     SET status = 'error',
+       locked_until = NULL,
+       error_message = 'translation job timed out after lock expired',
+       updated_at = ?
+     WHERE status = 'running'
+       AND attempts >= ?
+       AND (locked_until IS NULL OR locked_until < ?)`,
+  ).bind(now, TRANSLATION_MAX_ATTEMPTS, now).run();
+  return d1Changes(requeued) + d1Changes(failed);
+}
+
 export async function processTranslationJobs(
   env: Bindings,
   ctx?: ExecutionContext,
   opts: { jobId?: string; locale?: string; path?: string; limit?: number } = {},
 ) {
   await ensureTranslationSchema(env.DB);
+  await recoverStaleRunningTranslationJobs(env);
   const settings = await translationSettings(env);
   if (!settings.configured) return { ok: false, processed: 0, complete: 0, error: 0, reason: "translation provider is not configured" };
 
@@ -805,10 +843,49 @@ export async function processTranslationJobs(
   return { ok: error === 0, processed: jobs.length, complete, error };
 }
 
+export async function hasPendingTranslationJobs(
+  env: Bindings,
+  opts: { jobId?: string; locale?: string; path?: string; limit?: number } = {},
+): Promise<boolean> {
+  await ensureTranslationSchema(env.DB);
+  await recoverStaleRunningTranslationJobs(env);
+  const jobs = await loadQueuedTranslationJobs(env, { ...opts, limit: 1 });
+  return jobs.length > 0;
+}
+
+export async function enqueueTranslationProcessor(
+  env: Bindings,
+  ctx: ExecutionContext,
+  opts: { jobId?: string; locale?: string; path?: string; limit?: number } = {},
+) {
+  await ensureTranslationSchema(env.DB);
+  await recoverStaleRunningTranslationJobs(env);
+  const settings = await translationSettings(env);
+  if (!settings.configured) return { ok: false, started: false, reason: "translation provider is not configured" };
+  const limit = Math.max(1, Math.min(25, Number(opts.limit || settings.batchLimit) || settings.batchLimit));
+  const message: TranslationJobMessage = {
+    action: "process",
+    ...(opts.jobId ? { jobId: opts.jobId } : {}),
+    ...(opts.locale ? { locale: opts.locale } : {}),
+    ...(opts.path ? { path: opts.path } : {}),
+    limit,
+  };
+  if (env.TRANSLATION_QUEUE) {
+    await env.TRANSLATION_QUEUE.send(message);
+    return { ok: true, started: true, queuedProcessor: true };
+  }
+  ctx.waitUntil(processTranslationJobs(env, ctx, message).catch((error) => {
+    console.warn("translation_waituntil_process_failed", error instanceof Error ? error.message : String(error));
+  }));
+  return { ok: true, started: true, queuedProcessor: false };
+}
+
 export async function translationPipelineStatus(env: Bindings) {
   await ensureTranslationSchema(env.DB);
+  const recoveredStale = await recoverStaleRunningTranslationJobs(env);
   const settings = await translationSettings(env);
-  const [jobs, translations, recentErrors, jobsByLocale, recentJobs] = await Promise.all([
+  const localeOrder = LOCALIZED_LOCALES.map((locale, index) => `WHEN '${locale}' THEN ${index}`).join(" ");
+  const [jobs, translations, recentErrors, jobsByLocale, recentJobs, runningJobs, nextJobs] = await Promise.all([
     env.DB.prepare("SELECT status, COUNT(*) AS count FROM translation_jobs GROUP BY status").all<Record<string, unknown>>(),
     env.DB.prepare("SELECT locale, COUNT(*) AS count FROM content_translations WHERE status = 'complete' GROUP BY locale").all<Record<string, unknown>>(),
     env.DB.prepare(
@@ -823,6 +900,22 @@ export async function translationPipelineStatus(env: Bindings) {
       `SELECT locale, path, status, attempts, error_message AS error, created_at AS createdAt, updated_at AS updatedAt, finished_at AS finishedAt
        FROM translation_jobs
        ORDER BY updated_at DESC
+       LIMIT 24`,
+    ).all<Record<string, unknown>>(),
+    env.DB.prepare(
+      `SELECT locale, path, status, attempts, error_message AS error, created_at AS createdAt, updated_at AS updatedAt,
+        finished_at AS finishedAt, locked_until AS lockedUntil
+       FROM translation_jobs
+       WHERE status = 'running'
+       ORDER BY updated_at DESC
+       LIMIT 12`,
+    ).all<Record<string, unknown>>(),
+    env.DB.prepare(
+      `SELECT locale, path, status, attempts, error_message AS error, created_at AS createdAt, updated_at AS updatedAt,
+        finished_at AS finishedAt, locked_until AS lockedUntil
+       FROM translation_jobs
+       WHERE status = 'queued'
+       ORDER BY CASE locale ${localeOrder} ELSE 999 END, updated_at ASC
        LIMIT 24`,
     ).all<Record<string, unknown>>(),
   ]);
@@ -853,6 +946,7 @@ export async function translationPipelineStatus(env: Bindings) {
     model: settings.model,
     batchLimit: settings.batchLimit,
     queueBinding: Boolean(env.TRANSLATION_QUEUE),
+    recoveredStale,
     locales: LOCALIZED_LOCALES.map((locale) => ({
       locale,
       label: LOCALE_DETAILS[locale].label,
@@ -881,7 +975,23 @@ export async function translationPipelineStatus(env: Bindings) {
       updatedAt: Number(row.updatedAt ?? 0),
       finishedAt: row.finishedAt == null ? null : Number(row.finishedAt),
     })),
+    runningJobs: mapTranslationJobStatusRows(runningJobs.results ?? []),
+    nextJobs: mapTranslationJobStatusRows(nextJobs.results ?? []),
   };
+}
+
+function mapTranslationJobStatusRows(rows: Record<string, unknown>[]): TranslationJobStatusRow[] {
+  return rows.map((row) => ({
+    locale: String(row.locale ?? ""),
+    path: String(row.path ?? ""),
+    status: String(row.status ?? ""),
+    attempts: Number(row.attempts ?? 0),
+    error: row.error == null ? null : String(row.error),
+    createdAt: Number(row.createdAt ?? 0),
+    updatedAt: Number(row.updatedAt ?? 0),
+    finishedAt: row.finishedAt == null ? null : Number(row.finishedAt),
+    lockedUntil: row.lockedUntil == null ? null : Number(row.lockedUntil),
+  }));
 }
 
 async function candidateTranslationPaths(env: Bindings, limit: number): Promise<string[]> {

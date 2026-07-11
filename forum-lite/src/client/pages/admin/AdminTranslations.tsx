@@ -24,6 +24,15 @@ function shortTime(value: number | null | undefined) {
   return `${Math.floor(hours / 24)}d`;
 }
 
+function timeUntil(value: number | null | undefined) {
+  if (!value) return "-";
+  const seconds = Math.floor(value - Date.now() / 1000);
+  if (seconds <= 0) return "expired";
+  if (seconds < 60) return `${seconds}s left`;
+  const minutes = Math.ceil(seconds / 60);
+  return `${minutes}m left`;
+}
+
 export default function AdminTranslations() {
   const qc = useQueryClient();
   const { data: settings, isLoading: settingsLoading } = useQuery({ queryKey: ["admin-settings"], queryFn: api.adminSettings });
@@ -34,6 +43,7 @@ export default function AdminTranslations() {
   });
   const [form, setForm] = useState<Record<string, string>>({});
   const [queueStarted, setQueueStarted] = useState(false);
+  const [processStarted, setProcessStarted] = useState(false);
 
   useEffect(() => {
     if (settings) setForm(settings);
@@ -69,8 +79,10 @@ export default function AdminTranslations() {
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["admin-translations"] });
       if (res.started) {
-        toast.success("Translation processing started");
+        setProcessStarted(true);
+        toast.success(res.queuedProcessor ? "Translation processor queued" : "Translation processing started");
         globalThis.setTimeout(() => qc.invalidateQueries({ queryKey: ["admin-translations"] }), 3000);
+        globalThis.setTimeout(() => setProcessStarted(false), 12000);
         return;
       }
       toast.success(`Processed ${res.processed}: ${res.complete} complete, ${res.error} error`);
@@ -81,13 +93,17 @@ export default function AdminTranslations() {
   const queuedJobs = status?.jobs.queued ?? 0;
   const runningJobs = status?.jobs.running ?? 0;
   const queueReady = queuedJobs > 0;
-  const processDisabled = processTranslationsDisabled(status, processTranslations.isPending, queueTranslations.isPending, save.isPending, queueStarted);
-  const processHint = processHintText(status, queueStarted);
+  const processDisabled = processTranslationsDisabled(status, processTranslations.isPending, queueTranslations.isPending, save.isPending, queueStarted, processStarted);
+  const processHint = processHintText(status, queueStarted, processStarted);
   const isLoading = settingsLoading || statusLoading;
 
   useEffect(() => {
     if (queueStarted && (queuedJobs > 0 || runningJobs > 0)) setQueueStarted(false);
   }, [queueStarted, queuedJobs, runningJobs]);
+
+  useEffect(() => {
+    if (processStarted && runningJobs > 0) setProcessStarted(false);
+  }, [processStarted, runningJobs]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 980 }}>
@@ -121,11 +137,20 @@ export default function AdminTranslations() {
               queue started; waiting until jobs appear in queued/running counts...
             </div>
           )}
+          {status.recoveredStale > 0 && (
+            <div style={{ color: "var(--gb-yellow)", fontSize: 11 }}>
+              recovered stale running jobs: {status.recoveredStale}
+            </div>
+          )}
           {status.errors.length > 0 && (
             <div style={{ color: "var(--gb-red)", fontSize: 11, lineHeight: 1.5 }}>
               {status.errors.slice(0, 5).map((row) => `${row.locale} ${row.path}: ${row.error}`).join(" | ")}
             </div>
           )}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 10 }}>
+            <TranslationJobPanel title="$ running now" jobs={status.runningJobs} empty="no running translation job" showLock />
+            <TranslationJobPanel title="$ next queued" jobs={status.nextJobs.slice(0, 8)} empty="queue is empty" />
+          </div>
           <table className="gb-table" style={{ marginTop: 2 }}>
             <thead>
               <tr>
@@ -163,7 +188,7 @@ export default function AdminTranslations() {
                         className="gb-btn"
                         style={{ padding: "3px 8px" }}
                         onClick={() => processTranslations.mutate(row.locale)}
-                        disabled={processTranslations.isPending || queueTranslations.isPending || save.isPending || !status.enabled || !status.configured || status.jobs.running > 0 || row.queued <= 0}
+                        disabled={processStarted || processTranslations.isPending || queueTranslations.isPending || save.isPending || !status.enabled || !status.configured || status.jobs.running > 0 || row.queued <= 0}
                       >
                         {row.running > 0 ? "$ running" : "$ process"}
                       </button>
@@ -263,24 +288,62 @@ export default function AdminTranslations() {
   );
 }
 
+function TranslationJobPanel({
+  title,
+  jobs,
+  empty,
+  showLock = false,
+}: {
+  title: string;
+  jobs: Array<{ locale: string; path: string; attempts: number; updatedAt: number; lockedUntil: number | null }>;
+  empty: string;
+  showLock?: boolean;
+}) {
+  return (
+    <div style={{ border: "1px solid var(--gb-bg2)", padding: 8 }}>
+      <div style={{ color: "var(--gb-gray)", fontSize: 11, marginBottom: 6 }}>{title}</div>
+      {jobs.length > 0 ? (
+        <table className="gb-table">
+          <tbody>
+            {jobs.map((job) => (
+              <tr key={`${title}-${job.locale}-${job.path}-${job.updatedAt}`}>
+                <td style={{ width: 42, color: "var(--gb-yellow)", fontWeight: 700 }}>{job.locale}</td>
+                <td style={{ maxWidth: 190, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{job.path}</td>
+                <td style={{ width: 58, color: "var(--gb-gray)" }}>try {job.attempts}</td>
+                <td style={{ width: showLock ? 120 : 70, color: showLock ? "var(--gb-blue)" : "var(--gb-gray)" }}>
+                  {showLock ? `${shortTime(job.updatedAt)} / ${timeUntil(job.lockedUntil)}` : shortTime(job.updatedAt)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <div style={{ color: "var(--gb-gray)", fontSize: 12 }}>{empty}</div>
+      )}
+    </div>
+  );
+}
+
 function processTranslationsDisabled(
   status: Awaited<ReturnType<typeof api.adminTranslations>> | undefined,
   processPending: boolean,
   queuePending: boolean,
   savePending: boolean,
   queueStarted: boolean,
+  processStarted: boolean,
 ) {
-  if (processPending || queuePending || savePending || queueStarted) return true;
+  if (processPending || queuePending || savePending || queueStarted || processStarted) return true;
   if (!status?.enabled || !status.configured) return true;
   if (status.jobs.running > 0) return true;
   if (status.jobs.queued <= 0) return true;
   return false;
 }
 
-function processHintText(status: Awaited<ReturnType<typeof api.adminTranslations>> | undefined, queueStarted: boolean) {
+function processHintText(status: Awaited<ReturnType<typeof api.adminTranslations>> | undefined, queueStarted: boolean, processStarted: boolean) {
   if (!status) return "loading translation status";
   if (!status.enabled) return "translation disabled";
   if (!status.configured) return "missing TRANSLATION_API_KEY";
+  if (processStarted) return "processor queued; waiting for running job";
   if (status.jobs.queued > 0 && status.jobs.running > 0) return `${status.jobs.running} running; wait before next process`;
   if (status.jobs.queued > 0) return `${status.jobs.queued} queued jobs ready; process now is safe`;
   if (status.jobs.running > 0) return `${status.jobs.running} jobs already running`;
