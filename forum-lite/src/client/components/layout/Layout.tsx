@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useLocation, Link, useNavigate } from "react-router-dom";
+import { useLocation, Link } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../lib/api";
@@ -21,14 +21,19 @@ const LANGUAGE_OPTIONS: SupportedLocale[] = ["en", ...LOCALIZED_LOCALES];
 
 function LanguageSelector() {
   const location = useLocation();
-  const navigate = useNavigate();
   const parsed = parseLocalePath(location.pathname);
   const canLocalize = shouldLocalizePath(parsed.path);
   const current = canLocalize ? parsed.locale : "en";
 
   const changeLanguage = (locale: SupportedLocale) => {
     if (!canLocalize) return;
-    navigate(localizePath(`${parsed.path}${location.search}${location.hash}`, locale));
+    const target = localizePath(`${parsed.path}${location.search}${location.hash}`, locale);
+    if (target === `${location.pathname}${location.search}${location.hash}`) return;
+
+    // Localized content is supplied by the Worker's SSR bootstrap. A document
+    // navigation swaps that bootstrap immediately instead of retaining the
+    // previous locale's React Query cache during an in-app route transition.
+    window.location.assign(target);
   };
 
   return (
