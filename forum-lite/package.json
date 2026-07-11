@@ -37,8 +37,8 @@
     "esbuild": "^0.25.0"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "^1.40.0",
-    "@cloudflare/workers-types": "^4.20241218.0",
+    "@cloudflare/vite-plugin": "1.42.2",
+    "@cloudflare/workers-types": "4.20260624.1",
     "@radix-ui/react-alert-dialog": "^1.1.4",
     "@radix-ui/react-avatar": "^1.1.2",
     "@radix-ui/react-dialog": "^1.1.16",
@@ -76,6 +76,6 @@
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vite": "^6.4.3",
-    "wrangler": "^4.98.0"
+    "wrangler": "4.104.0"
   }
 }

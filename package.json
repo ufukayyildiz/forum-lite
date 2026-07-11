@@ -4,7 +4,7 @@
   "private": true,
   "license": "MIT",
   "scripts": {
-    "install:app": "npm --prefix forum-lite install",
+    "install:app": "npm --prefix forum-lite ci --include=dev",
     "dev": "npm --prefix forum-lite run dev",
     "build": "npm run install:app && npm --prefix forum-lite run build && node scripts/prepare-cloudflare-root-deploy.mjs",
     "preview": "npm --prefix forum-lite run preview",

@@ -18,7 +18,7 @@ forum-lite/wrangler.local.jsonc
 
 # Local/generated files
 package-lock.json
-forum-lite/package-lock.json
+!forum-lite/package-lock.json
 *.local
 tmp/
 coverage/
